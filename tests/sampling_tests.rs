@@ -10,7 +10,7 @@ use rustree::sampling::remove_node;
 #[test]
 fn test_remove_node() {
     // Read the Newick string from the test file
-    let newick_path = PathBuf::from("/home/enzo/Documents/git/rustree/src/test_tree.nwk");
+    let newick_path = PathBuf::from("tests/test_tree.nwk");
     let newick_str = fs::read_to_string(newick_path).expect("Failed to read Newick file");
 
     // Parse the Newick string into a Node tree
@@ -36,7 +36,7 @@ fn test_remove_node() {
     println!("Resulting Newick string: {}", newick_result);
 
     // Now read expected tree from test_tree_F.nwk and compare Nodes
-    let expected_path = PathBuf::from("/home/enzo/Documents/git/rustree/src/test_tree_F.nwk");
+    let expected_path = PathBuf::from("tests/test_tree_F.nwk");
     let expected_newick = fs::read_to_string(expected_path)
                            .expect("Failed to read expected Newick file");
     let mut expected_pairs = NewickParser::parse(Rule::newick, &expected_newick)

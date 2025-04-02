@@ -8,7 +8,7 @@ use rustree::node::compare_nodes;
 #[test]
 fn test_extract_extant() {
     // Paths: using an existing species tree file and a temporary output directory.
-    let species_tree = "./src/test_tree_2.nwk";
+    let species_tree = "./tests/test_tree_2.nwk";
     let output_dir = "./tests/temp_output";
     
     // Clean and create the output directory.
@@ -45,7 +45,7 @@ fn test_extract_extant() {
     };
 
     // Read and convert the expected tree from test_tree_2_F.nwk.
-    let expected_path = PathBuf::from("./src/test_tree_2_F.nwk");
+    let expected_path = PathBuf::from("./tests/test_tree_2_F.nwk");
     let expected_str = fs::read_to_string(&expected_path)
                          .expect("Failed to read expected Newick file");
     let expected_tree = {

@@ -44,7 +44,6 @@ pub fn remove_node(
         flat_tree.root = sister_index;
     }
 }
-
 pub fn spr(
     flat_tree: &mut FlatTree,
     donor: usize,

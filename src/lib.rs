@@ -11,6 +11,7 @@ pub mod sampling; // added sampling functions
 pub mod extract_extant; // re-export the new module
 pub mod surgery; // added surgery functions
 pub mod comparison; // added comparison functions
+pub mod debug; // added debug functions
 
 // Re-export key functions for easier access:
 pub use newick::newick::{newick_to_tree, handle_pair, node_to_newick};

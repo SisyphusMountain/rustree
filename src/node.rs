@@ -403,3 +403,45 @@ pub fn compare_nodes(n1: &Node, n2: &Node) -> bool {
         _ => true // for trees with more than 2 children (unexpected)
     }
 }
+
+pub fn compare_nodes_topology(n1: &Node, n2: &Node) -> bool {
+    if n1.name != n2.name { return false; }
+
+    // Collect non-None children for each node.
+    let mut children1 = Vec::new();
+    if let Some(child) = &n1.left_child { children1.push(child); }
+    if let Some(child) = &n1.right_child { children1.push(child); }
+
+    let mut children2 = Vec::new();
+    if let Some(child) = &n2.left_child { children2.push(child); }
+    if let Some(child) = &n2.right_child { children2.push(child); }
+
+    if children1.len() != children2.len() {
+        return false;
+    }
+
+    match children1.len() {
+        0 => true,
+        1 => compare_nodes_topology(children1[0], children2[0]),
+        2 => {
+            (compare_nodes_topology(children1[0], children2[0]) && compare_nodes_topology(children1[1], children2[1]))
+            || (compare_nodes_topology(children1[0], children2[1]) && compare_nodes_topology(children1[1], children2[0]))
+        },
+        _ => {
+            // For more than 2 children, compare without relying on order.
+            let mut matched = vec![false; children2.len()];
+            for child1 in &children1 {
+                let mut found = false;
+                for (i, child2) in children2.iter().enumerate() {
+                    if !matched[i] && compare_nodes_topology(child1, child2) {
+                        matched[i] = true;
+                        found = true;
+                        break;
+                    }
+                }
+                if !found { return false; }
+            }
+            true
+        }
+    }
+}

@@ -10,9 +10,13 @@ pest_derive = "2.7.4"
 rand = "0.8.5"
 regex = "1.7"
 csv = "1.3.0"
+prettytable-rs = "0.10.0"
+lazy_static = "1.4"
+
 [dev-dependencies]
 rand = "0.8"
 pest = "2.1"
+
 
 [[test]]
 name = "sampling_tests"

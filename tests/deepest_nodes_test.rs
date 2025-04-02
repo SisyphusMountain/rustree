@@ -51,7 +51,7 @@ fn test_find_deepest_nodes() {
 #[test]
 fn test_find_deepest_nodes_from_file() {
     // Read the Newick string from test_tree.nwk.
-    let tree_path = PathBuf::from("src/test_tree.nwk");
+    let tree_path = PathBuf::from("tests/test_tree.nwk");
     let newick_str = fs::read_to_string(&tree_path)
         .expect("Failed to read test_tree.nwk")
         .trim()
