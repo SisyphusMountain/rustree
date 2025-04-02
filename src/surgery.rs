@@ -1,6 +1,6 @@
 use crate::node::FlatTree;
 
-
+/// spr moves for ROOTED trees. Otherwise, another kind of SPR move exists.
 pub fn spr_topology(
     flat_tree: &mut FlatTree,
     donor: usize,
