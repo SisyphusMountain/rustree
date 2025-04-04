@@ -104,7 +104,7 @@ impl FlatTree {
             }
         }
     }
-    pub fn make_subdivision(&mut self) -> Vec<f64> {
+    pub fn make_subdivision(&self) -> Vec<f64> {
         /* 
         Makes the time subdivision corresponding to all the times of nodes in the tree.
         ----------------------------------    
@@ -121,7 +121,7 @@ impl FlatTree {
         depths.dedup();
         return depths;
     }
-    pub fn make_intervals(&mut self) -> Vec<f64> {
+    pub fn make_intervals(&self) -> Vec<f64> {
         /*
         Makes the vector of time intervals, necessary for computing the contemporaneities between all species in the tree.
         ----------------------------------
