@@ -14,5 +14,3 @@ pub fn find_deepest_nodes(flat_tree: &FlatTree, nb_leaves: usize) -> Vec<usize> 
     leaves_with_depths.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     leaves_with_depths.iter().take(nb_leaves).map(|(i, _)| *i).collect()
 }
-
-// ...other functions if needed...

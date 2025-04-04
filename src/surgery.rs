@@ -6,6 +6,11 @@ pub fn spr_topology(
     donor: usize,
     recipient: usize,
 ) -> () {
+    // Early return if the receiver is one of the childs of the donor: we get the same tree.
+    if flat_tree[donor].left_child == Some(recipient) || flat_tree[donor].right_child == Some(recipient) {
+        return;
+    }
+
     // Get initial state
     let donor_parent = flat_tree[donor]
         .parent
