@@ -26,11 +26,13 @@ pub fn spr_topology(
     };
 
 
-    // First case: check if the donor and receiver are the children of the root
-    if flat_tree[donor_parent].parent.is_none() && flat_tree[recipient_parent].parent.is_none() {
-        // There are no changes in the topology of the tree
-        // don't do anything
-        return;
+    // First case: check if the donor and receiver are siblings
+    if let (Some(left), Some(right)) = (flat_tree[donor_parent].left_child, flat_tree[donor_parent].right_child) {
+        if (left == donor && right == recipient) || (left == recipient && right == donor) {
+            // There are no changes in the topology of the tree
+            // don't do anything
+            return;
+        }
     }
     // Check if recipient's parent is the root
     else if flat_tree[recipient_parent].parent.is_none() {
