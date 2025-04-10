@@ -90,4 +90,3 @@ fn test_spr_4_to_5() {
     // For donor "4" and receiver "5", expected topology is in 4_to_5.nwk.
     run_spr_test("4", "5", "4_to_5.nwk");
 }
-

@@ -1,6 +1,7 @@
 // rustree/src/node.rs
 
 use std::ops::{Index, IndexMut};
+use std::fmt;
 #[derive(Clone, Debug)]
 pub struct FlatNode {
     pub name: String,
@@ -38,7 +39,27 @@ impl<'a> HasName for &'a FlatNode {
     }
 }
 
+// --- Keep existing error enum ---
+#[derive(Debug)]
+pub enum SprError {
+    NodeNotFound(String),
+    InvalidDonor(String),
+    InvalidRecipient(String),
+    InvalidMove(String),
+    TreeError(String), // For internal consistency issues
+}
 
+impl fmt::Display for SprError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SprError::NodeNotFound(name) => write!(f, "Node not found: {}", name),
+            SprError::InvalidDonor(msg) => write!(f, "Invalid donor node: {}", msg),
+            SprError::InvalidRecipient(msg) => write!(f, "Invalid recipient node: {}", msg),
+            SprError::InvalidMove(msg) => write!(f, "Invalid SPR move: {}", msg),
+            SprError::TreeError(msg) => write!(f, "Tree integrity error: {}", msg),
+        }
+    }
+}impl std::error::Error for SprError {}
 
 
 pub enum TraversalOrder {
@@ -248,7 +269,9 @@ impl FlatTree {
     pub fn to_node(&self) -> Node {
         self.flat_to_node_internal(self.root)
     }
-
+    pub fn find_node_index(&self, name: &str) -> Option<usize> {
+        self.nodes.iter().position(|n| n.name == name)
+    }
     /// Internal helper method for converting flat nodes to a `Node`.
     ///
     /// # Arguments
@@ -278,6 +301,305 @@ impl FlatTree {
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
+
+    pub fn is_ancestor(&self, potential_ancestor_idx: usize, node_idx: usize) -> bool {
+        // Check if indices are valid first
+        if potential_ancestor_idx >= self.nodes.len() || node_idx >= self.nodes.len() {
+            return false; // Or consider returning an error/panic depending on desired strictness
+        }
+        // A node is not its own ancestor in the context of SPR movement checks
+        if potential_ancestor_idx == node_idx {
+            return false;
+        }
+
+        let mut current_idx_opt = self.nodes[node_idx].parent;
+        while let Some(current_idx) = current_idx_opt {
+            if current_idx == potential_ancestor_idx {
+                return true;
+            }
+            // Basic cycle check / prevent infinite loop if root's parent is not None
+             if current_idx == self.root && self.nodes[self.root].parent.is_some() {
+                 eprintln!("Warning: Root node {} has an unexpected parent during is_ancestor check.", self.root);
+                 return false; // Avoid potential infinite loop
+             }
+             // More robust cycle check (if current node points back to original node_idx)
+             if current_idx == node_idx {
+                eprintln!("Warning: Cycle detected involving node {} during is_ancestor check.", node_idx);
+                return false;
+            }
+
+            current_idx_opt = self.nodes[current_idx].parent;
+        }
+        false
+    }
+        /// Detaches the subtree rooted at `node_to_detach_idx` (`N`).
+    /// Reuses N's parent `P`, promotes N's sibling `S`.
+    /// Returns the index of the detached subtree's root (`P`).
+    /// Assumes `node_to_detach_idx` is valid and not the root (checked by `spr`).
+    /// Uses `Result` for errors like missing sibling (violates binary assumption).
+    fn detach(&mut self, node_to_detach_idx: usize) -> Result<usize, SprError> {
+        // 1. Get parent P. Error if non-root node has no parent (consistency issue).
+        let parent_idx = self.nodes[node_to_detach_idx].parent
+            .ok_or_else(|| SprError::TreeError(format!(
+                "detach consistency error: Non-root node {} has no parent.", node_to_detach_idx
+            )))?;
+
+        // 2. Get sibling S and identify if N was left/right child. Error if no sibling.
+        let (sibling_idx, n_was_left) = {
+            let p_node = &self.nodes[parent_idx];
+            match (p_node.left_child, p_node.right_child) {
+                (Some(left_idx), Some(right_idx)) if left_idx == node_to_detach_idx => {
+                    (right_idx, true) // N is left, S is right
+                }
+                (Some(left_idx), Some(right_idx)) if right_idx == node_to_detach_idx => {
+                    (left_idx, false) // N is right, S is left
+                }
+                 // Cases where N isn't actually a child of P (consistency error)
+                (Some(l), _) if l == node_to_detach_idx => {
+                    return Err(SprError::TreeError(format!(
+                        "detach error: Parent P ({}) of node N ({}) is missing its right child (sibling). Tree must be binary.", parent_idx, node_to_detach_idx
+                    )));
+                 }
+                 (_, Some(r)) if r == node_to_detach_idx => {
+                      return Err(SprError::TreeError(format!(
+                        "detach error: Parent P ({}) of node N ({}) is missing its left child (sibling). Tree must be binary.", parent_idx, node_to_detach_idx
+                     )));
+                 }
+                _ => {
+                    // N is not a child of P, or P is malformed
+                    return Err(SprError::TreeError(format!(
+                        "detach consistency error: Node {} is not a child of its claimed parent {} or parent is malformed. L:{:?}, R:{:?}",
+                        node_to_detach_idx, parent_idx, p_node.left_child, p_node.right_child
+                    )));
+                }
+            }
+        }; // sibling_idx is now usize
+
+        // 3. Get grandparent G (as Option<usize>)
+        let grandparent_idx_opt = self.nodes[parent_idx].parent; // This is inherently Option
+
+        // 4. Promote sibling S.
+        match grandparent_idx_opt {
+            Some(gp_idx) => {
+                // G exists. Update G's child pointer from P to S.
+                let gp_node = &mut self.nodes[gp_idx];
+                 // Use if-else-if, matching on Option is safer
+                 if gp_node.left_child == Some(parent_idx) {
+                     gp_node.left_child = Some(sibling_idx);
+                 } else if gp_node.right_child == Some(parent_idx) {
+                      gp_node.right_child = Some(sibling_idx);
+                 } else {
+                     // G doesn't point to P - consistency error
+                     return Err(SprError::TreeError(format!(
+                         "detach consistency error: Grandparent {} does not list parent {} as a child.",
+                         gp_idx, parent_idx
+                     )));
+                 }
+                // Update S's parent to G.
+                self.nodes[sibling_idx].parent = Some(gp_idx);
+            }
+            None => {
+                // G doesn't exist (P was child of root). S becomes the new root.
+                self.root = sibling_idx;
+                self.nodes[sibling_idx].parent = None; // Root has no parent
+            }
+        }
+
+        // 5. Isolate the P -> N subtree.
+        {
+            let p_node = &mut self.nodes[parent_idx];
+            p_node.parent = None; // P is now detached root
+            if n_was_left {
+                // N was left child, remove P's pointer to S (which was right)
+                p_node.right_child = None;
+                // p_node.left_child remains Some(node_to_detach_idx)
+            } else {
+                // N was right child, remove P's pointer to S (which was left)
+                p_node.left_child = None;
+                // p_node.right_child remains Some(node_to_detach_idx)
+            }
+        }
+        // N's parent remains Some(parent_idx).
+
+        Ok(parent_idx) // Return the index of P, the root of the detached subtree
+    }
+
+    /// Attaches a detached subtree (rooted at `P` = `detached_root_idx`)
+    /// above a target node `R` (`target_node_idx`).
+    /// Handles `Option`s gracefully. Uses `Result` for consistency errors.
+    fn attach(&mut self, detached_root_idx: usize, target_node_idx: usize) -> Result<(), SprError> {
+        // 1. Validate P's state (detached, one child N) and find N.
+        let original_donor_n_idx = {
+            let p_node = self.nodes.get(detached_root_idx)
+                .ok_or(SprError::InvalidDonor(format!("Detached root index {} out of bounds.", detached_root_idx)))?; // Use get for bounds check
+
+            if p_node.parent.is_some() {
+                return Err(SprError::TreeError(format!("Attach error: Node P ({}) to attach is not detached (parent: {:?}).", detached_root_idx, p_node.parent)));
+            }
+
+            match (p_node.left_child, p_node.right_child) {
+                (Some(n_idx), None) => n_idx, // N is left child
+                (None, Some(n_idx)) => n_idx, // N is right child
+                (None, None) => return Err(SprError::TreeError(format!("Attach error: Detached node P ({}) has no children.", detached_root_idx))),
+                (Some(_), Some(_)) => return Err(SprError::TreeError(format!("Attach error: Detached node P ({}) should only have one child.", detached_root_idx))),
+            }
+        }; // original_donor_n_idx is usize
+
+        // 2. Get original parent of R (`RP`) as Option<usize>. Check R exists.
+        let recipient_parent_idx_opt = self.nodes.get(target_node_idx)
+            .ok_or(SprError::InvalidRecipient(format!("Target node index {} out of bounds.", target_node_idx)))?
+            .parent; // Get R's parent Option
+
+        // 3. Link RP to P (or set P as new root).
+        match recipient_parent_idx_opt {
+            Some(rp_idx) => {
+                // RP exists. Update RP's child pointer from R to P.
+                let rp_node = &mut self.nodes[rp_idx]; // rp_idx must be valid if R pointed to it
+                if rp_node.left_child == Some(target_node_idx) {
+                    rp_node.left_child = Some(detached_root_idx);
+                } else if rp_node.right_child == Some(target_node_idx) {
+                    rp_node.right_child = Some(detached_root_idx);
+                } else {
+                    // R points to RP, but RP doesn't point back - consistency error
+                    return Err(SprError::TreeError(format!(
+                        "Attach consistency error: Recipient's parent {} does not list recipient {} as child.", rp_idx, target_node_idx
+                    )));
+                }
+                // Update P's parent to RP.
+                self.nodes[detached_root_idx].parent = Some(rp_idx);
+            }
+            None => {
+                // RP doesn't exist. R must have been the root. Make P the new root.
+                if target_node_idx != self.root {
+                    // R had no parent but wasn't root - consistency error
+                    return Err(SprError::TreeError(format!(
+                        "Attach consistency error: Target node {} has no parent but was not the tree root ({}).", target_node_idx, self.root
+                    )));
+                }
+                self.root = detached_root_idx;
+                self.nodes[detached_root_idx].parent = None; // P is new root, has no parent
+            }
+        }
+
+        // 4. Link P to R. Find the None slot in P and place R there.
+        {
+            let p_node = &mut self.nodes[detached_root_idx];
+             match (p_node.left_child, p_node.right_child) {
+                 // Case 1: N was left, right must be None (validated in step 1)
+                 (Some(n_idx), None) if n_idx == original_donor_n_idx => {
+                     p_node.right_child = Some(target_node_idx);
+                 }
+                 // Case 2: N was right, left must be None (validated in step 1)
+                 (None, Some(n_idx)) if n_idx == original_donor_n_idx => {
+                     p_node.left_child = Some(target_node_idx);
+                 }
+                 // Error cases (should not happen if step 1 passed)
+                 (Some(l), Some(r)) => {
+                     return Err(SprError::TreeError(format!(
+                         "Attach consistency error: P ({}) has two children ({:?}, {:?}) before linking R.", detached_root_idx, l, r
+                     )));
+                 }
+                 (None, None) => {
+                      return Err(SprError::TreeError(format!(
+                          "Attach consistency error: P ({}) lost its child N ({}) before linking R.", detached_root_idx, original_donor_n_idx
+                      )));
+                 }
+                 // Case where N identified in step 1 is not actually P's child anymore
+                 _ => {
+                      return Err(SprError::TreeError(format!(
+                           "Attach consistency error: Child structure of P ({}) changed unexpectedly. L:{:?}, R:{:?}", detached_root_idx, p_node.left_child, p_node.right_child
+                      )));
+                 }
+             }
+        }
+
+        // 5. Link R to P. Update R's parent pointer.
+        self.nodes[target_node_idx].parent = Some(detached_root_idx);
+
+        Ok(())
+    }
+
+
+    /// Performs SPR using the "reuse parent" method, handling Options explicitly.
+    /// See `detach` and `attach` for implementation details.
+    /// Rules & Limitations:
+    /// - Moved node `N` cannot be the root.
+    /// - Recipient `R` can be the root (P becomes new root).
+    /// - Cycle Prevention: Recipient `R` cannot be an ancestor of Donor `N`.
+    /// - Descendants OK: Recipient `R` can be a descendant of `N` or `P`.
+    /// - Trivial Moves (R is sibling of N) result in no change.
+    pub fn spr(
+        &mut self,
+        moving_node_index: usize,
+        recipient_idx: usize
+    ) -> Result<(), SprError> {
+
+        // --- Pre-checks ---
+        // 1. Basic index validity (using .get().is_none() is safer than direct index)
+        if self.nodes.get(moving_node_index).is_none() {
+            return Err(SprError::InvalidDonor(format!("Donor index {} out of bounds.", moving_node_index)));
+        }
+        if self.nodes.get(recipient_idx).is_none() {
+            return Err(SprError::InvalidRecipient(format!("Recipient index {} out of bounds.", recipient_idx)));
+        }
+
+        // 2. Moving node N cannot be the root for this type of SPR
+        if moving_node_index == self.root {
+            return Err(SprError::InvalidDonor("Donor cannot be the root node for this SPR implementation (requires detaching donor's parent).".to_string()));
+        }
+
+        // 3. Donor N and recipient R cannot be the same node
+        if moving_node_index == recipient_idx {
+            return Err(SprError::InvalidMove("Donor and recipient cannot be the same node.".to_string()));
+        }
+
+        // 4. Get donor's parent P. Error if non-root has no parent.
+        let moving_node_parent_index = self.nodes[moving_node_index].parent
+            .ok_or_else(|| SprError::TreeError(format!(
+                "SPR consistency error: Non-root donor node {} has no parent.", moving_node_index
+            )))?;
+
+        // 5. Recipient R cannot be the parent P of the moving node N.
+        if moving_node_parent_index == recipient_idx {
+            return Err(SprError::InvalidMove(format!(
+                "Recipient node R ({}) cannot be the parent P ({}) of the moving node N ({}).",
+                recipient_idx, moving_node_parent_index, moving_node_index
+            )));
+        }
+
+        // --- Ancestry Check (Cycle Prevention) ---
+        // 6. Moving node N cannot be an ancestor of the recipient node R.
+        if self.is_ancestor(moving_node_index, recipient_idx) {
+             return Err(SprError::InvalidMove(format!(
+                 "Moving node R ({}) cannot be an ancestor of the moving node N ({}). Move would create a cycle.",
+                 recipient_idx, moving_node_index
+             )));
+        }
+
+        // --- Check for Trivial Move ---
+        // 7. If R is the sibling of N. Access parent P safely.
+        // Note: We already know moving_node_parent_index is valid from step 4.
+        let moving_node_parent = &self.nodes[moving_node_parent_index];
+        let sibling_is_recipient =
+            // Check if R is the right child and N is the left
+            (moving_node_parent.left_child == Some(moving_node_index) && moving_node_parent.right_child == Some(recipient_idx)) ||
+            // Check if R is the left child and N is the right
+            (moving_node_parent.right_child == Some(moving_node_index) && moving_node_parent.left_child == Some(recipient_idx));
+
+        if sibling_is_recipient {
+            return Ok(()); // Valid move, no change needed
+        }
+
+        // --- Perform the SPR move ---
+        // Use `?` to propagate potential errors from detach/attach
+        let detached_parent_idx = self.detach(moving_node_index)?;
+        self.attach(detached_parent_idx, recipient_idx)?;
+
+        Ok(())
+    }
+
+
+
 }
 impl Index<usize> for FlatTree {
     type Output = FlatNode;
