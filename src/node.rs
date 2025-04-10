@@ -543,41 +543,35 @@ impl FlatTree {
             return Err(SprError::InvalidRecipient(format!("Recipient index {} out of bounds.", recipient_idx)));
         }
 
-        // 2. Moving node N cannot be the root for this type of SPR
-        if moving_node_index == self.root {
-            return Err(SprError::InvalidDonor("Moving node cannot be the root node.".to_string()));
-        }
+        // 2. Moving node N cannot be an ancestor of the recipient node R.
+        // --- Ancestry Check (Cycle Prevention) ---
+        if self.is_ancestor(moving_node_index, recipient_idx) {
+            return Err(SprError::InvalidMove(format!(
+                "Moving node R ({}) cannot be an ancestor of the moving node N ({}). Move would create a cycle.",
+                self.nodes[recipient_idx].name, self.nodes[moving_node_index].name
+            )));
+       }
 
-        // 3. Donor N and recipient R cannot be the same node
+        // 3. If the moved node and recipient are the same node, do nothing
         if moving_node_index == recipient_idx {
-            return Err(SprError::InvalidMove("Donor and recipient cannot be the same node.".to_string()));
+            return Ok(()); // Valid move, no change needed
         }
 
-        // 4. Get donor's parent P. Error if non-root has no parent.
+        // 4. Get moving node's parent P. Error if non-root has no parent.
         let moving_node_parent_index = self.nodes[moving_node_index].parent
             .ok_or_else(|| SprError::TreeError(format!(
-                "SPR consistency error: Non-root donor node {} has no parent.", moving_node_index
+                "SPR consistency error: moving node {} has no parent.", moving_node_index
             )))?;
 
-        // 5. Recipient R cannot be the parent P of the moving node N.
+        // 5. If the recipient is the parent of the moving node, do nothing.
         if moving_node_parent_index == recipient_idx {
-            return Err(SprError::InvalidMove(format!(
-                "Recipient node R ({}) cannot be the parent P ({}) of the moving node N ({}).",
-                recipient_idx, moving_node_parent_index, moving_node_index
-            )));
+            return Ok(()); // Valid move, no change needed
         }
 
-        // --- Ancestry Check (Cycle Prevention) ---
-        // 6. Moving node N cannot be an ancestor of the recipient node R.
-        if self.is_ancestor(moving_node_index, recipient_idx) {
-             return Err(SprError::InvalidMove(format!(
-                 "Moving node R ({}) cannot be an ancestor of the moving node N ({}). Move would create a cycle.",
-                 self.nodes[recipient_idx].name, self.nodes[moving_node_index].name
-             )));
-        }
+
 
         // --- Check for Trivial Move ---
-        // 7. If R is the sibling of N. Access parent P safely.
+        // 6. If R is the sibling of N. Access parent P safely.
         // Note: We already know moving_node_parent_index is valid from step 4.
         let moving_node_parent = &self.nodes[moving_node_parent_index];
         let sibling_is_recipient =
