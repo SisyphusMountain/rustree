@@ -572,7 +572,7 @@ impl FlatTree {
         if self.is_ancestor(moving_node_index, recipient_idx) {
              return Err(SprError::InvalidMove(format!(
                  "Moving node R ({}) cannot be an ancestor of the moving node N ({}). Move would create a cycle.",
-                 recipient_idx, moving_node_index
+                 self.nodes[recipient_idx].name, self.nodes[moving_node_index].name
              )));
         }
 
