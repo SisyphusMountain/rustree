@@ -62,7 +62,7 @@ fn run_spr_test(moved_node_name: &str, receiver_name: &str, expected_filename: &
         moved_node_name, donor_index, receiver_name, receiver_index);
 
     // --- Perform the SPR event using the FlatTree method ---
-    flat_tree.spr(donor_index, receiver_index)
+    flat_tree.spr_topology(donor_index, receiver_index)
         .expect(&format!("SPR operation failed for {} -> {}", moved_node_name, receiver_name));
     // --- SPR method should update flat_tree.root internally if needed ---
 

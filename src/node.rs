@@ -528,7 +528,7 @@ impl FlatTree {
     /// - Cycle Prevention: Recipient `R` cannot be an ancestor of Donor `N`.
     /// - Descendants OK: Recipient `R` can be a descendant of `N` or `P`.
     /// - Trivial Moves (R is sibling of N) result in no change.
-    pub fn spr(
+    pub fn spr_topology(
         &mut self,
         moving_node_index: usize,
         recipient_idx: usize
