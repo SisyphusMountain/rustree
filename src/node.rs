@@ -545,7 +545,7 @@ impl FlatTree {
 
         // 2. Moving node N cannot be the root for this type of SPR
         if moving_node_index == self.root {
-            return Err(SprError::InvalidDonor("Donor cannot be the root node for this SPR implementation (requires detaching donor's parent).".to_string()));
+            return Err(SprError::InvalidDonor("Moving node cannot be the root node.".to_string()));
         }
 
         // 3. Donor N and recipient R cannot be the same node
