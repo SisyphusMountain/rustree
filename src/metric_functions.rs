@@ -1,4 +1,7 @@
 // rustree/src/metric_functions.rs
+// The functions in this repo act on the branch lengths
+// and depths of nodes in phylogenetic trees.
+
 
 use crate::node::{Node, TraversalOrder, FlatTree};
 

@@ -1,11 +1,29 @@
 // rustree/src/newick/newick.rs
-use crate::node::Node;
+// This module contains functions to parse Newick formatted strings into Tree structures
+// and to convert Tree structures back into Newick formatted strings.
+use crate::node::{Node, FlatTree};
+
 #[derive(Parser)]
 #[grammar = "newick/newick.pest"]
 pub struct NewickParser; // The parser struct, needs to be public to be used outside
                          // The following two functions are used to convert a Newick string into an arborescent Tree structure.
 
-pub fn newick_to_tree(pair: pest::iterators::Pair<Rule>) -> Vec<Node> {
+/// Parse a Newick formatted string into a vector of Node trees.
+///
+/// # Arguments
+/// * `newick_str` - A string slice containing the Newick formatted tree
+///
+/// # Returns
+/// A Result containing a vector of Node trees on success, or an error message on failure.
+pub fn parse_newick(newick_str: &str) -> Result<Vec<Node>, String> {
+    use pest::Parser;
+    let mut pairs = NewickParser::parse(Rule::newick, newick_str)
+        .map_err(|e| e.to_string())?;
+
+    Ok(newick_to_tree(pairs.next().ok_or("No tree found in input")?))
+}
+
+fn newick_to_tree(pair: pest::iterators::Pair<Rule>) -> Vec<Node> {
     let mut vec_trees: Vec<Node> = Vec::new();
     for inner in pair.into_inner() {
         let tree = handle_pair(inner);
@@ -95,11 +113,18 @@ pub fn handle_pair(pair: pest::iterators::Pair<Rule>) -> Option<Node> {
 }
 impl Node {
     pub fn to_newick(&self) -> String {
-        node_to_newick(self)
+        node_to_newick_internal(self)
     }
 }
 
-pub fn node_to_newick(node: &Node) -> String {
+impl FlatTree {
+    pub fn to_newick(&self) -> String {
+        let node_tree = self.to_node();
+        node_to_newick_internal(&node_tree)
+    }
+}
+
+fn node_to_newick_internal(node: &Node) -> String {
     /* Takes a node and returns the corresponding subtree in Newick format.
         --------------------------------
         INPUT:
@@ -112,8 +137,8 @@ pub fn node_to_newick(node: &Node) -> String {
         // This is an internal node with both left and right children.
         format!(
             "({},{}){}:{:.6}",
-            node_to_newick(left_child),
-            node_to_newick(right_child),
+            node_to_newick_internal(left_child),
+            node_to_newick_internal(right_child),
             node.name,
             node.length
         )

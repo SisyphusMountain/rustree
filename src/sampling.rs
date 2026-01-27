@@ -3,9 +3,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use rand::seq::SliceRandom;
 use rand::rngs::StdRng;
-use pest::Parser;
 use crate::node::{FlatTree, TraversalOrder};
-use crate::newick::newick::{newick_to_tree, node_to_newick, NewickParser, Rule};
+use crate::newick::newick::parse_newick;
 
 pub fn remove_node(
     flat_tree: &mut FlatTree,
@@ -358,9 +357,8 @@ fn one_gene_sample_to_string(
 
     let gene_tree_str = gene_tree_str.trim();
 
-    let mut pairs = NewickParser::parse(Rule::newick, gene_tree_str)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-    let mut node_tree = newick_to_tree(pairs.next().unwrap());
+    let mut node_tree = parse_newick(gene_tree_str)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
     let mut gene_tree = node_tree.pop().unwrap();
     gene_tree.zero_root_length();
@@ -392,7 +390,7 @@ fn one_gene_sample_to_string(
     reconstructed_tree.depths_to_lengths(root_depth);
 
     // Convert the gene tree to a Newick string.
-    let reconstructed_newick = node_to_newick(&reconstructed_tree) + ";";
+    let reconstructed_newick = reconstructed_tree.to_newick() + ";";
 
     // Save the gene tree as a Newick string in the output directory
     let gene_filename = format!("sampled_gene_{}.nwk", gene_index);
@@ -451,14 +449,12 @@ pub fn species_tree_sample_to_string(
     let sampled_species_tree_str = sampled_species_tree_str.trim();
 
     // Parse the species trees
-    let mut pairs = NewickParser::parse(Rule::newick, species_tree_str)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-    let mut node_tree = newick_to_tree(pairs.next().unwrap());
+    let mut node_tree = parse_newick(species_tree_str)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     let mut species_tree = node_tree.pop().unwrap();
 
-    let mut pairs_sampled = NewickParser::parse(Rule::newick, sampled_species_tree_str)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-    let mut node_tree_sampled = newick_to_tree(pairs_sampled.next().unwrap());
+    let mut node_tree_sampled = parse_newick(sampled_species_tree_str)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     let sampled_species_tree = node_tree_sampled.pop().unwrap();
 
     // Assign depths
@@ -490,7 +486,7 @@ pub fn species_tree_sample_to_string(
     reconstructed_tree.depths_to_lengths(root_depth);
 
     // Convert the species tree to a Newick string.
-    let reconstructed_newick = node_to_newick(&reconstructed_tree) + ";";
+    let reconstructed_newick = reconstructed_tree.to_newick() + ";";
 
     // Save the species tree as a Newick string in the output directory
     let species_filename = Path::new(output_dir).join("sampled_species_tree.nwk");
