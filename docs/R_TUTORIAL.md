@@ -43,7 +43,7 @@ cat("Number of leaves:", tree_num_leaves(sp_tree), "\n")
 cat("Newick:", tree_to_newick(sp_tree), "\n")
 
 # Simulate gene trees with DTL events
-gene_trees <- simulate_dtl_batch(sp_tree, 10L, 0.5, 0.2, 0.3, 123L)
+gene_trees <- simulate_dtl_batch(sp_tree, 10L, 0.5, 0.2, 0.3, seed = 123L)
 
 # Work with the first gene tree
 gt <- gene_trees[[1]]
@@ -89,7 +89,7 @@ sp_tree <- parse_newick(newick_str)
 ### 3. Simulate Gene Trees with DTL Events
 
 ```r
-# Single gene tree
+# Single gene tree (uniform random transfers)
 gene_tree <- simulate_dtl(
   species_tree = sp_tree,
   lambda_d = 0.5,    # Duplication rate
@@ -113,7 +113,43 @@ gt1 <- gene_trees[[1]]
 gt2 <- gene_trees[[2]]
 ```
 
-### 4. Inspect Gene Trees
+### 4. Assortative (Distance-Dependent) Transfers
+
+By default, transfer recipients are chosen uniformly at random from contemporary species. You can enable **assortative transfers** where closer species are more likely to receive transfers:
+
+```r
+# Assortative transfers: P(recipient) ∝ exp(-alpha * distance)
+# Higher alpha = more local transfers (closer species preferred)
+# alpha = 0 is equivalent to uniform random
+
+# Single gene tree with assortative transfers
+gene_tree <- simulate_dtl(
+  species_tree = sp_tree,
+  lambda_d = 0.5,
+  lambda_t = 0.5,
+  lambda_l = 0.3,
+  transfer_alpha = 1.0,  # Distance decay parameter
+  seed = 123L
+)
+
+# Batch with assortative transfers
+gene_trees <- simulate_dtl_batch(
+  species_tree = sp_tree,
+  n = 100L,
+  lambda_d = 0.5,
+  lambda_t = 0.5,
+  lambda_l = 0.3,
+  transfer_alpha = 2.0,  # Stronger distance preference
+  seed = 123L
+)
+```
+
+The distance between species A and B at time t is computed as:
+```
+d(A, B, t) = 2 × (t - depth_of_LCA(A, B))
+```
+
+### 5. Inspect Gene Trees
 
 ```r
 gt <- gene_trees[[1]]
@@ -138,7 +174,7 @@ df <- as.data.frame(gt[c("name", "parent", "species_node", "event")])
 head(df)
 ```
 
-### 5. Sample Extant Genes
+### 6. Sample Extant Genes
 
 ```r
 # Extract induced subtree containing only extant genes
@@ -148,7 +184,7 @@ sampled_gt <- sample_extant(gt)
 gene_tree_to_newick(sampled_gt)
 ```
 
-### 6. Export Results
+### 7. Export Results
 
 ```r
 # Save species tree to Newick
@@ -164,7 +200,7 @@ save_xml(gt, "gene_tree.recphyloxml")
 save_csv(gt, "gene_tree.csv")
 ```
 
-### 7. Visualize with thirdkind
+### 8. Visualize with thirdkind
 
 ```r
 # Generate SVG (requires thirdkind to be installed)
@@ -192,9 +228,13 @@ cat("Simulating species tree...\n")
 sp_tree <- simulate_species_tree(50L, 1.0, 0.3, 42L)
 cat("Species tree has", tree_num_leaves(sp_tree), "leaves\n")
 
-# 2. Simulate 100 gene families
+# 2. Simulate 100 gene families with assortative transfers
 cat("Simulating 100 gene families...\n")
-gene_trees <- simulate_dtl_batch(sp_tree, 100L, 0.5, 0.2, 0.3, 123L)
+gene_trees <- simulate_dtl_batch(
+  sp_tree, 100L, 0.5, 0.2, 0.3,
+  transfer_alpha = 1.0,  # Distance-dependent transfers
+  seed = 123L
+)
 
 # 3. Analyze results
 extant_counts <- sapply(gene_trees, gene_tree_num_extant)
@@ -233,8 +273,8 @@ cat("Done! Results saved.\n")
 
 | Function | Description |
 |----------|-------------|
-| `simulate_dtl(sp_tree, lambda_d, lambda_t, lambda_l, seed)` | Simulate single gene tree |
-| `simulate_dtl_batch(sp_tree, n, lambda_d, lambda_t, lambda_l, seed)` | Simulate batch |
+| `simulate_dtl(sp_tree, lambda_d, lambda_t, lambda_l, transfer_alpha, seed)` | Simulate single gene tree |
+| `simulate_dtl_batch(sp_tree, n, lambda_d, lambda_t, lambda_l, transfer_alpha, seed)` | Simulate batch |
 | `gene_tree_num_extant(gt)` | Count extant genes |
 | `gene_tree_to_newick(gt)` | Convert to Newick |
 | `gene_tree_to_xml(gt)` | Convert to RecPhyloXML |
@@ -249,9 +289,23 @@ cat("Done! Results saved.\n")
 | `save_csv(gt, filepath)` | Save to CSV file |
 | `gene_tree_to_svg(gt, filepath, open_browser)` | Generate SVG |
 
+## Parameters
+
+### DTL Rates
+- `lambda_d`: Duplication rate per unit time along branches
+- `lambda_t`: Transfer rate per unit time along branches
+- `lambda_l`: Loss rate per unit time along branches
+
+### Assortative Transfers
+- `transfer_alpha`: Distance decay parameter for transfer recipient selection
+  - `NULL` (default): Uniform random selection among contemporary species
+  - `0`: Equivalent to uniform random
+  - `> 0`: Closer species are more likely to receive transfers
+  - Higher values = stronger preference for nearby species
+
 ## Notes
 
 - All integer arguments must use `L` suffix in R (e.g., `50L` not `50`)
-- Use `NULL` for optional seed to get random behavior
+- Use `NULL` for optional parameters (`seed`, `transfer_alpha`) for default behavior
 - DTL rates are per unit time along branches
 - The `seed` parameter ensures reproducibility
