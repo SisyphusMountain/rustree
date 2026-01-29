@@ -18,8 +18,12 @@ pub mod comparison;
 pub mod metric_functions;
 pub mod debug;
 
-// Python bindings
+// Language bindings (feature-gated)
+#[cfg(feature = "python")]
 pub mod python;
+
+#[cfg(feature = "r")]
+pub mod r;
 
 // Re-export key types for easier access
 pub use newick::newick::parse_newick;
