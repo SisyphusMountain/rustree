@@ -1,37 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
-use pest::Parser;
-// Assuming your modules are structured like this:
-use rustree::newick::newick::{NewickParser, newick_to_tree, Rule};
-use rustree::node::{compare_nodes_topology, FlatNode, FlatTree, Node}; // Add Node if needed for to_newick
-// use rustree::surgery::{spr_topology}; // Remove this line
+use rustree::newick::newick::parse_newick;
+use rustree::node::Node;
+use rustree::comparison::compare_nodes_topology; // Import from comparison module
+use rustree::surgery::spr_topology; // Import the surgery module function
 use rustree::debug::diffed_flat_tree_table;
-use rustree::node::SprError; // Add if you want more specific error handling than expect
-
-// Helper trait/impl needed for .to_newick() on Node if not already present
-// Add this if you don't have it, otherwise ignore
-trait ToNewick {
-    fn to_newick(&self) -> String;
-}
-
-impl ToNewick for Node {
-    fn to_newick(&self) -> String {
-        let mut s = String::new();
-        if let (Some(left), Some(right)) = (&self.left_child, &self.right_child) {
-            s.push('(');
-            s.push_str(&left.to_newick());
-            s.push(',');
-            s.push_str(&right.to_newick());
-            s.push(')');
-        }
-        s.push_str(&self.name);
-        // Optionally add branch length if needed, but topology compare ignores it
-        // s.push(':');
-        // s.push_str(&format!("{:.6}", self.length));
-        s
-    }
-}
-// End of helper trait/impl
 
 
 fn run_spr_test(moved_node_name: &str, receiver_name: &str, expected_filename: &str) {
@@ -41,10 +14,8 @@ fn run_spr_test(moved_node_name: &str, receiver_name: &str, expected_filename: &
         .expect(&format!("Failed to read original tree file: {:?}", orig_path));
 
     // Parse the original tree.
-    let mut pairs = NewickParser::parse(Rule::newick, orig_str.trim())
+    let mut nodes = parse_newick(orig_str.trim())
         .expect("Failed to parse original tree");
-    let pair = pairs.next().expect("No valid Newick pair found"); // Ensure pair exists
-    let mut nodes = newick_to_tree(pair); // Pass the pair directly
     let mut orig_tree = nodes.pop().expect("No tree found in original file");
 
     // Convert to a flat tree.
@@ -61,10 +32,10 @@ fn run_spr_test(moved_node_name: &str, receiver_name: &str, expected_filename: &
     println!("Performing SPR: Donor='{}'({}), Recipient='{}'({})",
         moved_node_name, donor_index, receiver_name, receiver_index);
 
-    // --- Perform the SPR event using the FlatTree method ---
-    flat_tree.spr_topology(donor_index, receiver_index)
+    // --- Perform the SPR event using the surgery module function ---
+    spr_topology(&mut flat_tree, donor_index, receiver_index)
         .expect(&format!("SPR operation failed for {} -> {}", moved_node_name, receiver_name));
-    // --- SPR method should update flat_tree.root internally if needed ---
+    // --- SPR function should update flat_tree.root internally if needed ---
 
     // For testing topology, set all branch lengths to 1.0 AFTER SPR.
     // This ensures differences aren't due to length calculations we aren't testing.
@@ -88,10 +59,8 @@ fn run_spr_test(moved_node_name: &str, receiver_name: &str, expected_filename: &
     let expected_path = PathBuf::from(format!("./tests/hgt_trees/{}", expected_filename));
     let expected_str = fs::read_to_string(&expected_path)
         .expect(&format!("Failed to read expected tree file: {:?}", expected_path));
-    let mut pairs = NewickParser::parse(Rule::newick, expected_str.trim())
+    let mut expected_nodes = parse_newick(expected_str.trim())
         .expect("Failed to parse expected tree");
-    let expected_pair = pairs.next().expect("No valid Newick pair found in expected file");
-    let mut expected_nodes = newick_to_tree(expected_pair);
     let expected_tree = expected_nodes.pop().expect("No expected tree found");
 
     // Compare the computed tree with the expected tree topology.

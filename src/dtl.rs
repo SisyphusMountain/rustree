@@ -6,6 +6,13 @@
 use crate::node::{FlatTree, FlatNode, Event, RecTree};
 use rand::Rng;
 
+// Static strings to avoid allocations
+const EVENT_DUPLICATION: &str = "Duplication";
+const EVENT_TRANSFER: &str = "Transfer";
+const EVENT_LOSS: &str = "Loss";
+const EVENT_LEAF: &str = "Leaf";
+const EVENT_SPECIATION: &str = "Speciation";
+
 /// Represents a DTL event during gene tree simulation
 #[derive(Clone, Debug)]
 pub struct DTLEvent {
@@ -13,14 +20,14 @@ pub struct DTLEvent {
     pub time: f64,
     /// Gene node ID where the event occurred
     pub gene_node_id: usize,
-    /// Type of event: "Speciation", "Duplication", "Transfer", "Loss", or "Leaf"
-    pub event_type: String,
-    /// Species tree branch where the event occurred
-    pub species_node: String,
-    /// For transfers: donor species branch
-    pub donor_species: Option<String>,
-    /// For transfers: recipient species branch
-    pub recipient_species: Option<String>,
+    /// Type of event: static string reference to avoid allocations
+    pub event_type: &'static str,
+    /// Species tree node index where the event occurred
+    pub species_node_idx: usize,
+    /// For transfers: donor species node index
+    pub donor_species_idx: Option<usize>,
+    /// For transfers: recipient species node index
+    pub recipient_species_idx: Option<usize>,
     /// First child gene node ID (for Speciation, Duplication, Transfer)
     pub child1: Option<usize>,
     /// Second child gene node ID (for Speciation, Duplication, Transfer)
@@ -28,16 +35,16 @@ pub struct DTLEvent {
 }
 
 impl DTLEvent {
-    /// Convert event to CSV row format
-    pub fn to_csv_row(&self) -> String {
+    /// Convert event to CSV row format, resolving species names from the species tree
+    pub fn to_csv_row(&self, species_tree: &FlatTree) -> String {
         format!(
             "{},{},{},{},{},{},{},{}",
             self.time,
             self.gene_node_id,
             self.event_type,
-            self.species_node,
-            self.donor_species.as_ref().unwrap_or(&String::new()),
-            self.recipient_species.as_ref().unwrap_or(&String::new()),
+            species_tree.nodes[self.species_node_idx].name,
+            self.donor_species_idx.map_or(String::new(), |idx| species_tree.nodes[idx].name.clone()),
+            self.recipient_species_idx.map_or(String::new(), |idx| species_tree.nodes[idx].name.clone()),
             self.child1.map_or(String::from(""), |c| c.to_string()),
             self.child2.map_or(String::from(""), |c| c.to_string())
         )
@@ -60,7 +67,424 @@ struct GeneCopy {
     current_time: f64,
 }
 
+/// Holds the mutable state during DTL simulation.
+/// Extracted to simplify the main simulation loop and enable event-specific methods.
+struct SimulationState {
+    gene_nodes: Vec<FlatNode>,
+    node_mapping: Vec<usize>,
+    event_mapping: Vec<Event>,
+    events: Vec<DTLEvent>,
+}
+
+impl SimulationState {
+    fn new(capacity: usize) -> Self {
+        Self {
+            gene_nodes: Vec::with_capacity(capacity),
+            node_mapping: Vec::with_capacity(capacity),
+            event_mapping: Vec::with_capacity(capacity),
+            events: Vec::with_capacity(capacity),
+        }
+    }
+
+    /// Creates a new gene node and returns its index.
+    fn create_gene_node(&mut self, parent: Option<usize>, species_idx: usize, event: Event) -> usize {
+        let idx = self.gene_nodes.len();
+        self.gene_nodes.push(FlatNode {
+            name: format!("{}_{}", idx, species_idx),
+            left_child: None,
+            right_child: None,
+            parent,
+            depth: None,
+            length: 0.0,
+        });
+        self.node_mapping.push(species_idx);
+        self.event_mapping.push(event);
+        idx
+    }
+
+    /// Handles a duplication event: creates two children and records the event.
+    /// Returns the indices of the two child gene nodes.
+    fn handle_duplication(
+        &mut self,
+        parent_idx: usize,
+        species_idx: usize,
+        event_time: f64,
+    ) -> (usize, usize) {
+        let child1_idx = self.create_gene_node(Some(parent_idx), species_idx, Event::Duplication);
+        let child2_idx = self.create_gene_node(Some(parent_idx), species_idx, Event::Duplication);
+
+        // Update parent node
+        self.gene_nodes[parent_idx].left_child = Some(child1_idx);
+        self.gene_nodes[parent_idx].right_child = Some(child2_idx);
+        self.gene_nodes[parent_idx].depth = Some(event_time);
+        self.event_mapping[parent_idx] = Event::Duplication;
+
+        // Record event
+        self.events.push(DTLEvent {
+            time: event_time,
+            gene_node_id: parent_idx,
+            event_type: EVENT_DUPLICATION,
+            species_node_idx: species_idx,
+            donor_species_idx: None,
+            recipient_species_idx: None,
+            child1: Some(child1_idx),
+            child2: Some(child2_idx),
+        });
+
+        (child1_idx, child2_idx)
+    }
+
+    /// Handles a transfer event: creates donor and recipient children.
+    /// Returns the indices of (donor_child, recipient_child).
+    fn handle_transfer(
+        &mut self,
+        parent_idx: usize,
+        donor_species: usize,
+        recipient_species: usize,
+        event_time: f64,
+    ) -> (usize, usize) {
+        let donor_child_idx = self.create_gene_node(Some(parent_idx), donor_species, Event::Transfer);
+        let recipient_child_idx = self.create_gene_node(Some(parent_idx), recipient_species, Event::Transfer);
+
+        // Update parent node
+        self.gene_nodes[parent_idx].left_child = Some(donor_child_idx);
+        self.gene_nodes[parent_idx].right_child = Some(recipient_child_idx);
+        self.gene_nodes[parent_idx].depth = Some(event_time);
+        self.event_mapping[parent_idx] = Event::Transfer;
+
+        // Record event
+        self.events.push(DTLEvent {
+            time: event_time,
+            gene_node_id: parent_idx,
+            event_type: EVENT_TRANSFER,
+            species_node_idx: donor_species,
+            donor_species_idx: Some(donor_species),
+            recipient_species_idx: Some(recipient_species),
+            child1: Some(donor_child_idx),
+            child2: Some(recipient_child_idx),
+        });
+
+        (donor_child_idx, recipient_child_idx)
+    }
+
+    /// Handles a loss event: marks the gene as lost.
+    fn handle_loss(&mut self, gene_idx: usize, species_idx: usize, event_time: f64) {
+        self.gene_nodes[gene_idx].depth = Some(event_time);
+        self.event_mapping[gene_idx] = Event::Loss;
+
+        self.events.push(DTLEvent {
+            time: event_time,
+            gene_node_id: gene_idx,
+            event_type: EVENT_LOSS,
+            species_node_idx: species_idx,
+            donor_species_idx: None,
+            recipient_species_idx: None,
+            child1: None,
+            child2: None,
+        });
+    }
+
+    /// Handles reaching a leaf species: gene survives as extant.
+    fn handle_leaf(&mut self, gene_idx: usize, species_idx: usize, event_time: f64) {
+        self.gene_nodes[gene_idx].depth = Some(event_time);
+        self.event_mapping[gene_idx] = Event::Leaf;
+
+        self.events.push(DTLEvent {
+            time: event_time,
+            gene_node_id: gene_idx,
+            event_type: EVENT_LEAF,
+            species_node_idx: species_idx,
+            donor_species_idx: None,
+            recipient_species_idx: None,
+            child1: None,
+            child2: None,
+        });
+    }
+
+    /// Handles a speciation event: gene follows both children species.
+    /// Returns the indices of (left_gene, right_gene).
+    fn handle_speciation(
+        &mut self,
+        parent_idx: usize,
+        parent_species: usize,
+        left_species: usize,
+        right_species: usize,
+        event_time: f64,
+    ) -> (usize, usize) {
+        let left_gene_idx = self.create_gene_node(Some(parent_idx), left_species, Event::Speciation);
+        let right_gene_idx = self.create_gene_node(Some(parent_idx), right_species, Event::Speciation);
+
+        // Update parent node
+        self.gene_nodes[parent_idx].left_child = Some(left_gene_idx);
+        self.gene_nodes[parent_idx].right_child = Some(right_gene_idx);
+        self.gene_nodes[parent_idx].depth = Some(event_time);
+        self.event_mapping[parent_idx] = Event::Speciation;
+
+        // Record event
+        self.events.push(DTLEvent {
+            time: event_time,
+            gene_node_id: parent_idx,
+            event_type: EVENT_SPECIATION,
+            species_node_idx: parent_species,
+            donor_species_idx: None,
+            recipient_species_idx: None,
+            child1: Some(left_gene_idx),
+            child2: Some(right_gene_idx),
+        });
+
+        (left_gene_idx, right_gene_idx)
+    }
+}
+
+/// Simulates a gene tree along a species tree using the DTL model (internal version with pre-computed data)
+///
+/// # Arguments
+/// * `species_tree` - The species tree (must have depths assigned)
+/// * `depths` - Pre-computed time subdivision
+/// * `contemporaneity` - Pre-computed contemporaneity information
+/// * `origin_species` - Species node index where the gene family originates
+/// * `lambda_d` - Duplication rate per unit time
+/// * `lambda_t` - Transfer rate per unit time
+/// * `lambda_l` - Loss rate per unit time
+/// * `rng` - Random number generator
+///
+/// # Returns
+/// A tuple containing:
+/// - A `RecTree` with the simulated gene tree and mappings to the species tree
+/// - A `Vec<DTLEvent>` with all events that occurred during simulation
+fn simulate_dtl_internal<'a, R: Rng>(
+    species_tree: &'a FlatTree,
+    depths: &[f64],
+    contemporaneity: &[Vec<usize>],
+    origin_species: usize,
+    lambda_d: f64,
+    lambda_t: f64,
+    lambda_l: f64,
+    rng: &mut R,
+) -> (RecTree<'a>, Vec<DTLEvent>) {
+    let origin_depth = species_tree.nodes[origin_species]
+        .depth
+        .expect("Species tree must have depths assigned");
+
+    // Initialize simulation state
+    let estimated_capacity = species_tree.nodes.len() * 2;
+    let mut state = SimulationState::new(estimated_capacity);
+
+    // Create the initial gene copy at the origin
+    let initial_gene_idx = state.create_gene_node(None, origin_species, Event::Speciation);
+    state.gene_nodes[initial_gene_idx].depth = Some(origin_depth);
+
+    // Active gene copies being simulated
+    let mut active_copies = vec![GeneCopy {
+        gene_node_idx: initial_gene_idx,
+        current_time: origin_depth,
+        species_node_idx: origin_species,
+    }];
+
+    // Total event rate and rate thresholds
+    let total_rate = lambda_d + lambda_t + lambda_l;
+    let dup_threshold = lambda_d / total_rate;
+    let transfer_threshold = (lambda_d + lambda_t) / total_rate;
+
+    // Reusable buffers
+    let mut new_copies: Vec<GeneCopy> = Vec::with_capacity(estimated_capacity / 10);
+    let mut copies_to_remove: Vec<usize> = Vec::with_capacity(estimated_capacity / 10);
+
+    // Main simulation loop
+    while !active_copies.is_empty() {
+        new_copies.clear();
+        copies_to_remove.clear();
+
+        for (copy_idx, copy) in active_copies.iter().enumerate() {
+            let species_node = &species_tree.nodes[copy.species_node_idx];
+            let species_end_time = species_node.depth.unwrap();
+
+            let mut current_time = copy.current_time;
+            let current_gene_idx = copy.gene_node_idx;
+            let mut terminated = false;
+
+            // Simulate D/T/L events along the branch
+            while current_time < species_end_time && !terminated {
+                let event_time = current_time + draw_waiting_time(total_rate, rng);
+
+                if event_time >= species_end_time {
+                    // No event before branch end
+                    state.gene_nodes[current_gene_idx].length += species_end_time - current_time;
+                    current_time = species_end_time;
+                } else {
+                    // Event occurs
+                    state.gene_nodes[current_gene_idx].length += event_time - current_time;
+                    current_time = event_time;
+
+                    let event_prob: f64 = rng.gen();
+
+                    if event_prob < dup_threshold {
+                        // Duplication
+                        let (child1, child2) = state.handle_duplication(
+                            current_gene_idx, copy.species_node_idx, event_time
+                        );
+                        new_copies.push(GeneCopy {
+                            gene_node_idx: child1,
+                            species_node_idx: copy.species_node_idx,
+                            current_time: event_time,
+                        });
+                        new_copies.push(GeneCopy {
+                            gene_node_idx: child2,
+                            species_node_idx: copy.species_node_idx,
+                            current_time: event_time,
+                        });
+                        terminated = true;
+
+                    } else if event_prob < transfer_threshold {
+                        // Transfer - find valid recipient
+                        if let Some(recipient) = find_transfer_recipient(
+                            depths, contemporaneity, event_time,
+                            copy.species_node_idx, rng
+                        ) {
+                            let (donor_child, recipient_child) = state.handle_transfer(
+                                current_gene_idx, copy.species_node_idx, recipient, event_time
+                            );
+                            new_copies.push(GeneCopy {
+                                gene_node_idx: donor_child,
+                                species_node_idx: copy.species_node_idx,
+                                current_time: event_time,
+                            });
+                            new_copies.push(GeneCopy {
+                                gene_node_idx: recipient_child,
+                                species_node_idx: recipient,
+                                current_time: event_time,
+                            });
+                            terminated = true;
+                        }
+                        // If no valid recipient, gene continues (failed transfer)
+
+                    } else {
+                        // Loss
+                        state.handle_loss(current_gene_idx, copy.species_node_idx, event_time);
+                        terminated = true;
+                    }
+                }
+            }
+
+            // Process species tree node if gene survived the branch
+            if !terminated {
+                if species_node.left_child.is_none() && species_node.right_child.is_none() {
+                    // Leaf: gene survives as extant
+                    state.handle_leaf(current_gene_idx, copy.species_node_idx, species_end_time);
+                } else {
+                    // Speciation: gene follows both children
+                    let left_species = species_node.left_child.unwrap();
+                    let right_species = species_node.right_child.unwrap();
+
+                    let (left_gene, right_gene) = state.handle_speciation(
+                        current_gene_idx, copy.species_node_idx,
+                        left_species, right_species, species_end_time
+                    );
+
+                    new_copies.push(GeneCopy {
+                        gene_node_idx: left_gene,
+                        species_node_idx: left_species,
+                        current_time: species_end_time,
+                    });
+                    new_copies.push(GeneCopy {
+                        gene_node_idx: right_gene,
+                        species_node_idx: right_species,
+                        current_time: species_end_time,
+                    });
+                }
+            }
+
+            copies_to_remove.push(copy_idx);
+        }
+
+        // Update active copies
+        for &idx in copies_to_remove.iter().rev() {
+            active_copies.swap_remove(idx);
+        }
+        active_copies.extend(new_copies.drain(..));
+    }
+
+    // Finalize and return
+    finalize_simulation(species_tree, state, origin_species, origin_depth)
+}
+
+/// Draws an exponential waiting time for the next event.
+#[inline]
+fn draw_waiting_time<R: Rng>(total_rate: f64, rng: &mut R) -> f64 {
+    if total_rate > 0.0 {
+        let u: f64 = rng.gen();
+        -u.ln() / total_rate
+    } else {
+        f64::INFINITY
+    }
+}
+
+/// Finds a valid transfer recipient from contemporary species.
+/// Returns None if no valid recipient exists (donor is the only contemporary species).
+fn find_transfer_recipient<R: Rng>(
+    depths: &[f64],
+    contemporaneity: &[Vec<usize>],
+    event_time: f64,
+    donor_species: usize,
+    rng: &mut R,
+) -> Option<usize> {
+    let time_idx = find_time_index(depths, event_time);
+    let contemporaries = &contemporaneity[time_idx];
+
+    // If donor is alone, no valid recipient
+    if contemporaries.len() <= 1 {
+        return None;
+    }
+
+    // Draw random recipient, redraw if we hit the donor.
+    // Kind of dirty, but avoid allocating a new vector without the donor.
+    loop {
+        let idx = rng.gen_range(0..contemporaries.len());
+        let recipient = contemporaries[idx];
+        if recipient != donor_species {
+            return Some(recipient);
+        }
+    }
+}
+
+/// Finalizes simulation by finding the root and handling edge cases.
+fn finalize_simulation<'a>(
+    species_tree: &'a FlatTree,
+    mut state: SimulationState,
+    origin_species: usize,
+    origin_depth: f64,
+) -> (RecTree<'a>, Vec<DTLEvent>) {
+    // Handle edge case: gene lost before any events
+    if state.gene_nodes.is_empty() {
+        state.gene_nodes.push(FlatNode {
+            name: format!("0_{}", origin_species),
+            left_child: None,
+            right_child: None,
+            parent: None,
+            depth: Some(origin_depth),
+            length: 0.0,
+        });
+        state.node_mapping.push(origin_species);
+        state.event_mapping.push(Event::Loss);
+    }
+
+    let root_idx = state.gene_nodes
+        .iter()
+        .position(|n| n.parent.is_none())
+        .unwrap_or(0);
+
+    let gene_tree = FlatTree {
+        nodes: state.gene_nodes,
+        root: root_idx,
+    };
+
+    (RecTree::new(species_tree, gene_tree, state.node_mapping, state.event_mapping), state.events)
+}
+
 /// Simulates a gene tree along a species tree using the DTL model
+///
+/// This is the main public interface. It computes depths and contemporaneity,
+/// then calls the internal simulation function.
 ///
 /// # Arguments
 /// * `species_tree` - The species tree (must have depths assigned)
@@ -89,398 +513,83 @@ pub fn simulate_dtl<'a, R: Rng>(
     assert!(lambda_t >= 0.0, "Transfer rate must be non-negative");
     assert!(lambda_l >= 0.0, "Loss rate must be non-negative");
 
-    // Get time subdivision and contemporaneity from species tree
+    // Compute depths and contemporaneity
     let depths = species_tree.make_subdivision();
     let contemporaneity = species_tree.find_contemporaneity(&depths);
 
-    // Find the depth of the origin species node
-    let origin_depth = species_tree.nodes[origin_species]
-        .depth
-        .expect("Species tree must have depths assigned");
-
-    // Gene tree construction
-    let mut gene_nodes: Vec<FlatNode> = Vec::new();
-    let mut node_mapping: Vec<usize> = Vec::new();
-    let mut event_mapping: Vec<Event> = Vec::new();
-    let mut events: Vec<DTLEvent> = Vec::new();
-
-    // Create the initial gene copy at the origin
-    let initial_gene_idx = gene_nodes.len();
-    gene_nodes.push(FlatNode {
-        name: format!("g{}", initial_gene_idx),
-        left_child: None,
-        right_child: None,
-        parent: None,
-        depth: Some(origin_depth),
-        length: 0.0, // Will be set when child is created or at leaf
-    });
-    node_mapping.push(origin_species);
-    event_mapping.push(Event::Speciation); // Origin event (will be updated if it's a leaf)
-
-    // Active gene copies being simulated
-    let mut active_copies: Vec<GeneCopy> = vec![GeneCopy {
-        gene_node_idx: initial_gene_idx,
-        current_time: origin_depth,
-        species_node_idx: origin_species,
-    }];
-
-    // Total event rate
-    let total_rate = lambda_d + lambda_t + lambda_l;
-
-    // Process until no active copies remain
-    while !active_copies.is_empty() {
-        // Process each active copy
-        let mut new_copies: Vec<GeneCopy> = Vec::new();
-        let mut copies_to_remove: Vec<usize> = Vec::new();
-
-        for (copy_idx, copy) in active_copies.iter().enumerate() {
-            let species_node = &species_tree.nodes[copy.species_node_idx];
-            let species_end_time = species_node.depth.unwrap();
-
-            // Simulate events along this branch segment
-            let mut current_time = copy.current_time;
-            let current_gene_idx = copy.gene_node_idx;
-            let mut lost = false;
-
-            // Simulate D/T/L events along the branch
-            while current_time < species_end_time && !lost {
-                // Draw waiting time to next event
-                let waiting_time = if total_rate > 0.0 {
-                    let u: f64 = rng.gen();
-                    -u.ln() / total_rate
-                } else {
-                    f64::INFINITY
-                };
-
-                let event_time = current_time + waiting_time;
-
-                if event_time >= species_end_time {
-                    // No event before end of branch, advance to the node
-                    let branch_length = species_end_time - current_time;
-                    gene_nodes[current_gene_idx].length += branch_length;
-                    current_time = species_end_time;
-                    // Will process node after the while loop
-                } else {
-                    // An event occurs
-                    let branch_length = event_time - current_time;
-                    gene_nodes[current_gene_idx].length += branch_length;
-                    current_time = event_time;
-
-                    // Determine event type
-                    let event_prob: f64 = rng.gen();
-
-                    if event_prob < lambda_d / total_rate {
-                        // Duplication event
-                        let child1_idx = gene_nodes.len();
-                        gene_nodes.push(FlatNode {
-                            name: format!("g{}", child1_idx),
-                            left_child: None,
-                            right_child: None,
-                            parent: Some(current_gene_idx),
-                            depth: None,
-                            length: 0.0,
-                        });
-                        node_mapping.push(copy.species_node_idx);
-                        event_mapping.push(Event::Duplication);
-
-                        let child2_idx = gene_nodes.len();
-                        gene_nodes.push(FlatNode {
-                            name: format!("g{}", child2_idx),
-                            left_child: None,
-                            right_child: None,
-                            parent: Some(current_gene_idx),
-                            depth: None,
-                            length: 0.0,
-                        });
-                        node_mapping.push(copy.species_node_idx);
-                        event_mapping.push(Event::Duplication);
-
-                        // Update parent as duplication node
-                        gene_nodes[current_gene_idx].left_child = Some(child1_idx);
-                        gene_nodes[current_gene_idx].right_child = Some(child2_idx);
-                        gene_nodes[current_gene_idx].depth = Some(event_time);
-                        event_mapping[current_gene_idx] = Event::Duplication;
-
-                        // Record event
-                        events.push(DTLEvent {
-                            time: event_time,
-                            gene_node_id: current_gene_idx,
-                            event_type: "Duplication".to_string(),
-                            species_node: species_tree.nodes[copy.species_node_idx].name.clone(),
-                            donor_species: None,
-                            recipient_species: None,
-                            child1: Some(child1_idx),
-                            child2: Some(child2_idx),
-                        });
-
-                        // Both copies continue on the same species branch
-                        new_copies.push(GeneCopy {
-                            gene_node_idx: child1_idx,
-                            species_node_idx: copy.species_node_idx,
-                            current_time: event_time,
-                        });
-                        new_copies.push(GeneCopy {
-                            gene_node_idx: child2_idx,
-                            species_node_idx: copy.species_node_idx,
-                            current_time: event_time,
-                        });
-
-                        // Current gene is done (became a duplication node)
-                        lost = true;
-
-                    } else if event_prob < (lambda_d + lambda_t) / total_rate {
-                        // Transfer event
-                        // Find contemporary species branches at this time
-                        let time_idx = find_time_index(&depths, event_time);
-                        let contemporary_branches: Vec<usize> = contemporaneity[time_idx]
-                            .iter()
-                            .filter(|&&s| s != copy.species_node_idx)
-                            .copied()
-                            .collect();
-
-                        if contemporary_branches.is_empty() {
-                            // No valid transfer target, treat as failed transfer (gene continues)
-                            continue;
-                        }
-
-                        // Pick random recipient
-                        let recipient_idx = rng.gen_range(0..contemporary_branches.len());
-                        let recipient_species = contemporary_branches[recipient_idx];
-
-                        // Create two child gene nodes: donor copy and recipient copy
-                        let donor_child_idx = gene_nodes.len();
-                        gene_nodes.push(FlatNode {
-                            name: format!("g{}", donor_child_idx),
-                            left_child: None,
-                            right_child: None,
-                            parent: Some(current_gene_idx),
-                            depth: None,
-                            length: 0.0,
-                        });
-                        node_mapping.push(copy.species_node_idx);
-                        event_mapping.push(Event::Transfer);
-
-                        let recipient_child_idx = gene_nodes.len();
-                        gene_nodes.push(FlatNode {
-                            name: format!("g{}", recipient_child_idx),
-                            left_child: None,
-                            right_child: None,
-                            parent: Some(current_gene_idx),
-                            depth: None,
-                            length: 0.0,
-                        });
-                        node_mapping.push(recipient_species);
-                        event_mapping.push(Event::Transfer);
-
-                        // Update parent as transfer node
-                        gene_nodes[current_gene_idx].left_child = Some(donor_child_idx);
-                        gene_nodes[current_gene_idx].right_child = Some(recipient_child_idx);
-                        gene_nodes[current_gene_idx].depth = Some(event_time);
-                        event_mapping[current_gene_idx] = Event::Transfer;
-
-                        // Record event
-                        events.push(DTLEvent {
-                            time: event_time,
-                            gene_node_id: current_gene_idx,
-                            event_type: "Transfer".to_string(),
-                            species_node: species_tree.nodes[copy.species_node_idx].name.clone(),
-                            donor_species: Some(species_tree.nodes[copy.species_node_idx].name.clone()),
-                            recipient_species: Some(species_tree.nodes[recipient_species].name.clone()),
-                            child1: Some(donor_child_idx),
-                            child2: Some(recipient_child_idx),
-                        });
-
-                        // Donor continues on same branch
-                        new_copies.push(GeneCopy {
-                            gene_node_idx: donor_child_idx,
-                            species_node_idx: copy.species_node_idx,
-                            current_time: event_time,
-                        });
-
-                        // Recipient starts on the new branch
-                        new_copies.push(GeneCopy {
-                            gene_node_idx: recipient_child_idx,
-                            species_node_idx: recipient_species,
-                            current_time: event_time,
-                        });
-
-                        // Current gene is done (became a transfer node)
-                        lost = true;
-
-                    } else {
-                        // Loss event
-                        gene_nodes[current_gene_idx].depth = Some(event_time);
-                        event_mapping[current_gene_idx] = Event::Loss;
-
-                        // Record event
-                        events.push(DTLEvent {
-                            time: event_time,
-                            gene_node_id: current_gene_idx,
-                            event_type: "Loss".to_string(),
-                            species_node: species_tree.nodes[copy.species_node_idx].name.clone(),
-                            donor_species: None,
-                            recipient_species: None,
-                            child1: None,
-                            child2: None,
-                        });
-
-                        lost = true;
-                    }
-                }
-            }
-
-            // After the while loop: if we haven't lost the gene, process the species node
-            if !lost {
-                // Check if this is a leaf or internal node
-                if species_node.left_child.is_none() && species_node.right_child.is_none() {
-                    // Reached a leaf species - gene survives as extant
-                    gene_nodes[current_gene_idx].depth = Some(species_end_time);
-                    event_mapping[current_gene_idx] = Event::Leaf;
-
-                    // Record event
-                    events.push(DTLEvent {
-                        time: species_end_time,
-                        gene_node_id: current_gene_idx,
-                        event_type: "Leaf".to_string(),
-                        species_node: species_tree.nodes[copy.species_node_idx].name.clone(),
-                        donor_species: None,
-                        recipient_species: None,
-                        child1: None,
-                        child2: None,
-                    });
-                } else {
-                    // Speciation: gene follows both children
-                    let left_species = species_node.left_child.unwrap();
-                    let right_species = species_node.right_child.unwrap();
-
-                    // Create two child gene nodes
-                    let left_gene_idx = gene_nodes.len();
-                    gene_nodes.push(FlatNode {
-                        name: format!("g{}", left_gene_idx),
-                        left_child: None,
-                        right_child: None,
-                        parent: Some(current_gene_idx),
-                        depth: None,
-                        length: 0.0,
-                    });
-                    node_mapping.push(left_species);
-                    event_mapping.push(Event::Speciation);
-
-                    let right_gene_idx = gene_nodes.len();
-                    gene_nodes.push(FlatNode {
-                        name: format!("g{}", right_gene_idx),
-                        left_child: None,
-                        right_child: None,
-                        parent: Some(current_gene_idx),
-                        depth: None,
-                        length: 0.0,
-                    });
-                    node_mapping.push(right_species);
-                    event_mapping.push(Event::Speciation);
-
-                    // Update parent
-                    gene_nodes[current_gene_idx].left_child = Some(left_gene_idx);
-                    gene_nodes[current_gene_idx].right_child = Some(right_gene_idx);
-                    gene_nodes[current_gene_idx].depth = Some(species_end_time);
-                    event_mapping[current_gene_idx] = Event::Speciation;
-
-                    // Record event
-                    events.push(DTLEvent {
-                        time: species_end_time,
-                        gene_node_id: current_gene_idx,
-                        event_type: "Speciation".to_string(),
-                        species_node: species_tree.nodes[copy.species_node_idx].name.clone(),
-                        donor_species: None,
-                        recipient_species: None,
-                        child1: Some(left_gene_idx),
-                        child2: Some(right_gene_idx),
-                    });
-
-                    // Add new copies to process on the child branches
-                    // Start time is the parent's depth (which is the start of the child branch)
-                    let left_start_time = species_end_time;
-                    let right_start_time = species_end_time;
-
-                    new_copies.push(GeneCopy {
-                        gene_node_idx: left_gene_idx,
-                        species_node_idx: left_species,
-                        current_time: left_start_time,
-                    });
-                    new_copies.push(GeneCopy {
-                        gene_node_idx: right_gene_idx,
-                        species_node_idx: right_species,
-                        current_time: right_start_time,
-                    });
-                }
-            }
-
-            // Mark this copy as processed
-            copies_to_remove.push(copy_idx);
-        }
-
-        // Remove processed copies (in reverse order to maintain indices)
-        for &idx in copies_to_remove.iter().rev() {
-            active_copies.swap_remove(idx);
-        }
-
-        // Add new copies
-        active_copies.extend(new_copies);
-    }
-
-    // Find the root of the gene tree (node with no parent)
-    let root_idx = gene_nodes
-        .iter()
-        .position(|n| n.parent.is_none())
-        .unwrap_or(0);
-
-    // Handle edge case: if the gene was lost before any events, create minimal tree
-    if gene_nodes.is_empty() {
-        gene_nodes.push(FlatNode {
-            name: "g0".to_string(),
-            left_child: None,
-            right_child: None,
-            parent: None,
-            depth: Some(origin_depth),
-            length: 0.0,
-        });
-        node_mapping.push(origin_species);
-        event_mapping.push(Event::Loss);
-    }
-
-    let gene_tree = FlatTree {
-        nodes: gene_nodes,
-        root: root_idx,
-    };
-
-    (RecTree::new(species_tree, gene_tree, node_mapping, event_mapping), events)
+    // Call internal version
+    simulate_dtl_internal(
+        species_tree,
+        &depths,
+        &contemporaneity,
+        origin_species,
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        rng,
+    )
 }
 
-/// Saves DTL events to a CSV file
+/// Simulates multiple gene trees efficiently with shared pre-computed data
+///
+/// This is more efficient than calling simulate_dtl multiple times because:
+/// - Species tree depths and contemporaneity are computed only once
+/// - Avoids redundant computation for each simulation
 ///
 /// # Arguments
-/// * `events` - A slice of DTLEvent structures to save
-/// * `filename` - Path to the output CSV file
+/// * `species_tree` - The species tree (must have depths assigned)
+/// * `origin_species` - Species node index where the gene family originates
+/// * `lambda_d` - Duplication rate per unit time
+/// * `lambda_t` - Transfer rate per unit time
+/// * `lambda_l` - Loss rate per unit time
+/// * `n_simulations` - Number of gene trees to simulate
+/// * `rng` - Random number generator
 ///
 /// # Returns
-/// Result indicating success or IO error
-pub fn save_events_to_csv(events: &[DTLEvent], filename: &str) -> std::io::Result<()> {
-    use std::fs::File;
-    use std::io::{Write, BufWriter};
+/// A tuple containing:
+/// - A `Vec<RecTree>` with all simulated gene trees
+/// - A `Vec<Vec<DTLEvent>>` with events for each simulation
+pub fn simulate_dtl_batch<'a, R: Rng>(
+    species_tree: &'a FlatTree,
+    origin_species: usize,
+    lambda_d: f64,
+    lambda_t: f64,
+    lambda_l: f64,
+    n_simulations: usize,
+    rng: &mut R,
+) -> (Vec<RecTree<'a>>, Vec<Vec<DTLEvent>>) {
+    assert!(lambda_d >= 0.0, "Duplication rate must be non-negative");
+    assert!(lambda_t >= 0.0, "Transfer rate must be non-negative");
+    assert!(lambda_l >= 0.0, "Loss rate must be non-negative");
 
-    let file = File::create(filename)?;
-    let mut writer = BufWriter::new(file);
+    // Compute depths and contemporaneity once for all simulations
+    let depths = species_tree.make_subdivision();
+    let contemporaneity = species_tree.find_contemporaneity(&depths);
 
-    // Write header
-    writeln!(writer, "{}", DTLEvent::csv_header())?;
+    let mut rec_trees = Vec::with_capacity(n_simulations);
+    let mut all_events = Vec::with_capacity(n_simulations);
 
-    // Write each event
-    for event in events {
-        writeln!(writer, "{}", event.to_csv_row())?;
+    // Simulate all gene trees using the shared depths and contemporaneity
+    for _ in 0..n_simulations {
+        let (rec_tree, events) = simulate_dtl_internal(
+            species_tree,
+            &depths,
+            &contemporaneity,
+            origin_species,
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            rng,
+        );
+        rec_trees.push(rec_tree);
+        all_events.push(events);
     }
 
-    writer.flush()?;
-    Ok(())
+    (rec_trees, all_events)
 }
+
+// Re-export from io module for backward compatibility
+pub use crate::io::save_dtl_events_to_csv as save_events_to_csv;
 
 /// Find the index in the depths array corresponding to a given time
 fn find_time_index(depths: &[f64], time: f64) -> usize {
@@ -618,7 +727,7 @@ mod tests {
         let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 1.0, 0.5, 0.5, &mut rng);
 
         // Save events to CSV
-        save_events_to_csv(&events, "test_dtl_events.csv").expect("Failed to write events CSV");
+        save_events_to_csv(&events, &species_tree, "test_dtl_events.csv").expect("Failed to write events CSV");
         println!("Events saved to test_dtl_events.csv");
 
         // Generate XML

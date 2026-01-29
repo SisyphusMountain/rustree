@@ -1,0 +1,64 @@
+//! Core tree data structures for phylogenetic trees.
+//!
+//! This module provides two tree representations:
+//! - `Node`: Recursive tree with Box-based children (heap-allocated)
+//! - `FlatTree`/`FlatNode`: Vector-based tree with index references
+//!
+//! Both representations support traversal (pre-order, in-order, post-order)
+//! and can be converted between each other.
+
+mod iter;
+mod traits;
+mod conversion;
+mod rectree;
+
+// Re-export iterator types
+pub use iter::{NodeIter, FlatTreeIter};
+
+// Re-export traits
+pub use traits::HasName;
+
+// Re-export conversion functions
+pub use conversion::{node_to_flat, flat_to_node};
+
+// Re-export reconciliation types
+pub use rectree::{Event, RecTree};
+
+// ============================================================================
+// Core Data Structures
+// ============================================================================
+
+/// A node in a flat (vector-based) tree representation.
+#[derive(Clone, Debug)]
+pub struct FlatNode {
+    pub name: String,
+    pub left_child: Option<usize>,
+    pub right_child: Option<usize>,
+    pub parent: Option<usize>,
+    pub depth: Option<f64>,
+    pub length: f64,
+}
+
+/// A flat tree representation using a vector of nodes.
+#[derive(Clone, Debug)]
+pub struct FlatTree {
+    pub nodes: Vec<FlatNode>,
+    pub root: usize,
+}
+
+/// A node in a recursive (Box-based) tree representation.
+#[derive(Clone, Debug)]
+pub struct Node {
+    pub name: String,
+    pub left_child: Option<Box<Node>>,
+    pub right_child: Option<Box<Node>>,
+    pub depth: Option<f64>,
+    pub length: f64,
+}
+
+/// Traversal order for tree iteration.
+pub enum TraversalOrder {
+    PreOrder,
+    InOrder,
+    PostOrder,
+}

@@ -1,61 +1,63 @@
 use std::fs;
 use std::path::PathBuf;
-use pest::Parser;
-use rustree::node::{TraversalOrder, compare_nodes};
-use rustree::newick::newick::{newick_to_tree, node_to_newick, NewickParser, Rule};
-use rustree::sampling::remove_node;
-
-
+use rustree::comparison::compare_nodes;
+use rustree::newick::newick::parse_newick;
+use rustree::sampling::{extract_induced_subtree, find_leaf_indices_by_names};
 
 #[test]
-fn test_remove_node() {
+fn test_extract_induced_subtree_keep_cd() {
+    // Original tree: ((A:0.1,B:0.2)F:1.0,(C:0.3,D:0.4)E:0.5)G:0.0;
+    // Keep only C and D -> should get (C:0.3,D:0.4)E:0.5; (same as test_tree_F.nwk)
+
     // Read the Newick string from the test file
     let newick_path = PathBuf::from("tests/test_tree.nwk");
     let newick_str = fs::read_to_string(newick_path).expect("Failed to read Newick file");
 
     // Parse the Newick string into a Node tree
-    let mut pairs = NewickParser::parse(Rule::newick, &newick_str).expect("Failed to parse Newick string");
-    let mut node_tree = newick_to_tree(pairs.next().unwrap());
+    let mut node_tree = parse_newick(&newick_str).expect("Failed to parse Newick string");
     let mut root_node = node_tree.pop().unwrap();
 
     // Convert the Node tree to a FlatTree
     root_node.zero_root_length();
     root_node.assign_depths(0.0);
-    let mut flat_tree = root_node.to_flat_tree();
+    let flat_tree = root_node.to_flat_tree();
 
-    // Find the index of node "F" and remove it.
-    let index_f = flat_tree.iter(TraversalOrder::PreOrder)
-                           .position(|node| node.name == "F")
-                           .expect("Node 'F' not found");
-    remove_node(&mut flat_tree, index_f);
+    // Keep only leaves C and D
+    let leaves_to_keep = find_leaf_indices_by_names(
+        &flat_tree,
+        &["C".to_string(), "D".to_string()]
+    );
 
-    // Reconstruct the tree and convert it back to Newick (for debug)
-    let mut reconstructed_tree = flat_tree.to_node();
+    // Extract induced subtree
+    let induced = extract_induced_subtree(&flat_tree, &leaves_to_keep)
+        .expect("Failed to extract induced subtree");
+
+    // Reconstruct the tree
+    let mut reconstructed_tree = induced.to_node();
     reconstructed_tree.assign_depths(0.0);
-    let newick_result = node_to_newick(&reconstructed_tree) + ";";
+    let newick_result = reconstructed_tree.to_newick() + ";";
     println!("Resulting Newick string: {}", newick_result);
 
-    // Now read expected tree from test_tree_F.nwk and compare Nodes
+    // Read expected tree from test_tree_F.nwk
     let expected_path = PathBuf::from("tests/test_tree_F.nwk");
     let expected_newick = fs::read_to_string(expected_path)
-                           .expect("Failed to read expected Newick file");
-    let mut expected_pairs = NewickParser::parse(Rule::newick, &expected_newick)
-                           .expect("Failed to parse expected Newick string");
-    let mut expected_tree = newick_to_tree(expected_pairs.next().unwrap()).pop().unwrap();
+        .expect("Failed to read expected Newick file");
+    let mut expected_tree = parse_newick(&expected_newick)
+        .expect("Failed to parse expected Newick string").pop().unwrap();
     expected_tree.assign_depths(0.0);
-    // Reconvert both trees to Newick and display them.
-    let recon_newick = node_to_newick(&reconstructed_tree) + ";";
-    let expected_recon_newick = node_to_newick(&expected_tree) + ";";
+
+    // Display both trees
+    let recon_newick = reconstructed_tree.to_newick() + ";";
+    let expected_recon_newick = expected_tree.to_newick() + ";";
     println!("Reconstructed Newick string: {}", recon_newick);
     println!("Expected Newick string: {}", expected_recon_newick);
 
-    // Compare the reconstructed tree and the expected tree (ignoring children permutation)
-    if !compare_nodes(&reconstructed_tree, &expected_tree) {
+    // Compare the reconstructed tree and the expected tree
+    if !compare_nodes(&reconstructed_tree, &expected_tree, false, 0.0) {
         println!("Reconstructed Node: {:?}", reconstructed_tree);
         println!("Expected Node: {:?}", expected_tree);
         panic!("Reconstructed tree does not match the expected tree.");
     } else {
-        // Show both newick strings if the trees match
         println!("Reconstructed tree matches the expected tree.");
     }
 }

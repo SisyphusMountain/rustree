@@ -200,27 +200,5 @@ pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> 
     (tree, events)
 }
 
-/// Saves a list of tree events to a CSV file
-///
-/// # Arguments
-/// * `events` - Vector of TreeEvent to save
-/// * `filename` - Path to the output CSV file
-///
-/// # Returns
-/// Result indicating success or error
-pub fn save_events_to_csv(events: &[TreeEvent], filename: &str) -> std::io::Result<()> {
-    use std::fs::File;
-    use std::io::Write;
-
-    let mut file = File::create(filename)?;
-
-    // Write header
-    writeln!(file, "{}", TreeEvent::csv_header())?;
-
-    // Write each event
-    for event in events {
-        writeln!(file, "{}", event.to_csv_row())?;
-    }
-
-    Ok(())
-}
+// Re-export from io module for backward compatibility
+pub use crate::io::save_bd_events_to_csv as save_events_to_csv;

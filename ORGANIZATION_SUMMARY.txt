@@ -1,0 +1,141 @@
+PROJECT ORGANIZATION ASSESSMENT
+================================================================================
+
+CURRENT STATE: ⚠️ MODERATELY ORGANIZED (Growing Pains)
+
+FILE SIZE BREAKDOWN:
+┌────────────────────────────────────────────────────────────────┐
+│ dtl.rs              ████████████████████████████ 773 lines     │ TOO LARGE
+│ node.rs             ████████████████████████     650 lines     │ TOO LARGE
+│ sampling.rs         ████████████████             540 lines     │ TOO LARGE
+│ surgery.rs          ████████                     338 lines     │ OK
+│ bd.rs               █████                        225 lines     │ OK
+│ metric_functions.rs ████                         202 lines     │ MISPLACED
+│ debug.rs            ███                          131 lines     │ GOOD
+│ main.rs             ██                            93 lines     │ GOOD
+│ comparison.rs       █                             46 lines     │ GOOD
+│ lib.rs              ▌                             18 lines     │ GOOD
+└────────────────────────────────────────────────────────────────┘
+
+MAIN PROBLEMS:
+================================================================================
+
+🔴 CRITICAL: node.rs (650 lines) - TOO MANY RESPONSIBILITIES
+   ├─ Data structures (Node, FlatNode, FlatTree, RecTree)
+   ├─ Iterators (NodeIter, FlatTreeIter)
+   ├─ Conversion functions (node_to_flat, flat_to_node)
+   ├─ XML export (to_xml methods)
+   └─ Event enum
+   
+   → SHOULD BE: 6-7 separate files (<150 lines each)
+
+🔴 CRITICAL: I/O Scattered Everywhere
+   ├─ CSV export in bd.rs
+   ├─ CSV export in dtl.rs
+   ├─ XML export in node.rs
+   └─ Newick parsing in newick/
+   
+   → SHOULD BE: One io/ module with csv.rs, xml.rs, newick.rs
+
+🟡 MEDIUM: sampling.rs (540 lines) - TOO MANY RESPONSIBILITIES
+   ├─ Random sampling
+   ├─ Diversified sampling
+   ├─ Clustered sampling
+   ├─ SPR operations (overlaps with surgery.rs!)
+   ├─ Analysis functions
+   └─ String formatting
+   
+   → SHOULD BE: Separate modules for each strategy
+
+🟡 MEDIUM: Analysis Functions Scattered
+   ├─ count_events() in dtl.rs
+   ├─ find_deepest_nodes() in sampling.rs
+   ├─ give_depth() in metric_functions.rs
+   └─ compare_nodes() in comparison.rs
+   
+   → SHOULD BE: One analysis/ module
+
+🟢 MINOR: Too Many Benchmarks (22+ files in examples/)
+   → SHOULD BE: Organized into subdirectories, remove redundant ones
+
+WHAT'S GOOD:
+================================================================================
+
+✓ Clear separation: bd.rs and dtl.rs are separate
+✓ debug.rs is focused and clear
+✓ surgery.rs has clear purpose
+✓ comparison.rs is small and focused
+✓ Core algorithms are clean
+
+RECOMMENDED STRUCTURE:
+================================================================================
+
+rustree/
+├── src/
+│   ├── core/              - Data structures only
+│   │   ├── node.rs
+│   │   ├── flat_tree.rs
+│   │   ├── rec_tree.rs
+│   │   ├── events.rs
+│   │   └── iterators.rs
+│   │
+│   ├── simulation/        - Tree generation
+│   │   ├── birth_death.rs
+│   │   ├── dtl.rs
+│   │   └── dtl_batch.rs
+│   │
+│   ├── io/                - ALL I/O in one place
+│   │   ├── csv.rs
+│   │   ├── xml.rs
+│   │   └── newick.rs
+│   │
+│   ├── operations/        - Tree operations
+│   │   ├── surgery.rs
+│   │   ├── conversion.rs
+│   │   └── sampling/
+│   │       ├── random.rs
+│   │       ├── diversified.rs
+│   │       └── clustered.rs
+│   │
+│   ├── analysis/          - Tree analysis
+│   │   ├── metrics.rs
+│   │   ├── counting.rs
+│   │   ├── comparison.rs
+│   │   └── traversal.rs
+│   │
+│   └── utils/             - Helper functions
+│
+└── examples/
+    ├── basic/             - Simple examples
+    ├── benchmarks/        - Performance tests
+    └── analysis/          - Analysis examples
+
+PRIORITY ORDER:
+================================================================================
+
+1. 🔥 Split node.rs (650 → 6 files of ~100 lines each)
+   Estimated: 2-3 hours
+
+2. 🔥 Consolidate I/O (all CSV/XML/Newick in io/)
+   Estimated: 1-2 hours
+
+3. 🔥 Split sampling.rs (540 → 4 files)
+   Estimated: 2-3 hours
+
+4. 📊 Organize analysis functions
+   Estimated: 1 hour
+
+5. 🧹 Clean up examples (remove old benchmarks)
+   Estimated: 30 minutes
+
+TOTAL EFFORT: ~8-10 hours
+
+BENEFITS:
+================================================================================
+
+✓ Each file <300 lines (easier to understand)
+✓ Clear module hierarchy (better discoverability)
+✓ Separation of concerns (easier testing)
+✓ Easy to extend (new sampling strategies, export formats)
+✓ Better maintenance (related code grouped together)
+
