@@ -30,6 +30,7 @@ fn main() {
             &species_tree,
             species_tree.root,
             0.2, 0.2, 0.1,
+            None,
             &mut rng,
         );
         total_nodes += rec_tree.gene_tree.nodes.len();

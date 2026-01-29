@@ -1,0 +1,16 @@
+time,node_id,event_type,child1,child2
+0,0,Leaf,,
+0,1,Leaf,,
+0,2,Leaf,,
+0,3,Leaf,,
+0,4,Leaf,,
+0,5,Leaf,,
+0,6,Leaf,,
+0,7,Leaf,,
+0.054024740664337635,8,Speciation,2,5
+0.23022891117205754,9,Speciation,1,8
+0.2689533501177651,10,Speciation,7,9
+0.27398302442631844,11,Speciation,3,4
+0.7835574476982099,12,Speciation,11,6
+1.1709342645903886,13,Speciation,0,10
+1.2343101367798959,14,Speciation,12,13

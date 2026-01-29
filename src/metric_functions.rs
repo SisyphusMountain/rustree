@@ -200,4 +200,57 @@ impl FlatTree {
     pub fn number_of_species(&self, contemporaneity: &[Vec<usize>]) -> Vec<f64> {
         contemporaneity.iter().map(|species| species.len() as f64).collect()
     }
+
+    /// Finds the lowest common ancestor (LCA) of two nodes.
+    ///
+    /// # Arguments
+    /// * `node_a` - Index of the first node.
+    /// * `node_b` - Index of the second node.
+    ///
+    /// # Returns
+    /// The index of the lowest common ancestor.
+    pub fn find_lca(&self, node_a: usize, node_b: usize) -> usize {
+        // Collect ancestors of node_a (including itself)
+        let mut ancestors_a = std::collections::HashSet::new();
+        let mut current = Some(node_a);
+        while let Some(idx) = current {
+            ancestors_a.insert(idx);
+            current = self.nodes[idx].parent;
+        }
+
+        // Walk up from node_b until we find a common ancestor
+        let mut current = Some(node_b);
+        while let Some(idx) = current {
+            if ancestors_a.contains(&idx) {
+                return idx;
+            }
+            current = self.nodes[idx].parent;
+        }
+
+        // Should not happen in a valid tree, panic
+        panic!("No common ancestor found for nodes {} and {}", node_a, node_b);
+    }
+
+    /// Precomputes a matrix of LCA depths for all node pairs.
+    ///
+    /// This is used for efficient distance computation during assortative transfer selection.
+    /// The distance between two nodes A and B at time t is: 2 * (t - lca_depth[A][B])
+    ///
+    /// # Returns
+    /// A symmetric matrix where `result[i][j]` = depth of LCA(i, j).
+    pub fn precompute_lca_depths(&self) -> Vec<Vec<f64>> {
+        let n = self.nodes.len();
+        let mut lca_depths = vec![vec![0.0; n]; n];
+
+        for i in 0..n {
+            for j in i..n {
+                let lca = self.find_lca(i, j);
+                let depth = self.nodes[lca].depth.unwrap_or(0.0);
+                lca_depths[i][j] = depth;
+                lca_depths[j][i] = depth; // Symmetric
+            }
+        }
+
+        lca_depths
+    }
 }

@@ -26,14 +26,16 @@ tree_leaf_names <- function(tree) {
 
 # Gene Tree Functions
 
-simulate_dtl <- function(species_tree, lambda_d, lambda_t, lambda_l, seed = NULL) {
+simulate_dtl <- function(species_tree, lambda_d, lambda_t, lambda_l, transfer_alpha = NULL, seed = NULL) {
   if (is.null(seed)) seed <- NA_integer_
-  .Call("wrap__simulate_dtl_r", species_tree, as.double(lambda_d), as.double(lambda_t), as.double(lambda_l), as.integer(seed))
+  if (is.null(transfer_alpha)) transfer_alpha <- NA_real_
+  .Call("wrap__simulate_dtl_r", species_tree, as.double(lambda_d), as.double(lambda_t), as.double(lambda_l), as.double(transfer_alpha), as.integer(seed))
 }
 
-simulate_dtl_batch <- function(species_tree, n, lambda_d, lambda_t, lambda_l, seed = NULL) {
+simulate_dtl_batch <- function(species_tree, n, lambda_d, lambda_t, lambda_l, transfer_alpha = NULL, seed = NULL) {
   if (is.null(seed)) seed <- NA_integer_
-  .Call("wrap__simulate_dtl_batch_r", species_tree, as.integer(n), as.double(lambda_d), as.double(lambda_t), as.double(lambda_l), as.integer(seed))
+  if (is.null(transfer_alpha)) transfer_alpha <- NA_real_
+  .Call("wrap__simulate_dtl_batch_r", species_tree, as.integer(n), as.double(lambda_d), as.double(lambda_t), as.double(lambda_l), as.double(transfer_alpha), as.integer(seed))
 }
 
 gene_tree_num_extant <- function(gene_tree) {

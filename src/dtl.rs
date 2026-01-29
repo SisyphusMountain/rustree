@@ -242,10 +242,12 @@ impl SimulationState {
 /// * `species_tree` - The species tree (must have depths assigned)
 /// * `depths` - Pre-computed time subdivision
 /// * `contemporaneity` - Pre-computed contemporaneity information
+/// * `lca_depths` - Optional precomputed LCA depths matrix for assortative transfers
 /// * `origin_species` - Species node index where the gene family originates
 /// * `lambda_d` - Duplication rate per unit time
 /// * `lambda_t` - Transfer rate per unit time
 /// * `lambda_l` - Loss rate per unit time
+/// * `transfer_alpha` - Optional distance decay parameter for assortative transfers
 /// * `rng` - Random number generator
 ///
 /// # Returns
@@ -256,10 +258,12 @@ fn simulate_dtl_internal<'a, R: Rng>(
     species_tree: &'a FlatTree,
     depths: &[f64],
     contemporaneity: &[Vec<usize>],
+    lca_depths: Option<&[Vec<f64>]>,
     origin_species: usize,
     lambda_d: f64,
     lambda_t: f64,
     lambda_l: f64,
+    transfer_alpha: Option<f64>,
     rng: &mut R,
 ) -> (RecTree<'a>, Vec<DTLEvent>) {
     let origin_depth = species_tree.nodes[origin_species]
@@ -336,11 +340,18 @@ fn simulate_dtl_internal<'a, R: Rng>(
                         terminated = true;
 
                     } else if event_prob < transfer_threshold {
-                        // Transfer - find valid recipient
-                        if let Some(recipient) = find_transfer_recipient(
-                            depths, contemporaneity, event_time,
-                            copy.species_node_idx, rng
-                        ) {
+                        // Transfer - find valid recipient (uniform or assortative)
+                        let recipient = match (transfer_alpha, lca_depths) {
+                            (Some(alpha), Some(lca)) => find_transfer_recipient_assortative(
+                                lca, depths, contemporaneity, event_time,
+                                copy.species_node_idx, alpha, rng
+                            ),
+                            _ => find_transfer_recipient(
+                                depths, contemporaneity, event_time,
+                                copy.species_node_idx, rng
+                            ),
+                        };
+                        if let Some(recipient) = recipient {
                             let (donor_child, recipient_child) = state.handle_transfer(
                                 current_gene_idx, copy.species_node_idx, recipient, event_time
                             );
@@ -419,7 +430,7 @@ fn draw_waiting_time<R: Rng>(total_rate: f64, rng: &mut R) -> f64 {
     }
 }
 
-/// Finds a valid transfer recipient from contemporary species.
+/// Finds a valid transfer recipient from contemporary species (uniform random).
 /// Returns None if no valid recipient exists (donor is the only contemporary species).
 fn find_transfer_recipient<R: Rng>(
     depths: &[f64],
@@ -445,6 +456,77 @@ fn find_transfer_recipient<R: Rng>(
             return Some(recipient);
         }
     }
+}
+
+/// Finds a transfer recipient with distance-dependent (assortative) weighting.
+///
+/// The probability of selecting species B as recipient from donor A at time t is:
+/// P(B) ∝ exp(-alpha * d(A, B, t))
+///
+/// where d(A, B, t) = 2 * (t - depth_of_LCA(A, B)) is the phylogenetic distance at time t.
+///
+/// # Arguments
+/// * `lca_depths` - Precomputed matrix where lca_depths[i][j] = depth of LCA(i, j)
+/// * `depths` - Time subdivision array
+/// * `contemporaneity` - Contemporary species at each time interval
+/// * `event_time` - Time of the transfer event
+/// * `donor_species` - Index of the donor species
+/// * `alpha` - Distance decay parameter (higher = more local transfers)
+/// * `rng` - Random number generator
+///
+/// # Returns
+/// Some(recipient_index) or None if donor is alone
+fn find_transfer_recipient_assortative<R: Rng>(
+    lca_depths: &[Vec<f64>],
+    depths: &[f64],
+    contemporaneity: &[Vec<usize>],
+    event_time: f64,
+    donor_species: usize,
+    alpha: f64,
+    rng: &mut R,
+) -> Option<usize> {
+    let time_idx = find_time_index(depths, event_time);
+    let contemporaries = &contemporaneity[time_idx];
+
+    // If donor is alone, no valid recipient
+    if contemporaries.len() <= 1 {
+        return None;
+    }
+
+    // Compute weights for each potential recipient
+    let mut weights: Vec<f64> = Vec::with_capacity(contemporaries.len());
+    let mut total_weight = 0.0;
+
+    for &species in contemporaries {
+        if species == donor_species {
+            weights.push(0.0); // Donor cannot receive from itself
+        } else {
+            // Distance = 2 * (event_time - LCA_depth)
+            let lca_depth = lca_depths[donor_species][species];
+            let distance = 2.0 * (event_time - lca_depth);
+            let weight = (-alpha * distance).exp();
+            weights.push(weight);
+            total_weight += weight;
+        }
+    }
+
+    // No valid recipients (shouldn't happen if len > 1, but be safe)
+    if total_weight <= 0.0 {
+        return None;
+    }
+
+    // Sample from weighted distribution
+    let threshold: f64 = rng.gen::<f64>() * total_weight;
+    let mut cumulative = 0.0;
+
+    for (i, &weight) in weights.iter().enumerate() {
+        cumulative += weight;
+        if cumulative >= threshold {
+            return Some(contemporaries[i]);
+        }
+    }
+    // panic if we get here
+    panic!("Failed to sample transfer recipient in assortative transfer");
 }
 
 /// Finalizes simulation by finding the root and handling edge cases.
@@ -492,6 +574,7 @@ fn finalize_simulation<'a>(
 /// * `lambda_d` - Duplication rate per unit time
 /// * `lambda_t` - Transfer rate per unit time
 /// * `lambda_l` - Loss rate per unit time
+/// * `transfer_alpha` - Optional distance decay for assortative transfers (None = uniform)
 /// * `rng` - Random number generator
 ///
 /// # Returns
@@ -507,6 +590,7 @@ pub fn simulate_dtl<'a, R: Rng>(
     lambda_d: f64,
     lambda_t: f64,
     lambda_l: f64,
+    transfer_alpha: Option<f64>,
     rng: &mut R,
 ) -> (RecTree<'a>, Vec<DTLEvent>) {
     assert!(lambda_d >= 0.0, "Duplication rate must be non-negative");
@@ -517,15 +601,20 @@ pub fn simulate_dtl<'a, R: Rng>(
     let depths = species_tree.make_subdivision();
     let contemporaneity = species_tree.find_contemporaneity(&depths);
 
+    // Compute LCA depths if using assortative transfers
+    let lca_depths = transfer_alpha.map(|_| species_tree.precompute_lca_depths());
+
     // Call internal version
     simulate_dtl_internal(
         species_tree,
         &depths,
         &contemporaneity,
+        lca_depths.as_ref().map(|v| v.as_slice()),
         origin_species,
         lambda_d,
         lambda_t,
         lambda_l,
+        transfer_alpha,
         rng,
     )
 }
@@ -534,6 +623,7 @@ pub fn simulate_dtl<'a, R: Rng>(
 ///
 /// This is more efficient than calling simulate_dtl multiple times because:
 /// - Species tree depths and contemporaneity are computed only once
+/// - LCA depths (for assortative transfers) are computed only once
 /// - Avoids redundant computation for each simulation
 ///
 /// # Arguments
@@ -542,6 +632,7 @@ pub fn simulate_dtl<'a, R: Rng>(
 /// * `lambda_d` - Duplication rate per unit time
 /// * `lambda_t` - Transfer rate per unit time
 /// * `lambda_l` - Loss rate per unit time
+/// * `transfer_alpha` - Optional distance decay for assortative transfers (None = uniform)
 /// * `n_simulations` - Number of gene trees to simulate
 /// * `rng` - Random number generator
 ///
@@ -555,6 +646,7 @@ pub fn simulate_dtl_batch<'a, R: Rng>(
     lambda_d: f64,
     lambda_t: f64,
     lambda_l: f64,
+    transfer_alpha: Option<f64>,
     n_simulations: usize,
     rng: &mut R,
 ) -> (Vec<RecTree<'a>>, Vec<Vec<DTLEvent>>) {
@@ -566,19 +658,25 @@ pub fn simulate_dtl_batch<'a, R: Rng>(
     let depths = species_tree.make_subdivision();
     let contemporaneity = species_tree.find_contemporaneity(&depths);
 
+    // Compute LCA depths once if using assortative transfers
+    let lca_depths = transfer_alpha.map(|_| species_tree.precompute_lca_depths());
+    let lca_ref = lca_depths.as_ref().map(|v| v.as_slice());
+
     let mut rec_trees = Vec::with_capacity(n_simulations);
     let mut all_events = Vec::with_capacity(n_simulations);
 
-    // Simulate all gene trees using the shared depths and contemporaneity
+    // Simulate all gene trees using the shared precomputed data
     for _ in 0..n_simulations {
         let (rec_tree, events) = simulate_dtl_internal(
             species_tree,
             &depths,
             &contemporaneity,
+            lca_ref,
             origin_species,
             lambda_d,
             lambda_t,
             lambda_l,
+            transfer_alpha,
             rng,
         );
         rec_trees.push(rec_tree);
@@ -667,7 +765,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         // With zero D/T/L rates, should get pure speciation
-        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 0.0, 0.0, &mut rng);
+        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 0.0, 0.0, None, &mut rng);
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
         println!("Events: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
@@ -687,7 +785,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(123);
 
         // High duplication rate
-        let (rec_tree, _events) = simulate_dtl(&species_tree, species_tree.root, 2.0, 0.0, 0.0, &mut rng);
+        let (rec_tree, _events) = simulate_dtl(&species_tree, species_tree.root, 2.0, 0.0, 0.0, None, &mut rng);
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
         println!("Events with duplication: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
@@ -705,7 +803,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(999);
 
         // High loss rate
-        let (rec_tree, _events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 0.0, 5.0, &mut rng);
+        let (rec_tree, _events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 0.0, 5.0, None, &mut rng);
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
         println!("Events with loss: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
@@ -724,7 +822,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         // With mixed events
-        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 1.0, 0.5, 0.5, &mut rng);
+        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 1.0, 0.5, 0.5, None, &mut rng);
 
         // Save events to CSV
         save_events_to_csv(&events, &species_tree, "test_dtl_events.csv").expect("Failed to write events CSV");
@@ -753,11 +851,31 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(456);
 
-        // High transfer rate
-        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 2.0, 0.0, &mut rng);
+        // High transfer rate (uniform)
+        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 2.0, 0.0, None, &mut rng);
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
         println!("Events with transfer: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
         println!("Total event count: {}", events.len());
+    }
+
+    #[test]
+    fn test_dtl_assortative_transfer() {
+        let newick = "((A:1,B:1)AB:1,C:2)root:0;";
+        let mut species_tree = parse_tree(newick);
+        species_tree.assign_depths();
+
+        let mut rng = StdRng::seed_from_u64(456);
+
+        // High transfer rate with assortative selection (alpha=1.0)
+        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 2.0, 0.0, Some(1.0), &mut rng);
+
+        let (s, d, t, l, leaves) = count_events(&rec_tree);
+        println!("Events with assortative transfer: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
+        println!("Total event count: {}", events.len());
+
+        // Verify LCA computation works
+        let lca_depths = species_tree.precompute_lca_depths();
+        assert!(lca_depths.len() > 0, "LCA depths should be computed");
     }
 }

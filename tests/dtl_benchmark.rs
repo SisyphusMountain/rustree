@@ -64,6 +64,7 @@ fn benchmark_dtl_varying_rates() {
                 lambda_d,
                 lambda_t,
                 lambda_l,
+                None,
                 &mut rng,
             );
 
@@ -129,6 +130,7 @@ fn benchmark_dtl_varying_species_tree_size() {
                 lambda_d,
                 lambda_t,
                 lambda_l,
+                None,
                 &mut rng,
             );
             let elapsed = start.elapsed();
@@ -193,6 +195,7 @@ fn benchmark_dtl_scalability() {
                 lambda_d,
                 lambda_t,
                 lambda_l,
+                None,
                 &mut rng,
             );
             let elapsed = start.elapsed();
@@ -246,6 +249,7 @@ fn benchmark_dtl_transfer_intensity() {
                 lambda_d,
                 lambda_t,
                 lambda_l,
+                None,
                 &mut rng,
             );
             let elapsed = start.elapsed();
@@ -312,6 +316,7 @@ fn benchmark_dtl_loss_impact() {
                 lambda_d,
                 lambda_t,
                 lambda_l,
+                None,
                 &mut rng,
             );
             let elapsed = start.elapsed();
@@ -380,6 +385,7 @@ fn benchmark_dtl_large_scale() {
                 lambda_d,
                 lambda_t,
                 lambda_l,
+                None,
                 &mut rng,
             );
             let elapsed = start.elapsed();
@@ -424,6 +430,7 @@ fn benchmark_dtl_quick_test() {
             lambda_d,
             lambda_t,
             lambda_l,
+            None,
             &mut rng,
         );
         let elapsed = start.elapsed();

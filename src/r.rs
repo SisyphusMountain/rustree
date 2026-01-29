@@ -122,6 +122,7 @@ fn tree_leaf_names_r(tree_list: List) -> Result<Vec<String>> {
 /// @param lambda_d Duplication rate
 /// @param lambda_t Transfer rate
 /// @param lambda_l Loss rate
+/// @param transfer_alpha Optional distance decay for assortative transfers (NULL = uniform)
 /// @param seed Optional random seed
 /// @return A list containing the gene tree data with reconciliation info
 /// @export
@@ -131,6 +132,7 @@ fn simulate_dtl_r(
     lambda_d: f64,
     lambda_t: f64,
     lambda_l: f64,
+    transfer_alpha: Robj,
     seed: Robj,
 ) -> Result<List> {
     if lambda_d < 0.0 || lambda_t < 0.0 || lambda_l < 0.0 {
@@ -145,8 +147,14 @@ fn simulate_dtl_r(
         StdRng::seed_from_u64(seed.as_integer().unwrap() as u64)
     };
 
+    let alpha = if transfer_alpha.is_null() {
+        None
+    } else {
+        Some(transfer_alpha.as_real().ok_or("transfer_alpha must be a number")?)
+    };
+
     let origin_species = species_tree.root;
-    let (rec_tree, _events) = simulate_dtl(&species_tree, origin_species, lambda_d, lambda_t, lambda_l, &mut rng);
+    let (rec_tree, _events) = simulate_dtl(&species_tree, origin_species, lambda_d, lambda_t, lambda_l, alpha, &mut rng);
 
     Ok(rectree_to_rlist(&species_tree, &rec_tree.gene_tree, &rec_tree.node_mapping, &rec_tree.event_mapping))
 }
@@ -158,6 +166,7 @@ fn simulate_dtl_r(
 /// @param lambda_d Duplication rate
 /// @param lambda_t Transfer rate
 /// @param lambda_l Loss rate
+/// @param transfer_alpha Optional distance decay for assortative transfers (NULL = uniform)
 /// @param seed Optional random seed
 /// @return A list of gene tree lists
 /// @export
@@ -168,6 +177,7 @@ fn simulate_dtl_batch_r(
     lambda_d: f64,
     lambda_t: f64,
     lambda_l: f64,
+    transfer_alpha: Robj,
     seed: Robj,
 ) -> Result<List> {
     if n <= 0 {
@@ -185,6 +195,12 @@ fn simulate_dtl_batch_r(
         StdRng::seed_from_u64(seed.as_integer().unwrap() as u64)
     };
 
+    let alpha = if transfer_alpha.is_null() {
+        None
+    } else {
+        Some(transfer_alpha.as_real().ok_or("transfer_alpha must be a number")?)
+    };
+
     let origin_species = species_tree.root;
     let (rec_trees, _all_events) = simulate_dtl_batch(
         &species_tree,
@@ -192,6 +208,7 @@ fn simulate_dtl_batch_r(
         lambda_d,
         lambda_t,
         lambda_l,
+        alpha,
         n as usize,
         &mut rng,
     );
