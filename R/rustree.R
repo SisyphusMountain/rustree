@@ -54,6 +54,10 @@ sample_extant <- function(gene_tree) {
   .Call("wrap__sample_extant_r", gene_tree)
 }
 
+extract_induced_subtree_by_names <- function(tree, leaf_names) {
+  .Call("wrap__extract_induced_subtree_by_names_r", tree, as.character(leaf_names))
+}
+
 # I/O Functions
 
 save_newick <- function(tree_or_gene_tree, filepath) {

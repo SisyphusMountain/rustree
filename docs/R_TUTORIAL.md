@@ -50,6 +50,9 @@ gts <- simulate_dtl_batch(sp_tree, n=100L, lambda_d=0.5, lambda_t=0.2, lambda_l=
 n_extant <- gene_tree_num_extant(gt)
 sampled <- sample_extant(gt)
 
+# === TREE SAMPLING ===
+subset <- extract_induced_subtree_by_names(sp_tree, c("A", "B", "C"))  # Keep specific leaves
+
 # === ASSORTATIVE TRANSFERS ===
 gt <- simulate_dtl(sp_tree, 0.5, 0.5, 0.3, transfer_alpha=1.0)  # Local transfers
 
@@ -255,6 +258,43 @@ head(df)
 sampled_gt <- sample_extant(gt)
 
 gene_tree_to_newick(sampled_gt)
+```
+
+### 6a. Extract Induced Subtree by Leaf Names
+
+You can extract an induced subtree containing only specified leaves. This is useful for focusing on particular species or genes of interest:
+
+```r
+# Parse a species tree
+tree <- parse_newick("((A:1,B:1):1,(C:1,D:1):1):0;")
+cat("Original tree leaves:", paste(tree_leaf_names(tree), collapse=", "), "\n")
+# Output: A, B, C, D
+
+# Extract subset with only A and C
+# The induced subtree keeps only these leaves and their MRCA (root)
+# Intermediate nodes with only one kept descendant are collapsed
+subset_AC <- extract_induced_subtree_by_names(tree, c("A", "C"))
+cat("Subset tree:", tree_to_newick(subset_AC), "\n")
+# Output: (A:2.0,C:2.0):0;
+# Note: Branch lengths are accumulated (1.0 to parent + 1.0 to root = 2.0)
+
+# Extract siblings A and B
+# Their parent node is preserved since both subtrees have descendants
+subset_AB <- extract_induced_subtree_by_names(tree, c("A", "B"))
+cat("Siblings tree:", tree_to_newick(subset_AB), "\n")
+# Output: (A:1.0,B:1.0):1.0;
+
+# Extract single leaf
+# All branch lengths to root are accumulated
+single <- extract_induced_subtree_by_names(tree, c("B"))
+cat("Single leaf:", tree_to_newick(single), "\n")
+# Output: B:2.0;
+
+# Works with gene trees too (reconciliation info not preserved in output)
+gt <- simulate_dtl(sp_tree, 0.5, 0.2, 0.3, seed = 42L)
+all_leaves <- tree_leaf_names(gt)
+subset_genes <- extract_induced_subtree_by_names(gt, all_leaves[1:5])
+cat("Gene subset leaves:", tree_num_leaves(subset_genes), "\n")
 ```
 
 ### 7. Export Birth-Death Events
@@ -633,7 +673,6 @@ boxplot(extant_no, extant_uni, extant_loc,
 | `gene_tree_num_extant(gt)` | Count number of extant genes (non-loss leaves) | Integer |
 | `gene_tree_to_newick(gt)` | Convert gene tree to Newick format | String |
 | `gene_tree_to_xml(gt)` | Convert to RecPhyloXML format for visualization | String (XML) |
-| `sample_extant(gt)` | Extract induced subtree with only extant genes | List with sampled gene tree |
 
 **Parameters for DTL simulation:**
 - `species_tree`: Species tree object from `simulate_species_tree()` or `parse_newick()`
@@ -655,6 +694,37 @@ boxplot(extant_no, extant_uni, extant_loc,
 - `species_node`: Mapped species node name for each gene node
 - `event`: Event type ("Speciation", "Duplication", "Transfer", "Loss", "Leaf")
 - `species_tree`: The original species tree (nested list)
+
+### Tree Sampling and Analysis Functions
+
+| Function | Description | Returns |
+|----------|-------------|---------|
+| `sample_extant(gt)` | Extract induced subtree with only extant genes | List with sampled gene tree |
+| `extract_induced_subtree_by_names(tree, leaf_names)` | Extract induced subtree keeping only specified leaves | List with pruned tree |
+
+**`extract_induced_subtree_by_names` parameters:**
+- `tree`: A tree list (species tree or gene tree)
+- `leaf_names`: Character vector of leaf names to keep
+
+**How it works:**
+- Extracts an induced subtree containing only the specified leaves and their most recent common ancestors (MRCAs)
+- Internal nodes with only one kept descendant lineage are collapsed (their branch lengths are added to the descendant)
+- Works on both species trees and gene trees
+- For gene trees, reconciliation information is not preserved in the output
+
+**Example usage:**
+```r
+# Parse a tree
+tree <- parse_newick("((A:1,B:1):1,(C:1,D:1):1):0;")
+
+# Extract subset with A and C
+subset <- extract_induced_subtree_by_names(tree, c("A", "C"))
+# Result: (A:2.0,C:2.0):0;  (branch lengths collapsed)
+
+# Extract siblings A and B
+siblings <- extract_induced_subtree_by_names(tree, c("A", "B"))
+# Result: (A:1.0,B:1.0):1.0;  (parent preserved)
+```
 
 ### I/O and Export Functions
 
@@ -1075,7 +1145,7 @@ cat("All outputs saved to output/ directory\n")
 cat("Parameters saved in simulation_parameters.rds\n")
 ```
 
-## Summary of All 16 Available Functions
+## Summary of All 17 Available Functions
 
 | # | Function | Category | Description |
 |---|----------|----------|-------------|
@@ -1092,9 +1162,10 @@ cat("Parameters saved in simulation_parameters.rds\n")
 | 11 | `save_newick_r` | Export | Save tree to Newick file |
 | 12 | `save_xml_r` | Export | Save gene tree to RecPhyloXML |
 | 13 | `save_csv_r` | Export | Save gene tree to CSV |
-| 14 | `save_bd_events_csv_r` | Export | **NEW:** Save birth-death events to CSV |
+| 14 | `save_bd_events_csv_r` | Export | Save birth-death events to CSV |
 | 15 | `gene_tree_to_svg_r` | Visualization | Generate SVG with thirdkind |
 | 16 | `sample_extant_r` | Analysis | Extract extant-only subtree |
+| 17 | `extract_induced_subtree_by_names_r` | Analysis | Extract induced subtree by leaf names |
 
 **Note:** The R wrapper functions in `R/rustree.R` remove the `_r` suffix for cleaner syntax (e.g., `simulate_species_tree` instead of `simulate_species_tree_r`).
 

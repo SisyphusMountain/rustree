@@ -16,7 +16,7 @@ use std::process::Command;
 use crate::bd::{simulate_bd_tree, TreeEvent};
 use crate::dtl::{simulate_dtl, simulate_dtl_batch};
 use crate::node::{FlatTree, FlatNode, Event};
-use crate::sampling::extract_induced_subtree;
+use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names};
 
 /// Simulate a birth-death species tree.
 ///
@@ -492,6 +492,40 @@ fn sample_extant_r(gene_tree_list: List) -> Result<List> {
     Ok(rectree_to_rlist(&species_tree, &sampled_tree, &new_node_mapping, &new_event_mapping))
 }
 
+/// Extract an induced subtree keeping only specified leaves.
+///
+/// This function works on both species trees and gene trees.
+/// For species trees, returns a pruned tree with only the specified leaves.
+/// For gene trees, returns the pruned gene tree (reconciliation info is not preserved).
+///
+/// @param tree_list A tree list (species tree or gene tree)
+/// @param leaf_names Character vector of leaf names to keep
+/// @return A new tree containing only the specified leaves and their MRCAs
+/// @export
+#[extendr]
+fn extract_induced_subtree_by_names_r(tree_list: List, leaf_names: Robj) -> Result<List> {
+    // Convert leaf_names to Vec<String>
+    let names: Vec<String> = leaf_names.as_str_vector()
+        .ok_or("leaf_names must be a character vector")?
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    if names.is_empty() {
+        return Err("leaf_names cannot be empty".into());
+    }
+
+    // Extract the tree structure (works for both species and gene trees)
+    let tree = rlist_to_flattree(&tree_list)?;
+
+    // Extract the induced subtree
+    let induced_tree = extract_induced_subtree_by_names(&tree, &names)
+        .ok_or("Failed to extract induced subtree (no matching leaves found)")?;
+
+    // Return as a simple tree (no reconciliation info)
+    Ok(flattree_to_rlist(&induced_tree))
+}
+
 // Helper functions
 
 fn flattree_to_rlist(tree: &FlatTree) -> List {
@@ -737,4 +771,5 @@ extendr_module! {
     fn save_bd_events_csv_r;
     fn gene_tree_to_svg_r;
     fn sample_extant_r;
+    fn extract_induced_subtree_by_names_r;
 }
