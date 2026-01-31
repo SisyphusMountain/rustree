@@ -13,7 +13,7 @@ use rand::SeedableRng;
 use std::fs;
 use std::process::Command;
 
-use crate::bd::simulate_bd_tree;
+use crate::bd::{simulate_bd_tree, TreeEvent};
 use crate::dtl::{simulate_dtl, simulate_dtl_batch};
 use crate::node::{FlatTree, FlatNode, Event};
 use crate::sampling::extract_induced_subtree;
@@ -47,11 +47,37 @@ fn simulate_species_tree_r(n: i32, lambda: f64, mu: f64, seed: Robj) -> Result<L
         StdRng::seed_from_u64(seed.as_integer().unwrap() as u64)
     };
 
-    let (mut tree, _events) = simulate_bd_tree(n as usize, lambda, mu, &mut rng);
+    let (mut tree, events) = simulate_bd_tree(n as usize, lambda, mu, &mut rng);
     tree.assign_depths();
 
-    // Serialize tree to R list
-    Ok(flattree_to_rlist(&tree))
+    // Serialize tree and events to R list
+    let names: Vec<String> = tree.nodes.iter().map(|n| n.name.clone()).collect();
+    let parents: Vec<Rint> = tree.nodes.iter()
+        .map(|n| n.parent.map(|p| Rint::from(p as i32)).unwrap_or(Rint::na()))
+        .collect();
+    let left_children: Vec<Rint> = tree.nodes.iter()
+        .map(|n| n.left_child.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
+        .collect();
+    let right_children: Vec<Rint> = tree.nodes.iter()
+        .map(|n| n.right_child.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
+        .collect();
+    let lengths: Vec<f64> = tree.nodes.iter().map(|n| n.length).collect();
+    let depths: Vec<Rfloat> = tree.nodes.iter()
+        .map(|n| n.depth.map(|d| Rfloat::from(d)).unwrap_or(Rfloat::na()))
+        .collect();
+
+    let events_list = bd_events_to_rlist(&events);
+
+    Ok(list!(
+        name = names,
+        parent = parents,
+        left_child = left_children,
+        right_child = right_children,
+        length = lengths,
+        depth = depths,
+        root = tree.root as i32,
+        events = events_list
+    ))
 }
 
 /// Parse a Newick string into a species tree.
@@ -349,6 +375,29 @@ fn save_csv_r(gene_tree_list: List, filepath: &str) -> Result<()> {
     Ok(())
 }
 
+/// Save birth-death events from a species tree to CSV format.
+///
+/// @param species_tree_list A species tree list from simulate_species_tree_r (must contain events)
+/// @param filepath Path to save the CSV file
+/// @export
+#[extendr]
+fn save_bd_events_csv_r(species_tree_list: List, filepath: &str) -> Result<()> {
+    // Extract events from the species tree list
+    let events_list: List = species_tree_list.dollar("events")?
+        .try_into()
+        .map_err(|_| "Failed to get events from species tree. Was this tree simulated with simulate_species_tree_r?")?;
+
+    // Convert R list to Vec<TreeEvent>
+    let events = rlist_to_bd_events(&events_list)?;
+
+    // Call the existing Rust function
+    use crate::io::save_bd_events_to_csv;
+    save_bd_events_to_csv(&events, filepath)
+        .map_err(|e| format!("Failed to write CSV file: {}", e))?;
+
+    Ok(())
+}
+
 /// Generate SVG visualization using thirdkind.
 ///
 /// @param gene_tree_list A gene tree list from simulate_dtl_r
@@ -506,6 +555,52 @@ fn rlist_to_flattree(list: &List) -> Result<FlatTree> {
     })
 }
 
+fn bd_events_to_rlist(events: &[TreeEvent]) -> List {
+    let times: Vec<f64> = events.iter().map(|e| e.time).collect();
+    let node_ids: Vec<i32> = events.iter().map(|e| e.node_id as i32).collect();
+    let event_types: Vec<String> = events.iter().map(|e| e.event_type.clone()).collect();
+    let child1s: Vec<Rint> = events.iter()
+        .map(|e| e.child1.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
+        .collect();
+    let child2s: Vec<Rint> = events.iter()
+        .map(|e| e.child2.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
+        .collect();
+
+    list!(
+        time = times,
+        node_id = node_ids,
+        event_type = event_types,
+        child1 = child1s,
+        child2 = child2s
+    )
+}
+
+fn rlist_to_bd_events(list: &List) -> Result<Vec<TreeEvent>> {
+    let times: Vec<f64> = list.dollar("time")?.as_real_vector()
+        .ok_or("Failed to get time column")?;
+    let node_ids: Vec<i32> = list.dollar("node_id")?.as_integer_vector()
+        .ok_or("Failed to get node_id column")?;
+    let event_types: Vec<String> = list.dollar("event_type")?.as_str_vector()
+        .ok_or("Failed to get event_type column")?
+        .iter().map(|s| s.to_string()).collect();
+    let child1s: Vec<i32> = list.dollar("child1")?.as_integer_vector()
+        .ok_or("Failed to get child1 column")?;
+    let child2s: Vec<i32> = list.dollar("child2")?.as_integer_vector()
+        .ok_or("Failed to get child2 column")?;
+
+    let events: Vec<TreeEvent> = (0..times.len())
+        .map(|i| TreeEvent {
+            time: times[i],
+            node_id: node_ids[i] as usize,
+            event_type: event_types[i].clone(),
+            child1: if child1s[i].is_na() { None } else { Some(child1s[i] as usize) },
+            child2: if child2s[i].is_na() { None } else { Some(child2s[i] as usize) },
+        })
+        .collect();
+
+    Ok(events)
+}
+
 fn rectree_to_rlist(species_tree: &FlatTree, gene_tree: &FlatTree, node_mapping: &[usize], event_mapping: &[Event]) -> List {
     let names: Vec<String> = gene_tree.nodes.iter().map(|n| n.name.clone()).collect();
     let parents: Vec<Rint> = gene_tree.nodes.iter()
@@ -639,6 +734,7 @@ extendr_module! {
     fn save_newick_r;
     fn save_xml_r;
     fn save_csv_r;
+    fn save_bd_events_csv_r;
     fn gene_tree_to_svg_r;
     fn sample_extant_r;
 }
