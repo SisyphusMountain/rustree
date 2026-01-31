@@ -68,6 +68,10 @@ save_csv <- function(gene_tree, filepath) {
   .Call("wrap__save_csv_r", gene_tree, as.character(filepath))
 }
 
+save_bd_events_csv <- function(species_tree, filepath) {
+  .Call("wrap__save_bd_events_csv_r", species_tree, as.character(filepath))
+}
+
 gene_tree_to_svg <- function(gene_tree, filepath = NULL, open_browser = FALSE) {
   if (is.null(filepath)) filepath <- NA_character_
   .Call("wrap__gene_tree_to_svg_r", gene_tree, as.character(filepath), as.logical(open_browser))

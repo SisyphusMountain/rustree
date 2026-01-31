@@ -173,7 +173,7 @@ fn simulate_dtl_r(
         StdRng::seed_from_u64(seed.as_integer().unwrap() as u64)
     };
 
-    let alpha = if transfer_alpha.is_null() {
+    let alpha = if transfer_alpha.is_null() || transfer_alpha.is_na() {
         None
     } else {
         Some(transfer_alpha.as_real().ok_or("transfer_alpha must be a number")?)
@@ -221,7 +221,7 @@ fn simulate_dtl_batch_r(
         StdRng::seed_from_u64(seed.as_integer().unwrap() as u64)
     };
 
-    let alpha = if transfer_alpha.is_null() {
+    let alpha = if transfer_alpha.is_null() || transfer_alpha.is_na() {
         None
     } else {
         Some(transfer_alpha.as_real().ok_or("transfer_alpha must be a number")?)
