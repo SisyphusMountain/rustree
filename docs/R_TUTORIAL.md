@@ -260,7 +260,8 @@ d(A, B, t) = 2 × (t - depth_of_LCA(A, B))
 ```r
 gt <- gene_trees[[1]]
 
-# Number of extant genes (surviving, non-lost)
+# Number of extant genes (surviving genes on extant species)
+# Only counts gene leaves mapped to extant species (not extinctions)
 gene_tree_num_extant(gt)
 
 # Convert to Newick
@@ -765,7 +766,7 @@ boxplot(extant_no, extant_uni, extant_loc,
 |----------|-------------|---------|
 | `simulate_dtl(sp_tree, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, seed)` | Simulate single gene tree along species tree with DTL events | List with gene tree and reconciliation |
 | `simulate_dtl_batch(sp_tree, n, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, seed)` | Simulate batch of n gene trees (more efficient) | List of gene tree lists |
-| `gene_tree_num_extant(gt)` | Count number of extant genes (non-loss leaves) | Integer |
+| `gene_tree_num_extant(gt)` | Count extant genes (on extant species only) | Integer |
 | `gene_tree_to_newick(gt)` | Convert gene tree to Newick format | String |
 | `gene_tree_to_xml(gt)` | Convert to RecPhyloXML format for visualization | String (XML) |
 
@@ -993,8 +994,18 @@ The birth-death process simulates a tree with exactly `n` extant species using t
   - Higher values = stronger preference for nearby species (e.g., 1.0-3.0)
 - `require_extant`: Require at least one extant gene in the result (Logical)
   - `FALSE` (default): Return the simulated tree even if all genes went extinct
-  - `TRUE`: Retry simulation until at least one gene survives to the present
+  - `TRUE`: Retry simulation until at least one gene survives on an extant species
   - Useful when loss rates are high and you need functional gene families
+
+### Extant Genes Definition
+
+The `gene_tree_num_extant()` function counts gene leaves that satisfy both conditions:
+1. The gene event is a "Leaf" (not a loss)
+2. The gene is mapped to an **extant species** (a species tree leaf with birth-death event type "Leaf", not "Extinction")
+
+For species trees simulated with `simulate_species_tree()`, this correctly excludes genes that survive on lineages that went extinct before the present. For species trees parsed from Newick (without birth-death events), all leaf nodes are treated as extant.
+
+The `require_extant = TRUE` parameter uses this definition to ensure returned gene trees have at least one truly extant gene.
 
 DTL rates are per unit time along branches. Higher rates lead to more events. The model allows:
 - **Duplications**: Gene copies within the same species

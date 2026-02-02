@@ -148,7 +148,8 @@ d(A, B, t) = 2 × (t - depth_of_LCA(A, B))
 ```python
 gt = gene_trees[0]
 
-# Number of extant genes (surviving, non-lost)
+# Number of extant genes (surviving genes on extant species)
+# Only counts gene leaves mapped to extant species (not extinctions)
 print(gt.num_extant())
 
 # Convert to Newick
@@ -271,8 +272,8 @@ print("Done! Results saved.")
 | `tree_height()` | Get total height |
 | `leaf_names()` | Get list of leaf names |
 | `root_index()` | Get root node index |
-| `simulate_dtl(lambda_d, lambda_t, lambda_l, transfer_alpha=None, seed=None)` | Simulate single gene tree |
-| `simulate_dtl_batch(n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, seed=None)` | Simulate batch |
+| `simulate_dtl(lambda_d, lambda_t, lambda_l, transfer_alpha=None, require_extant=False, seed=None)` | Simulate single gene tree |
+| `simulate_dtl_batch(n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, require_extant=False, seed=None)` | Simulate batch |
 
 ### PyGeneTree Methods
 
@@ -281,7 +282,7 @@ print("Done! Results saved.")
 | `to_newick()` | Convert to Newick string |
 | `save_newick(filepath)` | Save to Newick file |
 | `num_nodes()` | Count all nodes |
-| `num_extant()` | Count extant (non-lost) genes |
+| `num_extant()` | Count extant genes (on extant species only) |
 | `count_events()` | Return (S, D, T, L, Leaves) counts |
 | `extant_gene_names()` | Get names of extant genes |
 | `sample_extant()` | Extract extant-only subtree |
@@ -306,9 +307,25 @@ print("Done! Results saved.")
   - `> 0`: Closer species are more likely to receive transfers
   - Higher values = stronger preference for nearby species
 
+### Require Extant
+- `require_extant`: Ensure at least one gene survives on an extant species
+  - `False` (default): Return tree even if all genes went extinct
+  - `True`: Retry simulation until at least one gene survives on an extant species
+  - Useful when loss rates are high and you need functional gene families
+
 ## Notes
 
 - Use `seed` parameter for reproducible simulations
 - DTL rates are per unit time along branches
 - thirdkind must be installed for SVG visualization
 - For Jupyter notebook display, IPython must be available
+
+### Extant Genes Definition
+
+The `num_extant()` method counts gene leaves that satisfy both conditions:
+1. The gene event is a "Leaf" (not a loss)
+2. The gene is mapped to an **extant species** (a species tree leaf with `bd_event = Leaf`, not `Extinction`)
+
+For species trees simulated with birth-death, this correctly excludes genes that survive on lineages that went extinct before the present. For species trees parsed from Newick (without birth-death events), all leaf nodes are treated as extant.
+
+The `require_extant=True` parameter in `simulate_dtl()` and `simulate_dtl_batch()` uses this definition to ensure returned gene trees have at least one truly extant gene.
