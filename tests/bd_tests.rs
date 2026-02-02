@@ -1,6 +1,6 @@
 // Tests for birth-death tree simulation
 
-use rustree::bd::{simulate_bd_tree, save_events_to_csv};
+use rustree::bd::{simulate_bd_tree, save_events_to_csv, BDEvent};
 use rustree::node::TraversalOrder;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -121,5 +121,5 @@ fn test_bd_tree_pure_birth() {
 
     assert_eq!(extant_leaves, n);
     // In pure birth, we should have only leaf and speciation events
-    assert!(events.iter().all(|e| e.event_type == "Leaf" || e.event_type == "Speciation"));
+    assert!(events.iter().all(|e| e.event_type == BDEvent::Leaf || e.event_type == BDEvent::Speciation));
 }

@@ -13,7 +13,7 @@ use rand::SeedableRng;
 use std::fs;
 use std::process::Command;
 
-use crate::bd::{simulate_bd_tree, generate_events_from_tree, TreeEvent};
+use crate::bd::{simulate_bd_tree, generate_events_from_tree, TreeEvent, BDEvent};
 use crate::dtl::{simulate_dtl, simulate_dtl_batch};
 use crate::node::{FlatTree, FlatNode, Event};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names};
@@ -604,6 +604,7 @@ fn rlist_to_flattree(list: &List) -> Result<FlatTree> {
             right_child: if right_children[i].is_na() { None } else { Some(right_children[i] as usize) },
             length: lengths[i],
             depth: if depths[i].is_na() { None } else { Some(depths[i]) },
+            bd_event: None,
         })
         .collect();
 
@@ -616,7 +617,7 @@ fn rlist_to_flattree(list: &List) -> Result<FlatTree> {
 fn bd_events_to_rlist(events: &[TreeEvent]) -> List {
     let times: Vec<f64> = events.iter().map(|e| e.time).collect();
     let node_ids: Vec<i32> = events.iter().map(|e| e.node_id as i32).collect();
-    let event_types: Vec<String> = events.iter().map(|e| e.event_type.clone()).collect();
+    let event_types: Vec<String> = events.iter().map(|e| e.event_type.as_str().to_string()).collect();
     let child1s: Vec<Rint> = events.iter()
         .map(|e| e.child1.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
         .collect();
@@ -650,7 +651,7 @@ fn rlist_to_bd_events(list: &List) -> Result<Vec<TreeEvent>> {
         .map(|i| TreeEvent {
             time: times[i],
             node_id: node_ids[i] as usize,
-            event_type: event_types[i].clone(),
+            event_type: BDEvent::from_str(&event_types[i]).unwrap_or(BDEvent::Leaf),
             child1: if child1s[i].is_na() { None } else { Some(child1s[i] as usize) },
             child2: if child2s[i].is_na() { None } else { Some(child2s[i] as usize) },
         })
@@ -744,6 +745,7 @@ fn rlist_to_genetree(list: &List) -> Result<(FlatTree, FlatTree, Vec<usize>, Vec
             right_child: if right_children[i].is_na() { None } else { Some(right_children[i] as usize) },
             length: lengths[i],
             depth: if depths[i].is_na() { None } else { Some(depths[i]) },
+            bd_event: None,
         })
         .collect();
 

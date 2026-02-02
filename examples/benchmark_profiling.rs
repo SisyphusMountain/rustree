@@ -31,6 +31,7 @@ fn main() {
             species_tree.root,
             0.2, 0.2, 0.1,
             None,
+            false,
             &mut rng,
         );
         total_nodes += rec_tree.gene_tree.nodes.len();
@@ -129,6 +130,7 @@ fn main() {
                 right_child: None,
                 length: 0.1,
                 depth: Some(0.0),
+                bd_event: None,
             };
             all_nodes.push(node);
         }

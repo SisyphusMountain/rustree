@@ -21,6 +21,7 @@ pub fn node_to_flat(node: &Node, flat_tree: &mut Vec<FlatNode>, parent: Option<u
         parent,
         depth: node.depth,
         length: node.length,
+        bd_event: None,
     });
 
     if let Some(left) = &node.left_child {
@@ -84,6 +85,7 @@ impl Node {
             parent: parent_index,
             depth: self.depth,
             length: self.length,
+            bd_event: None,
         });
 
         if let Some(ref left_child) = self.left_child {

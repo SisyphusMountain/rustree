@@ -37,6 +37,8 @@ pub struct FlatNode {
     pub parent: Option<usize>,
     pub depth: Option<f64>,
     pub length: f64,
+    /// Birth-death event type for this node (only set for species trees from BD simulation)
+    pub bd_event: Option<crate::bd::BDEvent>,
 }
 
 /// A flat tree representation using a vector of nodes.

@@ -4,6 +4,38 @@
 use crate::node::{FlatTree, FlatNode};
 use rand::Rng;
 
+/// Event types in a birth-death process
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BDEvent {
+    /// Speciation event - lineage splits into two
+    Speciation,
+    /// Extinction event - lineage goes extinct
+    Extinction,
+    /// Leaf node - extant species at present time
+    Leaf,
+}
+
+impl BDEvent {
+    /// Convert to string representation for display/CSV
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BDEvent::Speciation => "Speciation",
+            BDEvent::Extinction => "Extinction",
+            BDEvent::Leaf => "Leaf",
+        }
+    }
+
+    /// Parse from string representation
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "Speciation" => Some(BDEvent::Speciation),
+            "Extinction" => Some(BDEvent::Extinction),
+            "Leaf" => Some(BDEvent::Leaf),
+            _ => None,
+        }
+    }
+}
+
 /// Represents an event in the birth-death process
 #[derive(Clone, Debug)]
 pub struct TreeEvent {
@@ -11,8 +43,8 @@ pub struct TreeEvent {
     pub time: f64,
     /// Node ID where the event occurred
     pub node_id: usize,
-    /// Type of event: "Speciation", "Extinction", or "Leaf"
-    pub event_type: String,
+    /// Type of event
+    pub event_type: BDEvent,
     /// First child node ID (for speciation events)
     pub child1: Option<usize>,
     /// Second child node ID (for speciation events)
@@ -26,7 +58,7 @@ impl TreeEvent {
             "{},{},{},{},{}",
             self.time,
             tree.nodes[self.node_id].name,
-            self.event_type,
+            self.event_type.as_str(),
             self.child1.map_or(String::new(), |c| tree.nodes[c].name.clone()),
             self.child2.map_or(String::new(), |c| tree.nodes[c].name.clone())
         )
@@ -92,6 +124,7 @@ pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> 
             parent: None,
             depth: Some(0.0),
             length: 0.0, // Will be set when we add the parent
+            bd_event: Some(BDEvent::Leaf),
         });
         active_lineages.push((i, 0.0));
 
@@ -99,7 +132,7 @@ pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> 
         events.push(TreeEvent {
             time: 0.0,
             node_id: i,
-            event_type: "Leaf".to_string(),
+            event_type: BDEvent::Leaf,
             child1: None,
             child2: None,
         });
@@ -128,6 +161,7 @@ pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> 
                 parent: None,
                 depth: Some(time),
                 length: 0.0,
+                bd_event: Some(BDEvent::Extinction),
             });
             active_lineages.push((extinct_idx, time));
             num_lineages += 1;
@@ -136,7 +170,7 @@ pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> 
             events.push(TreeEvent {
                 time,
                 node_id: extinct_idx,
-                event_type: "Extinction".to_string(),
+                event_type: BDEvent::Extinction,
                 child1: None,
                 child2: None,
             });
@@ -164,6 +198,7 @@ pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> 
                     parent: None,
                     depth: Some(time),
                     length: 0.0, // Will be set when we add its parent
+                    bd_event: Some(BDEvent::Speciation),
                 });
 
                 // Update children to point to parent and set branch lengths
@@ -181,7 +216,7 @@ pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> 
                 events.push(TreeEvent {
                     time,
                     node_id: parent_idx,
-                    event_type: "Speciation".to_string(),
+                    event_type: BDEvent::Speciation,
                     child1: Some(child1_idx),
                     child2: Some(child2_idx),
                 });
@@ -233,7 +268,7 @@ pub fn generate_events_from_tree(tree: &FlatTree) -> Vec<TreeEvent> {
             events.push(TreeEvent {
                 time: depth,
                 node_id: idx,
-                event_type: "Leaf".to_string(),
+                event_type: BDEvent::Leaf,
                 child1: None,
                 child2: None,
             });
@@ -242,7 +277,7 @@ pub fn generate_events_from_tree(tree: &FlatTree) -> Vec<TreeEvent> {
             events.push(TreeEvent {
                 time: depth,
                 node_id: idx,
-                event_type: "Speciation".to_string(),
+                event_type: BDEvent::Speciation,
                 child1: node.left_child,
                 child2: node.right_child,
             });

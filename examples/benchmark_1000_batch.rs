@@ -34,6 +34,7 @@ fn main() {
         0.1,
         None,
         1000,
+        false,
         &mut rng,
     );
 

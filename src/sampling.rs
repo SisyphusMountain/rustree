@@ -141,6 +141,7 @@ fn build_induced_tree(
                 parent: new_parent,
                 depth: node.depth,
                 length: accumulated_length + node.length,
+                bd_event: node.bd_event,  // Preserve event type from original node
             });
 
             // Update parent's child pointer

@@ -48,6 +48,7 @@ fn main() {
                         species_tree_clone.root,
                         0.2, 0.2, 0.1,
                         None,
+                        false,
                         &mut rng_thread,
                     );
                     nodes += rec_tree.gene_tree.nodes.len();
@@ -109,6 +110,7 @@ fn main() {
                         species_tree_clone.root,
                         0.2, 0.2, 0.1,
                         None,
+                        false,
                         &mut rng_thread,
                     );
                     nodes += rec_tree.gene_tree.nodes.len();

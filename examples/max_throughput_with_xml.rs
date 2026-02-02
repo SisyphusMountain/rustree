@@ -61,6 +61,7 @@ fn main() {
             lambda_t,
             lambda_l,
             None,
+            false,
             &mut rng,
         );
 

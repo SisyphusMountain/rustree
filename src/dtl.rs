@@ -3,6 +3,7 @@
 // This module simulates gene tree evolution within a species tree using the DTL model.
 // Events: Speciation (S), Duplication (D), Transfer (T), Loss (L)
 
+use crate::bd::BDEvent;
 use crate::node::{FlatTree, FlatNode, Event, RecTree};
 use rand::Rng;
 
@@ -100,6 +101,7 @@ impl SimulationState {
             parent,
             depth: None,
             length: 0.0,
+            bd_event: None,
         });
         self.node_mapping.push(species_idx);
         self.event_mapping.push(event);
@@ -549,6 +551,7 @@ fn finalize_simulation<'a>(
             parent: None,
             depth: Some(origin_depth),
             length: 0.0,
+            bd_event: None,
         });
         state.node_mapping.push(origin_species);
         state.event_mapping.push(Event::Loss);
@@ -725,17 +728,41 @@ fn find_time_index(depths: &[f64], time: f64) -> usize {
     }
 }
 
-/// Counts the number of extant genes (leaves that are not losses)
+/// Counts the number of extant genes (gene leaves mapped to extant species leaves).
+///
+/// A gene is considered extant if:
+/// 1. It is a gene leaf (event_mapping is Event::Leaf)
+/// 2. It is mapped to an extant species leaf:
+///    - If bd_event is set: must be BDEvent::Leaf (not Extinction)
+///    - If bd_event is None (e.g., tree from Newick): falls back to checking if species node is a leaf (no children)
+///
+/// This excludes gene leaves that are mapped to extinct species (extinction events).
 pub fn count_extant_genes(rec_tree: &RecTree) -> usize {
     rec_tree
         .gene_tree
         .nodes
         .iter()
         .enumerate()
-        .filter(|(i, node)| {
-            node.left_child.is_none()
-                && node.right_child.is_none()
-                && rec_tree.event_mapping[*i] == Event::Leaf
+        .filter(|(i, _node)| {
+            // Check if this gene node is a Leaf event
+            if rec_tree.event_mapping[*i] != Event::Leaf {
+                return false;
+            }
+            // Check if the corresponding species node is an extant leaf (not an extinction)
+            let species_idx = rec_tree.node_mapping[*i];
+            let species_node = &rec_tree.species_tree.nodes[species_idx];
+
+            // If bd_event is set, check for Leaf (not Extinction)
+            // If bd_event is None (tree from Newick), fall back to checking no children
+            match species_node.bd_event {
+                Some(BDEvent::Leaf) => true,
+                Some(BDEvent::Extinction) => false,
+                Some(BDEvent::Speciation) => false, // Internal nodes aren't leaves
+                None => {
+                    // Fallback for trees without bd_event: check if node has no children
+                    species_node.left_child.is_none() && species_node.right_child.is_none()
+                }
+            }
         })
         .count()
 }
