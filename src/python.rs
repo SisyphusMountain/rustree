@@ -81,12 +81,13 @@ impl PySpeciesTree {
     /// * `lambda_t` - Transfer rate per unit time
     /// * `lambda_l` - Loss rate per unit time
     /// * `transfer_alpha` - Distance decay for assortative transfers (optional, None = uniform)
+    /// * `require_extant` - If true, retry until a tree with extant genes is produced (default false)
     /// * `seed` - Random seed for reproducibility (optional)
     ///
     /// # Returns
     /// A PyGeneTree containing the simulated gene tree with its mapping to the species tree.
-    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, seed=None))]
-    fn simulate_dtl(&self, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, seed: Option<u64>) -> PyResult<PyGeneTree> {
+    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, require_extant=false, seed=None))]
+    fn simulate_dtl(&self, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneTree> {
         if lambda_d < 0.0 || lambda_t < 0.0 || lambda_l < 0.0 {
             return Err(PyValueError::new_err("Rates must be non-negative"));
         }
@@ -97,7 +98,7 @@ impl PySpeciesTree {
         };
 
         let origin_species = self.tree.root;
-        let (rec_tree, _events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, &mut rng);
+        let (rec_tree, _events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, &mut rng);
 
         // Extract owned data from RecTree
         let gene_tree = rec_tree.gene_tree;
@@ -123,12 +124,13 @@ impl PySpeciesTree {
     /// * `lambda_t` - Transfer rate per unit time
     /// * `lambda_l` - Loss rate per unit time
     /// * `transfer_alpha` - Distance decay for assortative transfers (optional, None = uniform)
+    /// * `require_extant` - If true, only include trees with extant genes (default false)
     /// * `seed` - Random seed for reproducibility (optional)
     ///
     /// # Returns
     /// A list of PyGeneTree objects.
-    #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, seed=None))]
-    fn simulate_dtl_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, seed: Option<u64>) -> PyResult<Vec<PyGeneTree>> {
+    #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, require_extant=false, seed=None))]
+    fn simulate_dtl_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<Vec<PyGeneTree>> {
         if lambda_d < 0.0 || lambda_t < 0.0 || lambda_l < 0.0 {
             return Err(PyValueError::new_err("Rates must be non-negative"));
         }
@@ -147,6 +149,7 @@ impl PySpeciesTree {
             lambda_l,
             transfer_alpha,
             n,
+            require_extant,
             &mut rng,
         );
 

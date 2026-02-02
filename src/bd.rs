@@ -200,5 +200,60 @@ pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> 
     (tree, events)
 }
 
+/// Generate birth-death events from an existing tree (e.g., parsed from Newick).
+///
+/// This creates events by treating all internal nodes as speciations and all
+/// leaves as extant species. No extinction events are generated since the tree
+/// only contains surviving lineages.
+///
+/// # Arguments
+/// * `tree` - A FlatTree with depths assigned
+///
+/// # Returns
+/// A vector of TreeEvent representing the tree's evolutionary history
+///
+/// # Panics
+/// Panics if any node doesn't have a depth assigned
+///
+/// # Example
+/// ```ignore
+/// let tree = parse_newick("((A:1,B:1):1,C:2):0;").unwrap();
+/// let mut flat_tree = tree.to_flat_tree();
+/// flat_tree.assign_depths();
+/// let events = generate_events_from_tree(&flat_tree);
+/// ```
+pub fn generate_events_from_tree(tree: &FlatTree) -> Vec<TreeEvent> {
+    let mut events = Vec::with_capacity(tree.nodes.len());
+
+    for (idx, node) in tree.nodes.iter().enumerate() {
+        let depth = node.depth.expect("Tree must have depths assigned. Call assign_depths() first.");
+
+        if node.left_child.is_none() && node.right_child.is_none() {
+            // Leaf node
+            events.push(TreeEvent {
+                time: depth,
+                node_id: idx,
+                event_type: "Leaf".to_string(),
+                child1: None,
+                child2: None,
+            });
+        } else {
+            // Internal node = speciation
+            events.push(TreeEvent {
+                time: depth,
+                node_id: idx,
+                event_type: "Speciation".to_string(),
+                child1: node.left_child,
+                child2: node.right_child,
+            });
+        }
+    }
+
+    // Sort by time (depth) for consistency
+    events.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+
+    events
+}
+
 // Re-export from io module for backward compatibility
 pub use crate::io::save_bd_events_to_csv as save_events_to_csv;

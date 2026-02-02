@@ -47,6 +47,8 @@ events <- sp_tree$events  # time, node_id, event_type, child1, child2
 # === GENE TREES ===
 gt <- simulate_dtl(sp_tree, lambda_d=0.5, lambda_t=0.2, lambda_l=0.3, seed=123L)
 gts <- simulate_dtl_batch(sp_tree, n=100L, lambda_d=0.5, lambda_t=0.2, lambda_l=0.3)
+# Ensure trees have at least one extant gene (retry until success):
+gt <- simulate_dtl(sp_tree, 0.5, 0.2, 0.3, require_extant=TRUE, seed=123L)
 n_extant <- gene_tree_num_extant(gt)
 sampled <- sample_extant(gt)
 
@@ -187,6 +189,28 @@ gene_trees <- simulate_dtl_batch(
 # Access individual trees
 gt1 <- gene_trees[[1]]
 gt2 <- gene_trees[[2]]
+
+# Ensure all gene trees have at least one extant gene
+# (useful when losses are high and some trees might go completely extinct)
+gene_tree <- simulate_dtl(
+  species_tree = sp_tree,
+  lambda_d = 0.5,
+  lambda_t = 0.2,
+  lambda_l = 0.8,    # High loss rate
+  require_extant = TRUE,  # Retry until we get an extant gene
+  seed = 123L
+)
+
+# Works with batch too - only keeps trees with extant genes
+gene_trees <- simulate_dtl_batch(
+  species_tree = sp_tree,
+  n = 100L,
+  lambda_d = 0.5,
+  lambda_t = 0.2,
+  lambda_l = 0.8,
+  require_extant = TRUE,  # All returned trees have >= 1 extant gene
+  seed = 123L
+)
 ```
 
 ### 4. Assortative (Distance-Dependent) Transfers
@@ -668,8 +692,8 @@ boxplot(extant_no, extant_uni, extant_loc,
 
 | Function | Description | Returns |
 |----------|-------------|---------|
-| `simulate_dtl(sp_tree, lambda_d, lambda_t, lambda_l, transfer_alpha, seed)` | Simulate single gene tree along species tree with DTL events | List with gene tree and reconciliation |
-| `simulate_dtl_batch(sp_tree, n, lambda_d, lambda_t, lambda_l, transfer_alpha, seed)` | Simulate batch of n gene trees (more efficient) | List of gene tree lists |
+| `simulate_dtl(sp_tree, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, seed)` | Simulate single gene tree along species tree with DTL events | List with gene tree and reconciliation |
+| `simulate_dtl_batch(sp_tree, n, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, seed)` | Simulate batch of n gene trees (more efficient) | List of gene tree lists |
 | `gene_tree_num_extant(gt)` | Count number of extant genes (non-loss leaves) | Integer |
 | `gene_tree_to_newick(gt)` | Convert gene tree to Newick format | String |
 | `gene_tree_to_xml(gt)` | Convert to RecPhyloXML format for visualization | String (XML) |
@@ -683,6 +707,9 @@ boxplot(extant_no, extant_uni, extant_loc,
   - `NULL`: Uniform random transfer recipients
   - `0`: Equivalent to uniform
   - `> 0`: Preference for closer species (higher = stronger preference)
+- `require_extant`: Whether to ensure trees have extant genes (Logical, default `FALSE`)
+  - `FALSE`: Return tree even if all genes are lost
+  - `TRUE`: Retry simulation until at least one gene survives
 - `n`: Number of gene trees to simulate (for batch, Integer with `L`)
 - `seed`: Random seed (Integer with `L` or `NULL`)
 
@@ -877,6 +904,10 @@ The birth-death process simulates a tree with exactly `n` extant species using t
   - `0`: Equivalent to uniform random
   - `> 0`: Closer species are more likely to receive transfers
   - Higher values = stronger preference for nearby species (e.g., 1.0-3.0)
+- `require_extant`: Require at least one extant gene in the result (Logical)
+  - `FALSE` (default): Return the simulated tree even if all genes went extinct
+  - `TRUE`: Retry simulation until at least one gene survives to the present
+  - Useful when loss rates are high and you need functional gene families
 
 DTL rates are per unit time along branches. Higher rates lead to more events. The model allows:
 - **Duplications**: Gene copies within the same species

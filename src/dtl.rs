@@ -579,6 +579,7 @@ fn finalize_simulation<'a>(
 /// * `lambda_t` - Transfer rate per unit time
 /// * `lambda_l` - Loss rate per unit time
 /// * `transfer_alpha` - Optional distance decay for assortative transfers (None = uniform)
+/// * `require_extant` - If true, retry until a tree with at least one extant gene is produced
 /// * `rng` - Random number generator
 ///
 /// # Returns
@@ -595,6 +596,7 @@ pub fn simulate_dtl<'a, R: Rng>(
     lambda_t: f64,
     lambda_l: f64,
     transfer_alpha: Option<f64>,
+    require_extant: bool,
     rng: &mut R,
 ) -> (RecTree<'a>, Vec<DTLEvent>) {
     assert!(lambda_d >= 0.0, "Duplication rate must be non-negative");
@@ -607,20 +609,27 @@ pub fn simulate_dtl<'a, R: Rng>(
 
     // Compute LCA depths if using assortative transfers
     let lca_depths = transfer_alpha.map(|_| species_tree.precompute_lca_depths());
+    let lca_ref = lca_depths.as_ref().map(|v| v.as_slice());
 
-    // Call internal version
-    simulate_dtl_internal(
-        species_tree,
-        &depths,
-        &contemporaneity,
-        lca_depths.as_ref().map(|v| v.as_slice()),
-        origin_species,
-        lambda_d,
-        lambda_t,
-        lambda_l,
-        transfer_alpha,
-        rng,
-    )
+    loop {
+        let (rec_tree, events) = simulate_dtl_internal(
+            species_tree,
+            &depths,
+            &contemporaneity,
+            lca_ref,
+            origin_species,
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            transfer_alpha,
+            rng,
+        );
+
+        if !require_extant || count_extant_genes(&rec_tree) > 0 {
+            return (rec_tree, events);
+        }
+        // Otherwise, loop and try again
+    }
 }
 
 /// Simulates multiple gene trees efficiently with shared pre-computed data
@@ -638,6 +647,7 @@ pub fn simulate_dtl<'a, R: Rng>(
 /// * `lambda_l` - Loss rate per unit time
 /// * `transfer_alpha` - Optional distance decay for assortative transfers (None = uniform)
 /// * `n_simulations` - Number of gene trees to simulate
+/// * `require_extant` - If true, only include trees with at least one extant gene
 /// * `rng` - Random number generator
 ///
 /// # Returns
@@ -652,6 +662,7 @@ pub fn simulate_dtl_batch<'a, R: Rng>(
     lambda_l: f64,
     transfer_alpha: Option<f64>,
     n_simulations: usize,
+    require_extant: bool,
     rng: &mut R,
 ) -> (Vec<RecTree<'a>>, Vec<Vec<DTLEvent>>) {
     assert!(lambda_d >= 0.0, "Duplication rate must be non-negative");
@@ -670,7 +681,7 @@ pub fn simulate_dtl_batch<'a, R: Rng>(
     let mut all_events = Vec::with_capacity(n_simulations);
 
     // Simulate all gene trees using the shared precomputed data
-    for _ in 0..n_simulations {
+    while rec_trees.len() < n_simulations {
         let (rec_tree, events) = simulate_dtl_internal(
             species_tree,
             &depths,
@@ -683,8 +694,12 @@ pub fn simulate_dtl_batch<'a, R: Rng>(
             transfer_alpha,
             rng,
         );
-        rec_trees.push(rec_tree);
-        all_events.push(events);
+
+        if !require_extant || count_extant_genes(&rec_tree) > 0 {
+            rec_trees.push(rec_tree);
+            all_events.push(events);
+        }
+        // Otherwise, discard and try again
     }
 
     (rec_trees, all_events)
@@ -769,7 +784,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         // With zero D/T/L rates, should get pure speciation
-        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 0.0, 0.0, None, &mut rng);
+        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 0.0, 0.0, None, false, &mut rng);
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
         println!("Events: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
@@ -789,7 +804,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(123);
 
         // High duplication rate
-        let (rec_tree, _events) = simulate_dtl(&species_tree, species_tree.root, 2.0, 0.0, 0.0, None, &mut rng);
+        let (rec_tree, _events) = simulate_dtl(&species_tree, species_tree.root, 2.0, 0.0, 0.0, None, false, &mut rng);
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
         println!("Events with duplication: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
@@ -807,7 +822,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(999);
 
         // High loss rate
-        let (rec_tree, _events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 0.0, 5.0, None, &mut rng);
+        let (rec_tree, _events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 0.0, 5.0, None, false, &mut rng);
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
         println!("Events with loss: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
@@ -826,7 +841,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         // With mixed events
-        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 1.0, 0.5, 0.5, None, &mut rng);
+        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 1.0, 0.5, 0.5, None, false, &mut rng);
 
         // Save events to CSV
         save_events_to_csv(&events, &species_tree, &rec_tree.gene_tree, "test_dtl_events.csv").expect("Failed to write events CSV");
@@ -856,7 +871,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(456);
 
         // High transfer rate (uniform)
-        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 2.0, 0.0, None, &mut rng);
+        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 2.0, 0.0, None, false, &mut rng);
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
         println!("Events with transfer: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
@@ -872,7 +887,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(456);
 
         // High transfer rate with assortative selection (alpha=1.0)
-        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 2.0, 0.0, Some(1.0), &mut rng);
+        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 2.0, 0.0, Some(1.0), false, &mut rng);
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
         println!("Events with assortative transfer: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);

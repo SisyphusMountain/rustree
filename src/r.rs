@@ -13,7 +13,7 @@ use rand::SeedableRng;
 use std::fs;
 use std::process::Command;
 
-use crate::bd::{simulate_bd_tree, TreeEvent};
+use crate::bd::{simulate_bd_tree, generate_events_from_tree, TreeEvent};
 use crate::dtl::{simulate_dtl, simulate_dtl_batch};
 use crate::node::{FlatTree, FlatNode, Event};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names};
@@ -149,6 +149,7 @@ fn tree_leaf_names_r(tree_list: List) -> Result<Vec<String>> {
 /// @param lambda_t Transfer rate
 /// @param lambda_l Loss rate
 /// @param transfer_alpha Optional distance decay for assortative transfers (NULL = uniform)
+/// @param require_extant If TRUE, retry until a tree with extant genes is produced (default FALSE)
 /// @param seed Optional random seed
 /// @return A list containing the gene tree data with reconciliation info
 /// @export
@@ -159,6 +160,7 @@ fn simulate_dtl_r(
     lambda_t: f64,
     lambda_l: f64,
     transfer_alpha: Robj,
+    require_extant: bool,
     seed: Robj,
 ) -> Result<List> {
     if lambda_d < 0.0 || lambda_t < 0.0 || lambda_l < 0.0 {
@@ -180,7 +182,7 @@ fn simulate_dtl_r(
     };
 
     let origin_species = species_tree.root;
-    let (rec_tree, _events) = simulate_dtl(&species_tree, origin_species, lambda_d, lambda_t, lambda_l, alpha, &mut rng);
+    let (rec_tree, _events) = simulate_dtl(&species_tree, origin_species, lambda_d, lambda_t, lambda_l, alpha, require_extant, &mut rng);
 
     Ok(rectree_to_rlist(&species_tree, &rec_tree.gene_tree, &rec_tree.node_mapping, &rec_tree.event_mapping))
 }
@@ -193,6 +195,7 @@ fn simulate_dtl_r(
 /// @param lambda_t Transfer rate
 /// @param lambda_l Loss rate
 /// @param transfer_alpha Optional distance decay for assortative transfers (NULL = uniform)
+/// @param require_extant If TRUE, only include trees with extant genes (default FALSE)
 /// @param seed Optional random seed
 /// @return A list of gene tree lists
 /// @export
@@ -204,6 +207,7 @@ fn simulate_dtl_batch_r(
     lambda_t: f64,
     lambda_l: f64,
     transfer_alpha: Robj,
+    require_extant: bool,
     seed: Robj,
 ) -> Result<List> {
     if n <= 0 {
@@ -236,6 +240,7 @@ fn simulate_dtl_batch_r(
         lambda_l,
         alpha,
         n as usize,
+        require_extant,
         &mut rng,
     );
 
@@ -382,21 +387,32 @@ fn save_csv_r(gene_tree_list: List, filepath: &str) -> Result<()> {
 
 /// Save birth-death events from a species tree to CSV format.
 ///
-/// @param species_tree_list A species tree list from simulate_species_tree_r (must contain events)
+/// For trees from simulate_species_tree, saves the actual simulation events.
+/// For trees from parse_newick, generates events by treating internal nodes
+/// as speciations and leaves as extant species (no extinction events).
+///
+/// @param species_tree_list A species tree list from simulate_species_tree_r or parse_newick_r
 /// @param filepath Path to save the CSV file
 /// @export
 #[extendr]
 fn save_bd_events_csv_r(species_tree_list: List, filepath: &str) -> Result<()> {
-    // Extract events from the species tree list
-    let events_list: List = species_tree_list.dollar("events")?
-        .try_into()
-        .map_err(|_| "Failed to get events from species tree. Was this tree simulated with simulate_species_tree_r?")?;
-
-    // Convert R list to Vec<TreeEvent>
-    let events = rlist_to_bd_events(&events_list)?;
-
-    // The species tree data is directly in species_tree_list (not nested)
+    // Get the tree structure first (needed in both cases)
     let tree = rlist_to_flattree(&species_tree_list)?;
+
+    // Try to get events from the tree (exists for simulated trees)
+    let events = match species_tree_list.dollar("events") {
+        Ok(events_robj) if !events_robj.is_null() => {
+            // Tree has events (from simulate_species_tree)
+            let events_list: List = events_robj
+                .try_into()
+                .map_err(|_| "Failed to parse events list")?;
+            rlist_to_bd_events(&events_list)?
+        }
+        _ => {
+            // No events (from parse_newick) - generate them from tree structure
+            generate_events_from_tree(&tree)
+        }
+    };
 
     // Call the existing Rust function
     use crate::io::save_bd_events_to_csv;

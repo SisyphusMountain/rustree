@@ -1,4 +1,4 @@
-time,node_id,event_type,child1,child2
+time,node_name,event_type,child1_name,child2_name
 0,0,Leaf,,
 0,1,Leaf,,
 0,2,Leaf,,
