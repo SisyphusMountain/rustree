@@ -65,6 +65,13 @@ fn simulate_species_tree_r(n: i32, lambda: f64, mu: f64, seed: Robj) -> Result<L
     let depths: Vec<Rfloat> = tree.nodes.iter()
         .map(|n| n.depth.map(|d| Rfloat::from(d)).unwrap_or(Rfloat::na()))
         .collect();
+    // bd_event: convert Option<BDEvent> to character vector for R
+    let bd_events: Vec<Rstr> = tree.nodes.iter()
+        .map(|n| match n.bd_event {
+            Some(e) => Rstr::from(e.as_str()),
+            None => Rstr::na(),
+        })
+        .collect();
 
     let events_list = bd_events_to_rlist(&events);
 
@@ -76,6 +83,7 @@ fn simulate_species_tree_r(n: i32, lambda: f64, mu: f64, seed: Robj) -> Result<L
         length = lengths,
         depth = depths,
         root = tree.root as i32,
+        bd_event = bd_events,
         events = events_list
     ))
 }
@@ -567,6 +575,13 @@ fn flattree_to_rlist(tree: &FlatTree) -> List {
     let depths: Vec<Rfloat> = tree.nodes.iter()
         .map(|n| n.depth.map(|d| Rfloat::from(d)).unwrap_or(Rfloat::na()))
         .collect();
+    // bd_event: convert Option<BDEvent> to Rstr for proper NA handling in R
+    let bd_events: Vec<Rstr> = tree.nodes.iter()
+        .map(|n| match n.bd_event {
+            Some(e) => Rstr::from(e.as_str()),
+            None => Rstr::na(),
+        })
+        .collect();
 
     list!(
         name = names,
@@ -575,7 +590,8 @@ fn flattree_to_rlist(tree: &FlatTree) -> List {
         right_child = right_children,
         length = lengths,
         depth = depths,
-        root = tree.root as i32
+        root = tree.root as i32,
+        bd_event = bd_events
     )
 }
 
@@ -596,15 +612,36 @@ fn rlist_to_flattree(list: &List) -> Result<FlatTree> {
     let root: i32 = list.dollar("root")?.as_integer()
         .ok_or("Failed to get root")?;
 
+    // Try to get bd_event (optional, for backward compatibility)
+    // Use Rstr to properly handle NA values
+    let bd_events_robj = list.dollar("bd_event").ok();
+
     let nodes: Vec<FlatNode> = (0..names.len())
-        .map(|i| FlatNode {
-            name: names[i].clone(),
-            parent: if parents[i].is_na() { None } else { Some(parents[i] as usize) },
-            left_child: if left_children[i].is_na() { None } else { Some(left_children[i] as usize) },
-            right_child: if right_children[i].is_na() { None } else { Some(right_children[i] as usize) },
-            length: lengths[i],
-            depth: if depths[i].is_na() { None } else { Some(depths[i]) },
-            bd_event: None,
+        .map(|i| {
+            let bd_event = bd_events_robj.as_ref().and_then(|robj| {
+                // Get the i-th element as Rstr to check for NA
+                if let Some(str_iter) = robj.as_str_iter() {
+                    let strs: Vec<&str> = str_iter.collect();
+                    if i < strs.len() {
+                        let s = strs[i];
+                        // Check if it's NA (empty or "NA" string indicates NA from R)
+                        if s.is_empty() || s == "NA" {
+                            return None;
+                        }
+                        return BDEvent::from_str(s);
+                    }
+                }
+                None
+            });
+            FlatNode {
+                name: names[i].clone(),
+                parent: if parents[i].is_na() { None } else { Some(parents[i] as usize) },
+                left_child: if left_children[i].is_na() { None } else { Some(left_children[i] as usize) },
+                right_child: if right_children[i].is_na() { None } else { Some(right_children[i] as usize) },
+                length: lengths[i],
+                depth: if depths[i].is_na() { None } else { Some(depths[i]) },
+                bd_event,
+            }
         })
         .collect();
 
