@@ -35,24 +35,28 @@ pub struct DTLEvent {
 }
 
 impl DTLEvent {
-    /// Convert event to CSV row format, resolving species names from the species tree
-    pub fn to_csv_row(&self, species_tree: &FlatTree) -> String {
+    /// Convert event to CSV row format, resolving names from trees
+    ///
+    /// # Arguments
+    /// * `species_tree` - The species tree to resolve species names
+    /// * `gene_tree` - The gene tree to resolve gene node names
+    pub fn to_csv_row(&self, species_tree: &FlatTree, gene_tree: &FlatTree) -> String {
         format!(
             "{},{},{},{},{},{},{},{}",
             self.time,
-            self.gene_node_id,
+            gene_tree.nodes[self.gene_node_id].name,
             self.event_type,
             species_tree.nodes[self.species_node_idx].name,
             self.donor_species_idx.map_or(String::new(), |idx| species_tree.nodes[idx].name.clone()),
             self.recipient_species_idx.map_or(String::new(), |idx| species_tree.nodes[idx].name.clone()),
-            self.child1.map_or(String::from(""), |c| c.to_string()),
-            self.child2.map_or(String::from(""), |c| c.to_string())
+            self.child1.map_or(String::new(), |c| gene_tree.nodes[c].name.clone()),
+            self.child2.map_or(String::new(), |c| gene_tree.nodes[c].name.clone())
         )
     }
 
     /// CSV header for event data
     pub fn csv_header() -> &'static str {
-        "time,gene_node_id,event_type,species_node,donor_species,recipient_species,child1,child2"
+        "time,gene_node_name,event_type,species_node,donor_species,recipient_species,child1_name,child2_name"
     }
 }
 
@@ -825,7 +829,7 @@ mod tests {
         let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 1.0, 0.5, 0.5, None, &mut rng);
 
         // Save events to CSV
-        save_events_to_csv(&events, &species_tree, "test_dtl_events.csv").expect("Failed to write events CSV");
+        save_events_to_csv(&events, &species_tree, &rec_tree.gene_tree, "test_dtl_events.csv").expect("Failed to write events CSV");
         println!("Events saved to test_dtl_events.csv");
 
         // Generate XML

@@ -20,21 +20,21 @@ pub struct TreeEvent {
 }
 
 impl TreeEvent {
-    /// Convert event to CSV row format
-    pub fn to_csv_row(&self) -> String {
+    /// Convert event to CSV row format, resolving node names from the tree
+    pub fn to_csv_row(&self, tree: &FlatTree) -> String {
         format!(
             "{},{},{},{},{}",
             self.time,
-            self.node_id,
+            tree.nodes[self.node_id].name,
             self.event_type,
-            self.child1.map_or(String::from(""), |c| c.to_string()),
-            self.child2.map_or(String::from(""), |c| c.to_string())
+            self.child1.map_or(String::new(), |c| tree.nodes[c].name.clone()),
+            self.child2.map_or(String::new(), |c| tree.nodes[c].name.clone())
         )
     }
 
     /// CSV header for event data
     pub fn csv_header() -> &'static str {
-        "time,node_id,event_type,child1,child2"
+        "time,node_name,event_type,child1_name,child2_name"
     }
 }
 

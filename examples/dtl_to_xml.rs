@@ -26,7 +26,7 @@ fn main() {
     println!("Reconciled tree exported to output_rectree.xml");
 
     // Save events to CSV
-    save_events_to_csv(&events, &species_tree, "output_dtl_events.csv").expect("Failed to write events CSV");
+    save_events_to_csv(&events, &species_tree, &rec_tree.gene_tree, "output_dtl_events.csv").expect("Failed to write events CSV");
     println!("DTL events exported to output_dtl_events.csv ({} events)", events.len());
 
     // Option 2: Generate a random species tree using birth-death process
@@ -43,6 +43,6 @@ fn main() {
     println!("Random species tree reconciliation exported to output_rectree_bd.xml");
 
     // Save events to CSV
-    save_events_to_csv(&events2, &bd_tree, "output_dtl_bd_events.csv").expect("Failed to write events CSV");
+    save_events_to_csv(&events2, &bd_tree, &rec_tree2.gene_tree, "output_dtl_bd_events.csv").expect("Failed to write events CSV");
     println!("DTL events (BD tree) exported to output_dtl_bd_events.csv ({} events)", events2.len());
 }

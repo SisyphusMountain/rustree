@@ -305,8 +305,13 @@ fn gene_tree_to_xml_r(gene_tree_list: List) -> Result<String> {
 /// @export
 #[extendr]
 fn save_newick_r(tree_list: List, filepath: &str) -> Result<()> {
-    // Try as species tree first, then as gene tree
-    let newick = if tree_list.dollar("species_tree").is_ok() {
+    // Check for species_node field to determine if this is a gene tree
+    // Gene trees have species_node, species trees do not
+    let is_gene_tree = tree_list.dollar("species_node")
+        .map(|robj| !robj.is_null())
+        .unwrap_or(false);
+
+    let newick = if is_gene_tree {
         gene_tree_to_newick_r(tree_list)?
     } else {
         tree_to_newick_r(tree_list)?
@@ -390,9 +395,12 @@ fn save_bd_events_csv_r(species_tree_list: List, filepath: &str) -> Result<()> {
     // Convert R list to Vec<TreeEvent>
     let events = rlist_to_bd_events(&events_list)?;
 
+    // The species tree data is directly in species_tree_list (not nested)
+    let tree = rlist_to_flattree(&species_tree_list)?;
+
     // Call the existing Rust function
     use crate::io::save_bd_events_to_csv;
-    save_bd_events_to_csv(&events, filepath)
+    save_bd_events_to_csv(&events, &tree, filepath)
         .map_err(|e| format!("Failed to write CSV file: {}", e))?;
 
     Ok(())

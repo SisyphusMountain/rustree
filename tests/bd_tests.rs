@@ -33,7 +33,7 @@ fn test_bd_tree_basic() {
     println!("Newick: {}", newick_with_semicolon);
 
     // Save events to CSV
-    save_events_to_csv(&events, "bd_tree_basic_events.csv")
+    save_events_to_csv(&events, &tree, "bd_tree_basic_events.csv")
         .expect("Failed to write events to file");
     println!("Events saved to bd_tree_basic_events.csv");
 
@@ -102,7 +102,7 @@ fn test_bd_tree_pure_birth() {
     println!("Newick: {}", newick_with_semicolon);
 
     // Save events to CSV
-    save_events_to_csv(&events, "bd_tree_pure_birth_events.csv")
+    save_events_to_csv(&events, &tree, "bd_tree_pure_birth_events.csv")
         .expect("Failed to write events to file");
     println!("Events saved to bd_tree_pure_birth_events.csv");
 
