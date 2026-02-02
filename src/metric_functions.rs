@@ -5,6 +5,38 @@
 
 use crate::node::{Node, TraversalOrder, FlatTree};
 
+/// Type of distance to compute between nodes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DistanceType {
+    /// Topological distance: number of edges between two nodes
+    Topological,
+    /// Metric distance: sum of branch lengths along the path
+    Metric,
+}
+
+/// A single pairwise distance entry between two nodes.
+#[derive(Clone, Debug)]
+pub struct PairwiseDistance {
+    /// Name of the first node
+    pub node1: String,
+    /// Name of the second node
+    pub node2: String,
+    /// Distance between the two nodes
+    pub distance: f64,
+}
+
+impl PairwiseDistance {
+    /// Convert to CSV row format
+    pub fn to_csv_row(&self) -> String {
+        format!("{},{},{}", self.node1, self.node2, self.distance)
+    }
+
+    /// CSV header for pairwise distance data
+    pub fn csv_header() -> &'static str {
+        "node1,node2,distance"
+    }
+}
+
 /// Recursively sets the depth of nodes in a tree.
 ///
 /// # Arguments
@@ -252,5 +284,138 @@ impl FlatTree {
         }
 
         lca_depths
+    }
+
+    /// Computes the path from a node to its ancestor.
+    ///
+    /// # Arguments
+    /// * `node_idx` - Index of the starting node
+    /// * `ancestor_idx` - Index of the ancestor (must be an ancestor of node_idx)
+    ///
+    /// # Returns
+    /// A vector of node indices representing the path from node to ancestor (inclusive)
+    fn path_to_ancestor(&self, node_idx: usize, ancestor_idx: usize) -> Vec<usize> {
+        let mut path = vec![node_idx];
+        let mut current = node_idx;
+        while current != ancestor_idx {
+            current = self.nodes[current].parent.expect("Node should have parent on path to ancestor");
+            path.push(current);
+        }
+        path
+    }
+
+    /// Computes the distance between two nodes.
+    ///
+    /// # Arguments
+    /// * `node_a` - Index of the first node
+    /// * `node_b` - Index of the second node
+    /// * `distance_type` - Type of distance to compute (Topological or Metric)
+    ///
+    /// # Returns
+    /// The distance between the two nodes.
+    pub fn distance_between(&self, node_a: usize, node_b: usize, distance_type: DistanceType) -> f64 {
+        if node_a == node_b {
+            return 0.0;
+        }
+
+        let lca = self.find_lca(node_a, node_b);
+
+        match distance_type {
+            DistanceType::Topological => {
+                // Count edges from node_a to LCA and from node_b to LCA
+                let path_a = self.path_to_ancestor(node_a, lca);
+                let path_b = self.path_to_ancestor(node_b, lca);
+                // Subtract 1 from each because path includes the endpoint
+                // Total edges = (nodes_a - 1) + (nodes_b - 1)
+                ((path_a.len() - 1) + (path_b.len() - 1)) as f64
+            }
+            DistanceType::Metric => {
+                // Sum branch lengths from node_a to LCA and from node_b to LCA
+                let mut distance = 0.0;
+
+                // Path from node_a to LCA (don't include LCA's branch)
+                let mut current = node_a;
+                while current != lca {
+                    distance += self.nodes[current].length;
+                    current = self.nodes[current].parent.expect("Node should have parent");
+                }
+
+                // Path from node_b to LCA (don't include LCA's branch)
+                current = node_b;
+                while current != lca {
+                    distance += self.nodes[current].length;
+                    current = self.nodes[current].parent.expect("Node should have parent");
+                }
+
+                distance
+            }
+        }
+    }
+
+    /// Computes all pairwise distances between nodes in the tree.
+    ///
+    /// # Arguments
+    /// * `distance_type` - Type of distance to compute (Topological or Metric)
+    /// * `leaves_only` - If true, only compute distances between leaf nodes
+    ///
+    /// # Returns
+    /// A vector of PairwiseDistance entries containing all pairs (including symmetric
+    /// pairs and self-distances).
+    ///
+    /// # Example
+    /// ```ignore
+    /// let tree = parse_newick("((A:1,B:1):1,C:2):0;").unwrap().to_flat_tree();
+    /// let distances = tree.pairwise_distances(DistanceType::Metric, true);
+    /// // Returns distances for: (A,A), (A,B), (A,C), (B,A), (B,B), (B,C), (C,A), (C,B), (C,C)
+    /// ```
+    pub fn pairwise_distances(&self, distance_type: DistanceType, leaves_only: bool) -> Vec<PairwiseDistance> {
+        let indices: Vec<usize> = if leaves_only {
+            // Get only leaf node indices
+            self.nodes.iter()
+                .enumerate()
+                .filter(|(_, node)| node.left_child.is_none() && node.right_child.is_none())
+                .map(|(idx, _)| idx)
+                .collect()
+        } else {
+            // All node indices
+            (0..self.nodes.len()).collect()
+        };
+
+        let mut distances = Vec::with_capacity(indices.len() * indices.len());
+
+        for &i in &indices {
+            for &j in &indices {
+                let dist = self.distance_between(i, j, distance_type);
+                distances.push(PairwiseDistance {
+                    node1: self.nodes[i].name.clone(),
+                    node2: self.nodes[j].name.clone(),
+                    distance: dist,
+                });
+            }
+        }
+
+        distances
+    }
+
+    /// Computes the pairwise distance matrix as a 2D vector.
+    ///
+    /// # Arguments
+    /// * `distance_type` - Type of distance to compute (Topological or Metric)
+    ///
+    /// # Returns
+    /// A symmetric matrix where `result[i][j]` = distance between nodes i and j.
+    pub fn pairwise_distance_matrix(&self, distance_type: DistanceType) -> Vec<Vec<f64>> {
+        let n = self.nodes.len();
+        let mut matrix = vec![vec![0.0; n]; n];
+
+        for i in 0..n {
+            for j in i..n {
+                let dist = self.distance_between(i, j, distance_type);
+                matrix[i][j] = dist;
+                matrix[j][i] = dist; // Symmetric
+            }
+        }
+
+        matrix
     }
 }

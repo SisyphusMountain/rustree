@@ -80,3 +80,33 @@ gene_tree_to_svg <- function(gene_tree, filepath = NULL, open_browser = FALSE) {
   if (is.null(filepath)) filepath <- NA_character_
   .Call("wrap__gene_tree_to_svg_r", gene_tree, as.character(filepath), as.logical(open_browser))
 }
+
+# Distance Functions
+
+#' Compute pairwise distances between nodes in a tree.
+#'
+#' @param tree A tree list from simulate_species_tree or parse_newick
+#' @param distance_type Type of distance: "topological" (number of edges) or "metric" (sum of branch lengths)
+#' @param leaves_only If TRUE, only compute distances between leaf nodes (default TRUE)
+#' @return A data.frame with columns: node1, node2, distance
+#' @examples
+#' sp_tree <- parse_newick("((A:1,B:1):1,C:2):0;")
+#' dists <- pairwise_distances(sp_tree, "metric", leaves_only = TRUE)
+#' head(dists)
+pairwise_distances <- function(tree, distance_type = "metric", leaves_only = TRUE) {
+  result <- .Call("wrap__pairwise_distances_r", tree, as.character(distance_type), as.logical(leaves_only))
+  as.data.frame(result, stringsAsFactors = FALSE)
+}
+
+#' Save pairwise distances to a CSV file.
+#'
+#' @param tree A tree list from simulate_species_tree or parse_newick
+#' @param filepath Path to save the CSV file
+#' @param distance_type Type of distance: "topological" or "metric"
+#' @param leaves_only If TRUE, only compute distances between leaf nodes (default TRUE)
+#' @examples
+#' sp_tree <- parse_newick("((A:1,B:1):1,C:2):0;")
+#' save_pairwise_distances_csv(sp_tree, "distances.csv", "metric")
+save_pairwise_distances_csv <- function(tree, filepath, distance_type = "metric", leaves_only = TRUE) {
+  .Call("wrap__save_pairwise_distances_csv_r", tree, as.character(filepath), as.character(distance_type), as.logical(leaves_only))
+}

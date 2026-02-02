@@ -14,16 +14,18 @@ This tutorial explains how to build and use the rustree R bindings for simulatin
    - Assortative Transfers
    - Inspect Gene Trees
    - Sample Extant Genes
-   - Export Birth-Death Events (NEW!)
+   - Export Birth-Death Events
+   - Pairwise Distances
    - Export Gene Tree Results
    - Visualize with thirdkind
 5. [Analyzing Birth-Death Events](#analyzing-birth-death-events)
-6. [Full Workflow Example](#full-workflow-example)
-7. [Advanced Examples](#advanced-comparative-analysis-example)
-8. [Function Reference](#function-reference)
-9. [Understanding Data Structures](#understanding-the-data-structures)
-10. [Parameters and Configuration](#parameters-and-configuration)
-11. [Important Notes](#important-notes)
+6. [Pairwise Distances](#pairwise-distances)
+7. [Full Workflow Example](#full-workflow-example)
+8. [Advanced Examples](#advanced-comparative-analysis-example)
+9. [Function Reference](#function-reference)
+10. [Understanding Data Structures](#understanding-the-data-structures)
+11. [Parameters and Configuration](#parameters-and-configuration)
+12. [Important Notes](#important-notes)
 
 ## Quick Reference Card
 
@@ -57,6 +59,10 @@ subset <- extract_induced_subtree_by_names(sp_tree, c("A", "B", "C"))  # Keep sp
 
 # === ASSORTATIVE TRANSFERS ===
 gt <- simulate_dtl(sp_tree, 0.5, 0.5, 0.3, transfer_alpha=1.0)  # Local transfers
+
+# === PAIRWISE DISTANCES ===
+dists <- pairwise_distances(sp_tree, "metric", leaves_only = TRUE)
+save_pairwise_distances_csv(sp_tree, "distances.csv", "metric")
 
 # === EXPORT ===
 save_newick(sp_tree, "species.nwk")  # Species or gene tree
@@ -457,6 +463,71 @@ cat("Observed extinction rate:", observed_mu, "\n")
 cat("Net diversification rate:", observed_lambda - observed_mu, "\n")
 ```
 
+## Pairwise Distances
+
+You can compute pairwise distances between nodes in a species tree. Two types of distances are supported:
+
+- **Metric distance** (also called patristic distance): Sum of branch lengths along the path between two nodes
+- **Topological distance**: Number of edges along the path between two nodes
+
+```r
+# Parse or simulate a species tree
+sp_tree <- parse_newick("((A:1,B:1):1,C:2):0;")
+
+# Compute metric (branch length) distances between leaves
+metric_dists <- pairwise_distances(sp_tree, "metric", leaves_only = TRUE)
+print(metric_dists)
+#   node1 node2 distance
+# 1     A     A        0
+# 2     A     B        2   # A to AB (1) + AB to B (1)
+# 3     A     C        4   # A to AB (1) + AB to root (1) + root to C (2)
+# 4     B     A        2
+# 5     B     B        0
+# 6     B     C        4
+# 7     C     A        4
+# 8     C     B        4
+# 9     C     C        0
+
+# Compute topological (edge count) distances
+topo_dists <- pairwise_distances(sp_tree, "topological", leaves_only = TRUE)
+print(topo_dists)
+#   node1 node2 distance
+# 1     A     A        0
+# 2     A     B        2   # 2 edges: A-AB, AB-B
+# 3     A     C        3   # 3 edges: A-AB, AB-root, root-C
+# ...
+
+# Include internal nodes as well
+all_dists <- pairwise_distances(sp_tree, "metric", leaves_only = FALSE)
+
+# Save to CSV for external analysis
+save_pairwise_distances_csv(sp_tree, "distances.csv", "metric", leaves_only = TRUE)
+```
+
+### Distance Matrix Analysis
+
+```r
+# Convert to a distance matrix for clustering or other analyses
+sp_tree <- simulate_species_tree(20L, 1.0, 0.5, seed = 42L)
+dists <- pairwise_distances(sp_tree, "metric", leaves_only = TRUE)
+
+# Create a square distance matrix
+leaves <- unique(dists$node1)
+n <- length(leaves)
+dist_matrix <- matrix(0, n, n, dimnames = list(leaves, leaves))
+for (i in 1:nrow(dists)) {
+  dist_matrix[dists$node1[i], dists$node2[i]] <- dists$distance[i]
+}
+
+# Use for hierarchical clustering
+hc <- hclust(as.dist(dist_matrix))
+plot(hc, main = "Hierarchical Clustering from Pairwise Distances")
+
+# Or compute summary statistics
+cat("Mean pairwise distance:", mean(dists$distance[dists$node1 != dists$node2]), "\n")
+cat("Max pairwise distance:", max(dists$distance), "\n")
+```
+
 ## Full Workflow Example
 
 ```r
@@ -728,6 +799,8 @@ boxplot(extant_no, extant_uni, extant_loc,
 |----------|-------------|---------|
 | `sample_extant(gt)` | Extract induced subtree with only extant genes | List with sampled gene tree |
 | `extract_induced_subtree_by_names(tree, leaf_names)` | Extract induced subtree keeping only specified leaves | List with pruned tree |
+| `pairwise_distances(tree, distance_type, leaves_only)` | Compute all pairwise distances between nodes | Data frame (node1, node2, distance) |
+| `save_pairwise_distances_csv(tree, filepath, distance_type, leaves_only)` | Save pairwise distances to CSV file | NULL (writes file) |
 
 **`extract_induced_subtree_by_names` parameters:**
 - `tree`: A tree list (species tree or gene tree)
@@ -752,6 +825,20 @@ subset <- extract_induced_subtree_by_names(tree, c("A", "C"))
 siblings <- extract_induced_subtree_by_names(tree, c("A", "B"))
 # Result: (A:1.0,B:1.0):1.0;  (parent preserved)
 ```
+
+**`pairwise_distances` parameters:**
+- `tree`: A tree list (species tree or gene tree)
+- `distance_type`: Type of distance to compute:
+  - `"metric"` (or `"patristic"`, `"branch"`): Sum of branch lengths along path
+  - `"topological"` (or `"topo"`): Number of edges along path
+- `leaves_only`: If TRUE (default), only compute distances between leaf nodes; if FALSE, include all nodes
+
+**Returns:** A data frame with columns:
+- `node1`: Name of the first node
+- `node2`: Name of the second node
+- `distance`: Distance between the two nodes
+
+The output includes all pairs (A,B), (B,A), and self-distances (A,A) for completeness.
 
 ### I/O and Export Functions
 
@@ -1176,7 +1263,7 @@ cat("All outputs saved to output/ directory\n")
 cat("Parameters saved in simulation_parameters.rds\n")
 ```
 
-## Summary of All 17 Available Functions
+## Summary of All 19 Available Functions
 
 | # | Function | Category | Description |
 |---|----------|----------|-------------|
@@ -1194,9 +1281,11 @@ cat("Parameters saved in simulation_parameters.rds\n")
 | 12 | `save_xml_r` | Export | Save gene tree to RecPhyloXML |
 | 13 | `save_csv_r` | Export | Save gene tree to CSV |
 | 14 | `save_bd_events_csv_r` | Export | Save birth-death events to CSV |
-| 15 | `gene_tree_to_svg_r` | Visualization | Generate SVG with thirdkind |
-| 16 | `sample_extant_r` | Analysis | Extract extant-only subtree |
-| 17 | `extract_induced_subtree_by_names_r` | Analysis | Extract induced subtree by leaf names |
+| 15 | `save_pairwise_distances_csv_r` | Export | Save pairwise distances to CSV |
+| 16 | `gene_tree_to_svg_r` | Visualization | Generate SVG with thirdkind |
+| 17 | `sample_extant_r` | Analysis | Extract extant-only subtree |
+| 18 | `extract_induced_subtree_by_names_r` | Analysis | Extract induced subtree by leaf names |
+| 19 | `pairwise_distances_r` | Analysis | Compute pairwise node distances |
 
 **Note:** The R wrapper functions in `R/rustree.R` remove the `_r` suffix for cleaner syntax (e.g., `simulate_species_tree` instead of `simulate_species_tree_r`).
 

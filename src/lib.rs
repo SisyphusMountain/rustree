@@ -28,3 +28,4 @@ pub mod r;
 // Re-export key types for easier access
 pub use newick::newick::parse_newick;
 pub use node::{Node, FlatNode, FlatTree, TraversalOrder, node_to_flat, flat_to_node};
+pub use metric_functions::{DistanceType, PairwiseDistance};

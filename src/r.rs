@@ -776,6 +776,79 @@ fn rlist_to_genetree(list: &List) -> Result<(FlatTree, FlatTree, Vec<usize>, Vec
     Ok((gene_tree, species_tree, node_mapping, event_mapping))
 }
 
+/// Compute all pairwise distances between nodes in a tree.
+///
+/// @param tree_list A tree list from simulate_species_tree_r or parse_newick_r
+/// @param distance_type Type of distance: "topological" (number of edges) or "metric" (sum of branch lengths)
+/// @param leaves_only If TRUE, only compute distances between leaf nodes (default TRUE)
+/// @return A list with three vectors: node1, node2, distance (suitable for conversion to data.frame)
+/// @export
+#[extendr]
+fn pairwise_distances_r(tree_list: List, distance_type: &str, leaves_only: bool) -> Result<List> {
+    use crate::metric_functions::DistanceType;
+
+    let tree = rlist_to_flattree(&tree_list)?;
+
+    let dist_type = match distance_type.to_lowercase().as_str() {
+        "topological" | "topo" => DistanceType::Topological,
+        "metric" | "branch" | "patristic" => DistanceType::Metric,
+        _ => return Err(format!(
+            "Invalid distance_type '{}'. Use 'topological' or 'metric'.",
+            distance_type
+        ).into()),
+    };
+
+    let distances = tree.pairwise_distances(dist_type, leaves_only);
+
+    let node1: Vec<String> = distances.iter().map(|d| d.node1.clone()).collect();
+    let node2: Vec<String> = distances.iter().map(|d| d.node2.clone()).collect();
+    let dist: Vec<f64> = distances.iter().map(|d| d.distance).collect();
+
+    Ok(list!(
+        node1 = node1,
+        node2 = node2,
+        distance = dist
+    ))
+}
+
+/// Save pairwise distances to a CSV file.
+///
+/// @param tree_list A tree list from simulate_species_tree_r or parse_newick_r
+/// @param filepath Path to save the CSV file
+/// @param distance_type Type of distance: "topological" or "metric"
+/// @param leaves_only If TRUE, only compute distances between leaf nodes (default TRUE)
+/// @export
+#[extendr]
+fn save_pairwise_distances_csv_r(tree_list: List, filepath: &str, distance_type: &str, leaves_only: bool) -> Result<()> {
+    use crate::metric_functions::{DistanceType, PairwiseDistance};
+
+    let tree = rlist_to_flattree(&tree_list)?;
+
+    let dist_type = match distance_type.to_lowercase().as_str() {
+        "topological" | "topo" => DistanceType::Topological,
+        "metric" | "branch" | "patristic" => DistanceType::Metric,
+        _ => return Err(format!(
+            "Invalid distance_type '{}'. Use 'topological' or 'metric'.",
+            distance_type
+        ).into()),
+    };
+
+    let distances = tree.pairwise_distances(dist_type, leaves_only);
+
+    // Write to CSV
+    let mut csv = String::from(PairwiseDistance::csv_header());
+    csv.push('\n');
+    for d in &distances {
+        csv.push_str(&d.to_csv_row());
+        csv.push('\n');
+    }
+
+    fs::write(filepath, csv)
+        .map_err(|e| format!("Failed to write CSV file: {}", e))?;
+
+    Ok(())
+}
+
 // Macro to generate exports
 extendr_module! {
     mod rustree;
@@ -796,4 +869,6 @@ extendr_module! {
     fn gene_tree_to_svg_r;
     fn sample_extant_r;
     fn extract_induced_subtree_by_names_r;
+    fn pairwise_distances_r;
+    fn save_pairwise_distances_csv_r;
 }

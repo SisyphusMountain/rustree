@@ -51,7 +51,7 @@ gene_trees <- simulate_dtl_batch(
   n = 100L,
   lambda_d = 0.5,
   lambda_t = 0.2,
-  lambda_l = 0.8,
+  lambda_l = 1,
   require_extant = TRUE,  # All returned trees have >= 1 extant gene
   seed = 123L
 )
