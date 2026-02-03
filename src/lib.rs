@@ -28,4 +28,10 @@ pub mod r;
 // Re-export key types for easier access
 pub use newick::newick::parse_newick;
 pub use node::{Node, FlatNode, FlatTree, TraversalOrder, node_to_flat, flat_to_node};
+pub use node::{RecTree, RecTreeOwned, Event, parse_recphyloxml, parse_recphyloxml_file};
 pub use metric_functions::{DistanceType, PairwiseDistance};
+pub use sampling::{
+    extract_induced_subtree, extract_induced_subtree_by_names,
+    compute_lca, build_leaf_pair_lca_map, build_sampled_to_original_mapping,
+    get_descendant_leaf_names, find_all_leaf_indices, find_leaf_indices_by_names,
+};

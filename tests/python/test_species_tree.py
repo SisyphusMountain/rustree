@@ -662,6 +662,130 @@ def test_save_newick_invalid_path():
 
 
 # =============================================================================
+# Tests for SpeciesTree.pairwise_distances()
+# =============================================================================
+
+def test_pairwise_distances_metric_leaves():
+    """Test pairwise_distances with metric distance type, leaves only."""
+    newick = "((A:1.0,B:1.0):1.0,C:2.0):0.0;"
+    tree = rustree.parse_species_tree(newick)
+
+    df = tree.pairwise_distances("metric", leaves_only=True)
+
+    # Should have 3 leaves, so 9 pairs (3x3 including self-distances)
+    assert len(df) == 9
+    assert "node1" in df.columns
+    assert "node2" in df.columns
+    assert "distance" in df.columns
+    print("PASS: test_pairwise_distances_metric_leaves")
+
+
+def test_pairwise_distances_topological_leaves():
+    """Test pairwise_distances with topological distance type, leaves only."""
+    newick = "((A:1.0,B:2.0):3.0,C:6.0):0.0;"
+    tree = rustree.parse_species_tree(newick)
+
+    df = tree.pairwise_distances("topological", leaves_only=True)
+
+    # Should have 3 leaves, so 9 pairs
+    assert len(df) == 9
+
+    # Check that topological distances are integers (number of edges)
+    for dist in df["distance"]:
+        assert dist == int(dist)
+    print("PASS: test_pairwise_distances_topological_leaves")
+
+
+def test_pairwise_distances_all_nodes():
+    """Test pairwise_distances with all nodes, not just leaves."""
+    newick = "((A:1.0,B:1.0):1.0,C:2.0):0.0;"
+    tree = rustree.parse_species_tree(newick)
+
+    df = tree.pairwise_distances("metric", leaves_only=False)
+
+    # 5 nodes total (3 leaves + 2 internal), so 25 pairs (5x5)
+    assert len(df) == 25
+    print("PASS: test_pairwise_distances_all_nodes")
+
+
+def test_pairwise_distances_self_distance_zero():
+    """Test that self-distances are zero."""
+    tree = rustree.simulate_species_tree(5, 1.0, 0.3, seed=42)
+
+    df = tree.pairwise_distances("metric", leaves_only=True)
+
+    # Filter to self-distances (where node1 == node2)
+    self_dists = df[df["node1"] == df["node2"]]
+
+    # All self-distances should be zero
+    for dist in self_dists["distance"]:
+        assert dist == 0.0
+    print("PASS: test_pairwise_distances_self_distance_zero")
+
+
+def test_pairwise_distances_symmetric():
+    """Test that distance matrix is symmetric (d(A,B) == d(B,A))."""
+    tree = rustree.simulate_species_tree(5, 1.0, 0.3, seed=42)
+
+    df = tree.pairwise_distances("metric", leaves_only=True)
+
+    # Create a dictionary for quick lookup
+    dist_dict = {}
+    for _, row in df.iterrows():
+        dist_dict[(row["node1"], row["node2"])] = row["distance"]
+
+    # Check symmetry
+    for (n1, n2), dist in dist_dict.items():
+        if n1 != n2:  # Skip self-distances
+            reverse_dist = dist_dict.get((n2, n1))
+            assert reverse_dist is not None
+            assert abs(dist - reverse_dist) < 1e-10
+    print("PASS: test_pairwise_distances_symmetric")
+
+
+def test_pairwise_distances_invalid_type():
+    """Test that invalid distance_type raises error."""
+    tree = rustree.simulate_species_tree(5, 1.0, 0.3, seed=42)
+
+    try:
+        tree.pairwise_distances("invalid_type", leaves_only=True)
+        assert False, "Should have raised an error for invalid distance_type"
+    except ValueError as e:
+        assert "invalid" in str(e).lower()
+    print("PASS: test_pairwise_distances_invalid_type")
+
+
+def test_pairwise_distances_aliases():
+    """Test that distance_type aliases work (topo, patristic, branch)."""
+    tree = rustree.simulate_species_tree(5, 1.0, 0.3, seed=42)
+
+    # Test topological alias
+    df1 = tree.pairwise_distances("topological", leaves_only=True)
+    df2 = tree.pairwise_distances("topo", leaves_only=True)
+    assert df1.equals(df2)
+
+    # Test metric aliases
+    df3 = tree.pairwise_distances("metric", leaves_only=True)
+    df4 = tree.pairwise_distances("patristic", leaves_only=True)
+    df5 = tree.pairwise_distances("branch", leaves_only=True)
+    assert df3.equals(df4)
+    assert df3.equals(df5)
+    print("PASS: test_pairwise_distances_aliases")
+
+
+def test_pairwise_distances_default_leaves_only():
+    """Test that leaves_only defaults to True."""
+    tree = rustree.simulate_species_tree(5, 1.0, 0.3, seed=42)
+
+    # Call without leaves_only parameter (should default to True)
+    df1 = tree.pairwise_distances("metric")
+    df2 = tree.pairwise_distances("metric", leaves_only=True)
+
+    assert len(df1) == len(df2)
+    print("PASS: test_pairwise_distances_default_leaves_only")
+
+
+# =============================================================================
 # Integration tests
 # =============================================================================
 
@@ -828,6 +952,16 @@ if __name__ == "__main__":
         test_save_newick_directory_path,
         test_save_newick_overwrite,
         test_save_newick_invalid_path,
+
+        # pairwise_distances tests
+        test_pairwise_distances_metric_leaves,
+        test_pairwise_distances_topological_leaves,
+        test_pairwise_distances_all_nodes,
+        test_pairwise_distances_self_distance_zero,
+        test_pairwise_distances_symmetric,
+        test_pairwise_distances_invalid_type,
+        test_pairwise_distances_aliases,
+        test_pairwise_distances_default_leaves_only,
 
         # Integration tests
         test_integration_full_workflow,

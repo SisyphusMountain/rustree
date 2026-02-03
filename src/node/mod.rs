@@ -11,6 +11,7 @@ mod iter;
 mod traits;
 mod conversion;
 mod rectree;
+pub mod recphyloxml;
 
 // Re-export iterator types
 pub use iter::{NodeIter, FlatTreeIter};
@@ -22,7 +23,10 @@ pub use traits::HasName;
 pub use conversion::{node_to_flat, flat_to_node};
 
 // Re-export reconciliation types
-pub use rectree::{Event, RecTree};
+pub use rectree::{Event, RecTree, RecTreeOwned};
+
+// Re-export XML parsing functions
+pub use recphyloxml::{parse_recphyloxml, parse_recphyloxml_file, parse_gene_tree_only, parse_gene_tree_only_file};
 
 // ============================================================================
 // Core Data Structures

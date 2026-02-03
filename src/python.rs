@@ -13,7 +13,7 @@ use rand::SeedableRng;
 use crate::bd::simulate_bd_tree;
 use crate::dtl::{simulate_dtl, simulate_dtl_batch};
 use crate::node::{FlatTree, Event};
-use crate::sampling::{extract_induced_subtree, find_leaf_indices_by_names};
+use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names, find_leaf_indices_by_names};
 use std::fs;
 use std::process::Command;
 
@@ -63,6 +63,55 @@ impl PySpeciesTree {
             .collect()
     }
 
+    /// Extract an induced subtree keeping only the specified leaf names.
+    ///
+    /// This method creates a new species tree containing only the specified leaves
+    /// and their most recent common ancestors (MRCAs). The resulting tree preserves
+    /// the topology and branch lengths among the selected species.
+    ///
+    /// # Arguments
+    /// * `names` - List of leaf names to keep in the subtree
+    ///
+    /// # Returns
+    /// A new PySpeciesTree containing only the specified leaves and their MRCAs.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The names list is empty
+    /// - No matching leaves are found in the tree
+    /// - Failed to construct the induced subtree
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    ///
+    /// # Simulate or load a species tree
+    /// tree = rustree.simulate_species_tree(n=10, lambda_=1.0, mu=0.5, seed=42)
+    ///
+    /// # Get all leaf names
+    /// all_leaves = tree.leaf_names()
+    /// print(f"Original tree has {len(all_leaves)} leaves")
+    ///
+    /// # Extract a subtree with only 3 species
+    /// selected_species = all_leaves[:3]
+    /// subtree = tree.extract_induced_subtree_by_names(selected_species)
+    /// print(f"Subtree has {subtree.num_leaves()} leaves")
+    /// ```
+    fn extract_induced_subtree_by_names(&self, names: Vec<String>) -> PyResult<PySpeciesTree> {
+        if names.is_empty() {
+            return Err(PyValueError::new_err("Leaf names list cannot be empty"));
+        }
+
+        let induced_tree = extract_induced_subtree_by_names(&self.tree, &names)
+            .ok_or_else(|| PyValueError::new_err(
+                "Failed to extract induced subtree (no matching leaves found or subtree extraction failed)"
+            ))?;
+
+        Ok(PySpeciesTree {
+            tree: induced_tree,
+        })
+    }
+
     /// Save the species tree to a Newick file.
     ///
     /// # Arguments
@@ -72,6 +121,101 @@ impl PySpeciesTree {
         fs::write(filepath, newick)
             .map_err(|e| PyValueError::new_err(format!("Failed to write Newick file: {}", e)))?;
         Ok(())
+    }
+
+    /// Save birth-death events to a CSV file.
+    ///
+    /// For trees from simulate_species_tree, saves the actual simulation events.
+    /// For trees from parse_species_tree, generates events by treating internal nodes
+    /// as speciations and leaves as extant species (no extinction events).
+    ///
+    /// # Arguments
+    /// * `filepath` - Path to save the CSV file
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    ///
+    /// # Simulate a tree
+    /// tree = rustree.simulate_species_tree(n=10, lambda_=1.0, mu=0.3, seed=42)
+    ///
+    /// # Save birth-death events to CSV
+    /// tree.save_bd_events_csv("events.csv")
+    /// ```
+    fn save_bd_events_csv(&self, filepath: &str) -> PyResult<()> {
+        use crate::bd::generate_events_from_tree;
+        use crate::io::save_bd_events_to_csv;
+
+        // For parsed trees without stored events, generate them from tree structure
+        let events = generate_events_from_tree(&self.tree);
+
+        save_bd_events_to_csv(&events, &self.tree, filepath)
+            .map_err(|e| PyValueError::new_err(format!("Failed to write CSV file: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get birth-death events as a dictionary.
+    ///
+    /// Returns a dictionary with keys:
+    /// - 'time': List of event times (floats)
+    /// - 'node_name': List of node names (strings)
+    /// - 'event_type': List of event types ('Speciation', 'Extinction', or 'Leaf')
+    /// - 'child1_name': List of first child names (strings, empty for non-speciation events)
+    /// - 'child2_name': List of second child names (strings, empty for non-speciation events)
+    ///
+    /// For trees from simulate_species_tree, returns the actual simulation events.
+    /// For trees from parse_species_tree, generates events from tree structure.
+    ///
+    /// # Returns
+    /// A dictionary containing lists of event data, suitable for pandas DataFrame creation.
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    /// import pandas as pd
+    ///
+    /// # Simulate a tree
+    /// tree = rustree.simulate_species_tree(n=10, lambda_=1.0, mu=0.3, seed=42)
+    ///
+    /// # Get events as dict
+    /// events = tree.get_bd_events()
+    ///
+    /// # Convert to pandas DataFrame
+    /// df = pd.DataFrame(events)
+    /// print(df.head())
+    /// ```
+    fn get_bd_events(&self, py: Python) -> PyResult<PyObject> {
+        use crate::bd::generate_events_from_tree;
+        use pyo3::types::PyDict;
+
+        // For parsed trees without stored events, generate them from tree structure
+        let events = generate_events_from_tree(&self.tree);
+
+        // Build dictionary with lists
+        let dict = PyDict::new(py);
+
+        let times: Vec<f64> = events.iter().map(|e| e.time).collect();
+        let node_names: Vec<String> = events.iter()
+            .map(|e| self.tree.nodes[e.node_id].name.clone())
+            .collect();
+        let event_types: Vec<&str> = events.iter()
+            .map(|e| e.event_type.as_str())
+            .collect();
+        let child1_names: Vec<String> = events.iter()
+            .map(|e| e.child1.map_or(String::new(), |c| self.tree.nodes[c].name.clone()))
+            .collect();
+        let child2_names: Vec<String> = events.iter()
+            .map(|e| e.child2.map_or(String::new(), |c| self.tree.nodes[c].name.clone()))
+            .collect();
+
+        dict.set_item("time", times)?;
+        dict.set_item("node_name", node_names)?;
+        dict.set_item("event_type", event_types)?;
+        dict.set_item("child1_name", child1_names)?;
+        dict.set_item("child2_name", child2_names)?;
+
+        Ok(dict.into())
     }
 
     /// Simulate a gene tree along this species tree using the DTL model.
@@ -164,6 +308,107 @@ impl PySpeciesTree {
             .collect();
 
         Ok(gene_trees)
+    }
+
+    /// Compute all pairwise distances between nodes in the species tree.
+    ///
+    /// # Arguments
+    /// * `distance_type` - Type of distance: "topological" (number of edges) or "metric" (sum of branch lengths)
+    /// * `leaves_only` - If true, only compute distances between leaf nodes (default true)
+    ///
+    /// # Returns
+    /// A pandas DataFrame with columns: node1, node2, distance
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    /// tree = rustree.simulate_species_tree(5, 1.0, 0.5, seed=42)
+    /// df = tree.pairwise_distances("metric", leaves_only=True)
+    /// print(df)
+    /// ```
+    #[pyo3(signature = (distance_type, leaves_only=true))]
+    fn pairwise_distances(&self, py: Python, distance_type: &str, leaves_only: bool) -> PyResult<PyObject> {
+        use crate::metric_functions::DistanceType;
+
+        let dist_type = match distance_type.to_lowercase().as_str() {
+            "topological" | "topo" => DistanceType::Topological,
+            "metric" | "branch" | "patristic" => DistanceType::Metric,
+            _ => return Err(PyValueError::new_err(format!(
+                "Invalid distance_type '{}'. Use 'topological' or 'metric'.",
+                distance_type
+            ))),
+        };
+
+        let distances = self.tree.pairwise_distances(dist_type, leaves_only);
+
+        let node1: Vec<&str> = distances.iter().map(|d| d.node1.as_str()).collect();
+        let node2: Vec<&str> = distances.iter().map(|d| d.node2.as_str()).collect();
+        let dist: Vec<f64> = distances.iter().map(|d| d.distance).collect();
+
+        // Create pandas DataFrame
+        let pandas = py.import("pandas")?;
+        let dict = pyo3::types::PyDict::new(py);
+
+        dict.set_item("node1", node1)?;
+        dict.set_item("node2", node2)?;
+        dict.set_item("distance", dist)?;
+
+        let df = pandas.call_method1("DataFrame", (dict,))?;
+        Ok(df.into())
+    }
+
+    /// Save pairwise distances between nodes to a CSV file.
+    ///
+    /// Computes all pairwise distances and writes them to a CSV file with the format:
+    /// node1,node2,distance
+    ///
+    /// # Arguments
+    /// * `filepath` - Path to save the CSV file
+    /// * `distance_type` - Type of distance: "topological" (number of edges) or "metric" (sum of branch lengths)
+    /// * `leaves_only` - If true, only compute distances between leaf nodes (default: true)
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    ///
+    /// # Simulate a species tree
+    /// tree = rustree.simulate_species_tree(n=10, lambda_=1.0, mu=0.5, seed=42)
+    ///
+    /// # Save topological distances between all leaves
+    /// tree.save_pairwise_distances_csv("distances.csv", "topological", leaves_only=True)
+    ///
+    /// # Save metric distances between all nodes
+    /// tree.save_pairwise_distances_csv("all_distances.csv", "metric", leaves_only=False)
+    /// ```
+    #[pyo3(signature = (filepath, distance_type, leaves_only=true))]
+    fn save_pairwise_distances_csv(&self, filepath: &str, distance_type: &str, leaves_only: bool) -> PyResult<()> {
+        use crate::metric_functions::{DistanceType, PairwiseDistance};
+
+        // Parse distance type
+        let dist_type = match distance_type.to_lowercase().as_str() {
+            "topological" | "topo" => DistanceType::Topological,
+            "metric" | "branch" | "patristic" => DistanceType::Metric,
+            _ => return Err(PyValueError::new_err(format!(
+                "Invalid distance_type '{}'. Use 'topological' or 'metric'.",
+                distance_type
+            ))),
+        };
+
+        // Compute pairwise distances
+        let distances = self.tree.pairwise_distances(dist_type, leaves_only);
+
+        // Write to CSV
+        let mut csv = String::from(PairwiseDistance::csv_header());
+        csv.push('\n');
+        for d in &distances {
+            csv.push_str(&d.to_csv_row());
+            csv.push('\n');
+        }
+
+        fs::write(filepath, csv)
+            .map_err(|e| PyValueError::new_err(format!("Failed to write CSV file: {}", e)))?;
+
+        Ok(())
     }
 }
 
@@ -331,6 +576,56 @@ impl PyGeneTree {
             species_tree: self.species_tree.clone(),
             node_mapping: new_node_mapping,
             event_mapping: new_event_mapping,
+        })
+    }
+
+    /// Sample species tree leaves and filter gene tree accordingly.
+    ///
+    /// This method samples a subset of species from the species tree and automatically
+    /// filters the gene tree to keep only genes that map to the sampled species. The
+    /// reconciliation mappings are preserved using an LCA-based approach.
+    ///
+    /// # Arguments
+    /// * `species_leaf_names` - List of species leaf names to keep
+    ///
+    /// # Returns
+    /// A new PyGeneTree with sampled species and gene trees, with preserved reconciliation mappings.
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    ///
+    /// # Load a reconciled tree
+    /// gt = rustree.parse_recphyloxml("reconciliation.xml")
+    ///
+    /// # Sample only species A, B, and C
+    /// sampled_gt = gt.sample_species_leaves(["species_A", "species_B", "species_C"])
+    ///
+    /// print(f"Original: {gt.num_nodes()} gene nodes, {len(gt.to_newick())} chars")
+    /// print(f"Sampled: {sampled_gt.num_nodes()} gene nodes, {len(sampled_gt.to_newick())} chars")
+    /// ```
+    fn sample_species_leaves(&self, species_leaf_names: Vec<String>) -> PyResult<PyGeneTree> {
+        use crate::node::RecTreeOwned;
+
+        // Build a RecTreeOwned from self
+        let rec_tree_owned = RecTreeOwned::new(
+            self.species_tree.clone(),
+            self.gene_tree.clone(),
+            self.node_mapping.clone(),
+            self.event_mapping.clone(),
+        );
+
+        // Sample using the RecTreeOwned method
+        let sampled_rec_tree = rec_tree_owned
+            .sample_species_leaves(&species_leaf_names)
+            .map_err(|e| PyValueError::new_err(format!("Failed to sample species leaves: {}", e)))?;
+
+        // Convert back to PyGeneTree
+        Ok(PyGeneTree {
+            gene_tree: sampled_rec_tree.gene_tree,
+            species_tree: sampled_rec_tree.species_tree,
+            node_mapping: sampled_rec_tree.node_mapping,
+            event_mapping: sampled_rec_tree.event_mapping,
         })
     }
 
@@ -574,11 +869,35 @@ fn parse_species_tree(newick_str: &str) -> PyResult<PySpeciesTree> {
     Ok(PySpeciesTree { tree })
 }
 
+/// Parse a RecPhyloXML file into a gene tree with reconciliation information.
+///
+/// # Arguments
+/// * `filepath` - Path to the RecPhyloXML file (e.g., from ALERax)
+///
+/// # Returns
+/// A PyGeneTree parsed from the RecPhyloXML file, containing both the species tree
+/// and reconciled gene tree with event mappings.
+#[pyfunction]
+fn parse_recphyloxml(filepath: &str) -> PyResult<PyGeneTree> {
+    use crate::node::RecTreeOwned;
+
+    let rec_tree_owned = RecTreeOwned::from_xml_file(filepath)
+        .map_err(|e| PyValueError::new_err(format!("Failed to parse RecPhyloXML: {}", e)))?;
+
+    Ok(PyGeneTree {
+        gene_tree: rec_tree_owned.gene_tree,
+        species_tree: rec_tree_owned.species_tree,
+        node_mapping: rec_tree_owned.node_mapping,
+        event_mapping: rec_tree_owned.event_mapping,
+    })
+}
+
 /// Python module for rustree.
 #[pymodule]
 fn rustree(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(simulate_species_tree, m)?)?;
     m.add_function(wrap_pyfunction!(parse_species_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_recphyloxml, m)?)?;
     m.add_class::<PySpeciesTree>()?;
     m.add_class::<PyGeneTree>()?;
     Ok(())
