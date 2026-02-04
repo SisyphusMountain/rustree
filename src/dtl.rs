@@ -92,10 +92,11 @@ impl SimulationState {
     }
 
     /// Creates a new gene node and returns its index.
+    /// Node name format: {species_idx}_{gene_idx}
     fn create_gene_node(&mut self, parent: Option<usize>, species_idx: usize, event: Event) -> usize {
         let idx = self.gene_nodes.len();
         self.gene_nodes.push(FlatNode {
-            name: format!("{}_{}", idx, species_idx),
+            name: format!("{}_{}", species_idx, idx),
             left_child: None,
             right_child: None,
             parent,
@@ -543,9 +544,10 @@ fn finalize_simulation<'a>(
     origin_depth: f64,
 ) -> (RecTree<'a>, Vec<DTLEvent>) {
     // Handle edge case: gene lost before any events
+    // Node name format: {species_idx}_{gene_idx}
     if state.gene_nodes.is_empty() {
         state.gene_nodes.push(FlatNode {
-            name: format!("0_{}", origin_species),
+            name: format!("{}_0", origin_species),
             left_child: None,
             right_child: None,
             parent: None,

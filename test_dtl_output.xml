@@ -60,7 +60,7 @@
 						<branchingOut speciesLocation="A"/>
 					</eventsRec>
 					<clade>
-						<name>21_2</name>
+						<name>2_21</name>
 						<branchLength>0.543991759647152</branchLength>
 						<eventsRec>
 							<leaf speciesLocation="A"/>
@@ -74,14 +74,14 @@
 							<duplication speciesLocation="B"/>
 						</eventsRec>
 						<clade>
-							<name>29_3</name>
+							<name>3_29</name>
 							<branchLength>0.06617788284175052</branchLength>
 							<eventsRec>
 								<leaf speciesLocation="B"/>
 							</eventsRec>
 						</clade>
 						<clade>
-							<name>30_3</name>
+							<name>3_30</name>
 							<branchLength>0.06617788284175052</branchLength>
 							<eventsRec>
 								<leaf speciesLocation="B"/>
@@ -98,7 +98,7 @@
 				</clade>
 			</clade>
 			<clade>
-				<name>8_4</name>
+				<name>4_8</name>
 				<branchLength>1.2395121681677195</branchLength>
 				<eventsRec>
 					<transferBack destinationSpecies="C"/>
@@ -162,14 +162,14 @@
 							<branchingOut speciesLocation="A"/>
 						</eventsRec>
 						<clade>
-							<name>31_2</name>
+							<name>2_31</name>
 							<branchLength>0.48071981695364063</branchLength>
 							<eventsRec>
 								<leaf speciesLocation="A"/>
 							</eventsRec>
 						</clade>
 						<clade>
-							<name>32_3</name>
+							<name>3_32</name>
 							<branchLength>0.48071981695364063</branchLength>
 							<eventsRec>
 								<transferBack destinationSpecies="B"/>
@@ -184,14 +184,14 @@
 							<duplication speciesLocation="A"/>
 						</eventsRec>
 						<clade>
-							<name>33_2</name>
+							<name>2_33</name>
 							<branchLength>0.11955358837753294</branchLength>
 							<eventsRec>
 								<leaf speciesLocation="A"/>
 							</eventsRec>
 						</clade>
 						<clade>
-							<name>34_2</name>
+							<name>2_34</name>
 							<branchLength>0.11955358837753294</branchLength>
 							<eventsRec>
 								<leaf speciesLocation="A"/>
@@ -221,7 +221,7 @@
 					<duplication speciesLocation="C"/>
 				</eventsRec>
 				<clade>
-					<name>17_4</name>
+					<name>4_17</name>
 					<branchLength>0.7016593296623319</branchLength>
 					<eventsRec>
 						<leaf speciesLocation="C"/>
@@ -254,14 +254,14 @@
 							<branchingOut speciesLocation="C"/>
 						</eventsRec>
 						<clade>
-							<name>35_4</name>
+							<name>4_35</name>
 							<branchLength>0.1589700916477903</branchLength>
 							<eventsRec>
 								<leaf speciesLocation="C"/>
 							</eventsRec>
 						</clade>
 						<clade>
-							<name>36_3</name>
+							<name>3_36</name>
 							<branchLength>0.1589700916477903</branchLength>
 							<eventsRec>
 								<transferBack destinationSpecies="B"/>
@@ -288,7 +288,7 @@
 									<duplication speciesLocation="C"/>
 								</eventsRec>
 								<clade>
-									<name>43_4</name>
+									<name>4_43</name>
 									<branchLength>0.4385771762463737</branchLength>
 									<eventsRec>
 										<leaf speciesLocation="C"/>
@@ -301,14 +301,14 @@
 										<branchingOut speciesLocation="C"/>
 									</eventsRec>
 									<clade>
-										<name>45_4</name>
+										<name>4_45</name>
 										<branchLength>0.2761304448555193</branchLength>
 										<eventsRec>
 											<leaf speciesLocation="C"/>
 										</eventsRec>
 									</clade>
 									<clade>
-										<name>46_3</name>
+										<name>3_46</name>
 										<branchLength>0.2761304448555193</branchLength>
 										<eventsRec>
 											<transferBack destinationSpecies="B"/>
@@ -333,14 +333,14 @@
 								<duplication speciesLocation="C"/>
 							</eventsRec>
 							<clade>
-								<name>41_4</name>
+								<name>4_41</name>
 								<branchLength>0.48302281917158396</branchLength>
 								<eventsRec>
 									<leaf speciesLocation="C"/>
 								</eventsRec>
 							</clade>
 							<clade>
-								<name>42_4</name>
+								<name>4_42</name>
 								<branchLength>0.48302281917158396</branchLength>
 								<eventsRec>
 									<leaf speciesLocation="C"/>
@@ -350,7 +350,7 @@
 					</clade>
 				</clade>
 				<clade>
-					<name>20_4</name>
+					<name>4_20</name>
 					<branchLength>1.1100348406166136</branchLength>
 					<eventsRec>
 						<leaf speciesLocation="C"/>
@@ -359,7 +359,7 @@
 			</clade>
 		</clade>
 		<clade>
-			<name>6_4</name>
+			<name>4_6</name>
 			<branchLength>1.5491779382689637</branchLength>
 			<eventsRec>
 				<leaf speciesLocation="C"/>

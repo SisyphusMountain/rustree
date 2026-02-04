@@ -542,6 +542,9 @@ fn sample_species_leaves_r(gene_tree_list: List, species_leaf_names: Robj) -> Re
     let species_names: Vec<String> = if species_leaf_names.is_string() {
         species_leaf_names.as_str_vector()
             .ok_or("Failed to convert species_leaf_names to string vector")?
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     } else {
         return Err("species_leaf_names must be a character vector".into());
     };
