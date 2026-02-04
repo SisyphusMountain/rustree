@@ -105,14 +105,24 @@ pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> 
     let mut time = 0.0;
     let mut num_lineages = n;
 
+    // Pre-allocate vectors based on expected tree size
+    // With extinction rate mu, expected total nodes ≈ n * (1 + r) / (1 - r) where r = mu/lambda
+    // For safety, we use a slightly larger estimate
+    let extinction_ratio = mu / lambda;
+    let expected_nodes = if extinction_ratio < 0.99 {
+        (n as f64 * (1.0 + extinction_ratio) / (1.0 - extinction_ratio) * 1.2) as usize
+    } else {
+        n * 20 // High extinction - be conservative
+    };
+
     // Track active lineages: (node_index, time_when_lineage_started)
-    let mut active_lineages: Vec<(usize, f64)> = Vec::new();
+    let mut active_lineages: Vec<(usize, f64)> = Vec::with_capacity(n);
 
     // Build the tree nodes
-    let mut nodes: Vec<FlatNode> = Vec::new();
+    let mut nodes: Vec<FlatNode> = Vec::with_capacity(expected_nodes);
 
     // Track events
-    let mut events: Vec<TreeEvent> = Vec::new();
+    let mut events: Vec<TreeEvent> = Vec::with_capacity(expected_nodes);
 
     // Create n extant species (leaf nodes) at present
     // Nodes 0 to n-1 are extant species
@@ -138,19 +148,26 @@ pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> 
         });
     }
 
+    // Pre-compute constant ratios
+    let total_rate = lambda + mu;
+    let extinction_prob = mu / total_rate;
+
     // Simulate backwards in time until we reach the origin
+    let mut root_idx = 0; // Will track the final root
+
     while num_lineages > 0 {
         // Draw waiting time from exponential distribution with rate (λ + μ)N
         // Using inverse transform method: if U ~ Uniform(0,1), then -ln(U)/rate ~ Exp(rate)
-        let rate = (lambda + mu) * (num_lineages as f64);
+        let rate = total_rate * (num_lineages as f64);
         let uniform_sample: f64 = rng.gen();
         let waiting_time = -uniform_sample.ln() / rate;
         time += waiting_time;
 
         // Determine event type
-        let event_prob: f64 = rng.gen();
+        // gen_bool is more efficient than gen::<f64>() + comparison
+        let is_extinction = rng.gen_bool(extinction_prob);
 
-        if event_prob < mu / (lambda + mu) {
+        if is_extinction {
             // Extinction event (backward in time = lineage appears)
             // Forward in time, this lineage went extinct
             let extinct_idx = nodes.len();
@@ -178,16 +195,18 @@ pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> 
             // Speciation event (backward in time = coalescence)
             if num_lineages == 1 {
                 // Reached the origin (root of the tree)
-                let (root_idx, root_start) = active_lineages[0];
-                nodes[root_idx].length = time - root_start;
+                let (final_root, root_start) = active_lineages[0];
+                nodes[final_root].length = time - root_start;
+                root_idx = final_root;
                 num_lineages = 0;
             } else {
                 // Pick two random lineages uniformly and coalesce them
+                // Use swap_remove instead of remove for O(1) performance
                 let idx1 = rng.gen_range(0..active_lineages.len());
-                let (child1_idx, child1_start) = active_lineages.remove(idx1);
+                let (child1_idx, child1_start) = active_lineages.swap_remove(idx1);
 
                 let idx2 = rng.gen_range(0..active_lineages.len());
-                let (child2_idx, child2_start) = active_lineages.remove(idx2);
+                let (child2_idx, child2_start) = active_lineages.swap_remove(idx2);
 
                 // Create parent node (the speciation event)
                 let parent_idx = nodes.len();
@@ -223,9 +242,6 @@ pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> 
             }
         }
     }
-
-    // Find the root (the node with no parent)
-    let root_idx = nodes.iter().position(|n| n.parent.is_none()).unwrap();
 
     let tree = FlatTree {
         nodes,
