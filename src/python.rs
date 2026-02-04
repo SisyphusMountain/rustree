@@ -218,6 +218,147 @@ impl PySpeciesTree {
         Ok(dict.into())
     }
 
+    /// Get Lineages Through Time (LTT) data for plotting.
+    ///
+    /// Returns a dictionary with:
+    /// - `times`: Time points (going backward from present at 0)
+    /// - `lineages`: Number of lineages alive at each time point
+    ///
+    /// This data can be directly plotted to visualize lineage accumulation/extinction
+    /// over the tree's history.
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    /// import matplotlib.pyplot as plt
+    ///
+    /// # Simulate or parse a species tree
+    /// tree = rustree.simulate_species_tree(100, lambda_val=1.0, mu=0.5, seed=42)
+    ///
+    /// # Get LTT data
+    /// ltt = tree.get_ltt_data()
+    ///
+    /// # Plot
+    /// plt.plot(ltt['times'], ltt['lineages'])
+    /// plt.xlabel('Time (past to present)')
+    /// plt.ylabel('Number of lineages')
+    /// plt.title('Lineages Through Time')
+    /// plt.show()
+    /// ```
+    fn get_ltt_data(&self, py: Python) -> PyResult<PyObject> {
+        use crate::bd::generate_events_from_tree;
+        use pyo3::types::PyDict;
+
+        // Get all events
+        let mut events = generate_events_from_tree(&self.tree);
+
+        // Sort events by time (ascending, from present to past)
+        events.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+
+        // Build LTT data
+        let mut times = Vec::new();
+        let mut lineages = Vec::new();
+
+        // Start at present (time = 0) with n extant species
+        let n_extant = self.tree.nodes.iter()
+            .filter(|n| n.left_child.is_none() && n.right_child.is_none())
+            .count();
+
+        let mut current_lineages = n_extant;
+        times.push(0.0);
+        lineages.push(current_lineages);
+
+        // Process events backward in time
+        for event in events.iter() {
+            match event.event_type.as_str() {
+                "Leaf" => {
+                    // Leaf events at present don't change count (already counted)
+                    continue;
+                }
+                "Extinction" => {
+                    // Going backward: an extinction means a lineage appears
+                    current_lineages += 1;
+                }
+                "Speciation" => {
+                    // Going backward: a speciation means two lineages merge into one
+                    current_lineages -= 1;
+                }
+                _ => continue,
+            }
+            times.push(event.time);
+            lineages.push(current_lineages);
+        }
+
+        // Create dictionary
+        let dict = PyDict::new(py);
+        dict.set_item("times", times)?;
+        dict.set_item("lineages", lineages)?;
+
+        Ok(dict.into())
+    }
+
+    /// Plot Lineages Through Time (LTT) using matplotlib.
+    ///
+    /// Creates and displays an LTT plot showing how the number of lineages
+    /// changes over time.
+    ///
+    /// # Arguments
+    /// * `filepath` - Optional path to save the plot. If None, displays interactively.
+    /// * `title` - Optional plot title (default: "Lineages Through Time")
+    /// * `xlabel` - Optional x-axis label (default: "Time (past to present)")
+    /// * `ylabel` - Optional y-axis label (default: "Number of lineages")
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    ///
+    /// tree = rustree.simulate_species_tree(100, lambda_val=1.0, mu=0.5, seed=42)
+    ///
+    /// # Display plot
+    /// tree.plot_ltt()
+    ///
+    /// # Save to file
+    /// tree.plot_ltt(filepath="ltt_plot.png", title="My LTT Plot")
+    /// ```
+    #[pyo3(signature = (filepath=None, title=None, xlabel=None, ylabel=None))]
+    fn plot_ltt(
+        &self,
+        py: Python,
+        filepath: Option<&str>,
+        title: Option<&str>,
+        xlabel: Option<&str>,
+        ylabel: Option<&str>,
+    ) -> PyResult<()> {
+        // Get LTT data
+        let ltt_data = self.get_ltt_data(py)?;
+
+        // Import matplotlib
+        let plt = py.import("matplotlib.pyplot")?;
+
+        // Extract data from dictionary
+        let dict = ltt_data.downcast::<pyo3::types::PyDict>(py)?;
+        let times = dict.get_item("times")
+            .ok_or_else(|| PyValueError::new_err("Missing 'times' in LTT data"))?;
+        let lineages = dict.get_item("lineages")
+            .ok_or_else(|| PyValueError::new_err("Missing 'lineages' in LTT data"))?;
+
+        // Create plot
+        plt.call_method1("plot", (times, lineages))?;
+        plt.call_method1("xlabel", (xlabel.unwrap_or("Time (past to present)"),))?;
+        plt.call_method1("ylabel", (ylabel.unwrap_or("Number of lineages)"),))?;
+        plt.call_method1("title", (title.unwrap_or("Lineages Through Time"),))?;
+        plt.call_method0("grid")?;
+
+        // Save or show
+        if let Some(path) = filepath {
+            plt.call_method1("savefig", (path,))?;
+        } else {
+            plt.call_method0("show")?;
+        }
+
+        Ok(())
+    }
+
     /// Simulate a gene tree along this species tree using the DTL model.
     ///
     /// # Arguments
