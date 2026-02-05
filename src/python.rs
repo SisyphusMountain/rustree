@@ -11,11 +11,38 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use crate::bd::simulate_bd_tree;
-use crate::dtl::{simulate_dtl, simulate_dtl_batch};
+use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch};
 use crate::node::{FlatTree, Event};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names, find_leaf_indices_by_names};
 use std::fs;
 use std::process::Command;
+
+// ============================================================================
+// Helper Functions (Refactored to reduce duplication)
+// ============================================================================
+
+/// Validate DTL rates (all must be non-negative)
+fn validate_dtl_rates(lambda_d: f64, lambda_t: f64, lambda_l: f64) -> PyResult<()> {
+    if lambda_d < 0.0 || lambda_t < 0.0 || lambda_l < 0.0 {
+        return Err(PyValueError::new_err("Rates must be non-negative"));
+    }
+    Ok(())
+}
+
+/// Initialize RNG from optional seed
+fn init_rng(seed: Option<u64>) -> StdRng {
+    match seed {
+        Some(s) => StdRng::seed_from_u64(s),
+        None => StdRng::from_entropy(),
+    }
+}
+
+/// Check if a node is a leaf (no children)
+fn is_leaf(node: &crate::node::FlatNode) -> bool {
+    node.left_child.is_none() && node.right_child.is_none()
+}
+
+// ============================================================================
 
 /// A species tree simulated under the birth-death process.
 #[pyclass]
@@ -38,9 +65,7 @@ impl PySpeciesTree {
 
     /// Get the number of extant species (leaves).
     fn num_leaves(&self) -> usize {
-        self.tree.nodes.iter()
-            .filter(|n| n.left_child.is_none() && n.right_child.is_none())
-            .count()
+        self.tree.nodes.iter().filter(|n| is_leaf(n)).count()
     }
 
     /// Get the total tree height (depth of deepest leaf).
@@ -58,7 +83,7 @@ impl PySpeciesTree {
     /// Get leaf names.
     fn leaf_names(&self) -> Vec<String> {
         self.tree.nodes.iter()
-            .filter(|n| n.left_child.is_none() && n.right_child.is_none())
+            .filter(|n| is_leaf(n))
             .map(|n| n.name.clone())
             .collect()
     }
@@ -373,15 +398,8 @@ impl PySpeciesTree {
     /// A PyGeneTree containing the simulated gene tree with its mapping to the species tree.
     #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, require_extant=false, seed=None))]
     fn simulate_dtl(&self, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneTree> {
-        if lambda_d < 0.0 || lambda_t < 0.0 || lambda_l < 0.0 {
-            return Err(PyValueError::new_err("Rates must be non-negative"));
-        }
-
-        let mut rng = match seed {
-            Some(s) => StdRng::seed_from_u64(s),
-            None => StdRng::from_entropy(),
-        };
-
+        validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
+        let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
         let (rec_tree, _events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, &mut rng);
 
@@ -416,17 +434,134 @@ impl PySpeciesTree {
     /// A list of PyGeneTree objects.
     #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, require_extant=false, seed=None))]
     fn simulate_dtl_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<Vec<PyGeneTree>> {
-        if lambda_d < 0.0 || lambda_t < 0.0 || lambda_l < 0.0 {
-            return Err(PyValueError::new_err("Rates must be non-negative"));
-        }
-
-        let mut rng = match seed {
-            Some(s) => StdRng::seed_from_u64(s),
-            None => StdRng::from_entropy(),
-        };
+        validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
+        let mut rng = init_rng(seed);
 
         let origin_species = self.tree.root;
         let (rec_trees, _all_events) = simulate_dtl_batch(
+            &self.tree,
+            origin_species,
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            transfer_alpha,
+            n,
+            require_extant,
+            &mut rng,
+        );
+
+        let gene_trees: Vec<PyGeneTree> = rec_trees
+            .into_iter()
+            .map(|rec_tree| PyGeneTree {
+                gene_tree: rec_tree.gene_tree,
+                species_tree: self.tree.clone(),
+                node_mapping: rec_tree.node_mapping,
+                event_mapping: rec_tree.event_mapping,
+            })
+            .collect();
+
+        Ok(gene_trees)
+    }
+
+    /// Simulate a gene tree using the Zombi-style per-species DTL model.
+    ///
+    /// In this model, the event rate is proportional to the number of SPECIES
+    /// with gene copies, NOT the number of gene copies themselves. This means
+    /// duplications don't increase the event rate.
+    ///
+    /// When an event occurs:
+    /// 1. A random species (among those with genes) is chosen
+    /// 2. A random gene copy within that species is affected
+    ///
+    /// This is the model used by Zombi and is appropriate when DTL events are
+    /// driven by species-level processes rather than gene-copy-level processes.
+    ///
+    /// # Arguments
+    /// * `lambda_d` - Duplication rate per species per unit time
+    /// * `lambda_t` - Transfer rate per species per unit time
+    /// * `lambda_l` - Loss rate per species per unit time
+    /// * `transfer_alpha` - Distance decay for assortative transfers (optional, None = uniform)
+    /// * `require_extant` - If true, retry until at least one extant gene exists (default false)
+    /// * `seed` - Random seed for reproducibility (optional)
+    ///
+    /// # Returns
+    /// A PyGeneTree containing the simulated gene tree with its mapping to the species tree.
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    ///
+    /// # Simulate species tree
+    /// species_tree = rustree.simulate_species_tree(n=20, lambda_=1.0, mu=0.5, seed=42)
+    ///
+    /// # Compare per-gene-copy model vs per-species model
+    /// gene_tree_per_copy = species_tree.simulate_dtl(0.5, 0.2, 0.3, seed=123)
+    /// gene_tree_per_species = species_tree.simulate_dtl_per_species(0.5, 0.2, 0.3, seed=123)
+    ///
+    /// print(f"Per-copy model: {gene_tree_per_copy.num_leaves()} leaves")
+    /// print(f"Per-species model: {gene_tree_per_species.num_leaves()} leaves")
+    /// # Per-species typically has fewer leaves since duplications don't increase rate
+    /// ```
+    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, require_extant=false, seed=None))]
+    fn simulate_dtl_per_species(&self, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneTree> {
+        validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
+        let mut rng = init_rng(seed);
+        let origin_species = self.tree.root;
+        let (rec_tree, _events) = simulate_dtl_per_species(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, &mut rng);
+
+        // Extract owned data from RecTree
+        let gene_tree = rec_tree.gene_tree;
+        let node_mapping = rec_tree.node_mapping;
+        let event_mapping = rec_tree.event_mapping;
+
+        Ok(PyGeneTree {
+            gene_tree,
+            species_tree: self.tree.clone(),
+            node_mapping,
+            event_mapping,
+        })
+    }
+
+    /// Simulate multiple gene trees using the Zombi-style per-species DTL model.
+    ///
+    /// This is faster than calling simulate_dtl_per_species multiple times because
+    /// species tree events and LCA depths are computed only once.
+    ///
+    /// # Arguments
+    /// * `n` - Number of gene trees to simulate
+    /// * `lambda_d` - Duplication rate per species per unit time
+    /// * `lambda_t` - Transfer rate per species per unit time
+    /// * `lambda_l` - Loss rate per species per unit time
+    /// * `transfer_alpha` - Distance decay for assortative transfers (optional, None = uniform)
+    /// * `require_extant` - If true, only include trees with extant genes (default false)
+    /// * `seed` - Random seed for reproducibility (optional)
+    ///
+    /// # Returns
+    /// A list of PyGeneTree objects.
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    ///
+    /// # Simulate species tree
+    /// species_tree = rustree.simulate_species_tree(n=20, lambda_=1.0, mu=0.5, seed=42)
+    ///
+    /// # Simulate 100 gene trees efficiently
+    /// gene_trees = species_tree.simulate_dtl_per_species_batch(
+    ///     n=100,
+    ///     lambda_d=0.5,
+    ///     lambda_t=0.2,
+    ///     lambda_l=0.3,
+    ///     seed=123
+    /// )
+    /// print(f"Generated {len(gene_trees)} gene trees")
+    /// ```
+    #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, require_extant=false, seed=None))]
+    fn simulate_dtl_per_species_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<Vec<PyGeneTree>> {
+        validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
+        let mut rng = init_rng(seed);
+        let origin_species = self.tree.root;
+        let (rec_trees, _all_events) = simulate_dtl_per_species_batch(
             &self.tree,
             origin_species,
             lambda_d,
@@ -1003,7 +1138,6 @@ fn parse_species_tree(newick_str: &str) -> PyResult<PySpeciesTree> {
     let mut root = nodes.pop()
         .ok_or_else(|| PyValueError::new_err("No tree found in Newick string"))?;
 
-    root.zero_root_length();
     root.assign_depths(0.0);
     let tree = root.to_flat_tree();
 

@@ -42,325 +42,66 @@
 			<branchingOut speciesLocation="AB"/>
 		</eventsRec>
 		<clade>
-			<name>NULL</name>
-			<branchLength>0.4397903746268908</branchLength>
+			<name>loss</name>
+			<branchLength>0.15229583345042003</branchLength>
 			<eventsRec>
-				<branchingOut speciesLocation="AB"/>
+				<loss speciesLocation="AB"/>
 			</eventsRec>
-			<clade>
-				<name>NULL</name>
-				<branchLength>0.23951216816771947</branchLength>
-				<eventsRec>
-					<speciation speciesLocation="AB"/>
-				</eventsRec>
-				<clade>
-					<name>NULL</name>
-					<branchLength>0.45600824035284804</branchLength>
-					<eventsRec>
-						<branchingOut speciesLocation="A"/>
-					</eventsRec>
-					<clade>
-						<name>2_21</name>
-						<branchLength>0.543991759647152</branchLength>
-						<eventsRec>
-							<leaf speciesLocation="A"/>
-						</eventsRec>
-					</clade>
-					<clade>
-						<name>NULL</name>
-						<branchLength>0.47781387680540144</branchLength>
-						<eventsRec>
-							<transferBack destinationSpecies="B"/>
-							<duplication speciesLocation="B"/>
-						</eventsRec>
-						<clade>
-							<name>3_29</name>
-							<branchLength>0.06617788284175052</branchLength>
-							<eventsRec>
-								<leaf speciesLocation="B"/>
-							</eventsRec>
-						</clade>
-						<clade>
-							<name>3_30</name>
-							<branchLength>0.06617788284175052</branchLength>
-							<eventsRec>
-								<leaf speciesLocation="B"/>
-							</eventsRec>
-						</clade>
-					</clade>
-				</clade>
-				<clade>
-					<name>loss</name>
-					<branchLength>0.05911888297837842</branchLength>
-					<eventsRec>
-						<loss speciesLocation="B"/>
-					</eventsRec>
-				</clade>
-			</clade>
-			<clade>
-				<name>4_8</name>
-				<branchLength>1.2395121681677195</branchLength>
-				<eventsRec>
-					<transferBack destinationSpecies="C"/>
-					<leaf speciesLocation="C"/>
-				</eventsRec>
-			</clade>
 		</clade>
 		<clade>
 			<name>NULL</name>
-			<branchLength>0.4699725583496209</branchLength>
+			<branchLength>1.0152156468941214</branchLength>
 			<eventsRec>
 				<transferBack destinationSpecies="C"/>
 				<duplication speciesLocation="C"/>
 			</eventsRec>
 			<clade>
-				<name>loss</name>
-				<branchLength>0.2181293195686591</branchLength>
+				<name>4_7</name>
+				<branchLength>0.6640868959004889</branchLength>
 				<eventsRec>
-					<loss speciesLocation="C"/>
+					<leaf speciesLocation="C"/>
 				</eventsRec>
 			</clade>
 			<clade>
-				<name>NULL</name>
-				<branchLength>0.34885199515784326</branchLength>
+				<name>4_8</name>
+				<branchLength>0.6640868959004889</branchLength>
 				<eventsRec>
-					<branchingOut speciesLocation="C"/>
+					<leaf speciesLocation="C"/>
 				</eventsRec>
-				<clade>
-					<name>NULL</name>
-					<branchLength>0.07003159026427985</branchLength>
-					<eventsRec>
-						<branchingOut speciesLocation="C"/>
-					</eventsRec>
-					<clade>
-						<name>loss</name>
-						<branchLength>0.015905677569509225</branchLength>
-						<eventsRec>
-							<loss speciesLocation="C"/>
-						</eventsRec>
-					</clade>
-					<clade>
-						<name>loss</name>
-						<branchLength>0.3027658271624847</branchLength>
-						<eventsRec>
-							<transferBack destinationSpecies="A"/>
-							<loss speciesLocation="A"/>
-						</eventsRec>
-					</clade>
-				</clade>
-				<clade>
-					<name>NULL</name>
-					<branchLength>0.2749272905648219</branchLength>
-					<eventsRec>
-						<transferBack destinationSpecies="A"/>
-						<duplication speciesLocation="A"/>
-					</eventsRec>
-					<clade>
-						<name>NULL</name>
-						<branchLength>0.1048308817686836</branchLength>
-						<eventsRec>
-							<branchingOut speciesLocation="A"/>
-						</eventsRec>
-						<clade>
-							<name>2_31</name>
-							<branchLength>0.48071981695364063</branchLength>
-							<eventsRec>
-								<leaf speciesLocation="A"/>
-							</eventsRec>
-						</clade>
-						<clade>
-							<name>3_32</name>
-							<branchLength>0.48071981695364063</branchLength>
-							<eventsRec>
-								<transferBack destinationSpecies="B"/>
-								<leaf speciesLocation="B"/>
-							</eventsRec>
-						</clade>
-					</clade>
-					<clade>
-						<name>NULL</name>
-						<branchLength>0.4659971103447913</branchLength>
-						<eventsRec>
-							<duplication speciesLocation="A"/>
-						</eventsRec>
-						<clade>
-							<name>2_33</name>
-							<branchLength>0.11955358837753294</branchLength>
-							<eventsRec>
-								<leaf speciesLocation="A"/>
-							</eventsRec>
-						</clade>
-						<clade>
-							<name>2_34</name>
-							<branchLength>0.11955358837753294</branchLength>
-							<eventsRec>
-								<leaf speciesLocation="A"/>
-							</eventsRec>
-						</clade>
-					</clade>
-				</clade>
 			</clade>
 		</clade>
 	</clade>
 	<clade>
 		<name>NULL</name>
-		<branchLength>0.4508220617310364</branchLength>
+		<branchLength>1.6856811832278478</branchLength>
 		<eventsRec>
 			<duplication speciesLocation="C"/>
 		</eventsRec>
 		<clade>
 			<name>NULL</name>
-			<branchLength>0.3240494972487851</branchLength>
+			<branchLength>0.035133377600421456</branchLength>
 			<eventsRec>
-				<duplication speciesLocation="C"/>
+				<branchingOut speciesLocation="C"/>
 			</eventsRec>
 			<clade>
-				<name>NULL</name>
-				<branchLength>0.5234691113578466</branchLength>
+				<name>4_9</name>
+				<branchLength>0.2791854391717308</branchLength>
 				<eventsRec>
-					<duplication speciesLocation="C"/>
+					<leaf speciesLocation="C"/>
 				</eventsRec>
-				<clade>
-					<name>4_17</name>
-					<branchLength>0.7016593296623319</branchLength>
-					<eventsRec>
-						<leaf speciesLocation="C"/>
-					</eventsRec>
-				</clade>
-				<clade>
-					<name>loss</name>
-					<branchLength>0.4240100673793008</branchLength>
-					<eventsRec>
-						<loss speciesLocation="C"/>
-					</eventsRec>
-				</clade>
 			</clade>
 			<clade>
-				<name>NULL</name>
-				<branchLength>0.11509360040356487</branchLength>
+				<name>2_10</name>
+				<branchLength>0.2791854391717308</branchLength>
 				<eventsRec>
-					<duplication speciesLocation="C"/>
+					<transferBack destinationSpecies="A"/>
+					<leaf speciesLocation="A"/>
 				</eventsRec>
-				<clade>
-					<name>NULL</name>
-					<branchLength>0.2492865920330829</branchLength>
-					<eventsRec>
-						<duplication speciesLocation="C"/>
-					</eventsRec>
-					<clade>
-						<name>NULL</name>
-						<branchLength>0.7017781569357404</branchLength>
-						<eventsRec>
-							<branchingOut speciesLocation="C"/>
-						</eventsRec>
-						<clade>
-							<name>4_35</name>
-							<branchLength>0.1589700916477903</branchLength>
-							<eventsRec>
-								<leaf speciesLocation="C"/>
-							</eventsRec>
-						</clade>
-						<clade>
-							<name>3_36</name>
-							<branchLength>0.1589700916477903</branchLength>
-							<eventsRec>
-								<transferBack destinationSpecies="B"/>
-								<leaf speciesLocation="B"/>
-							</eventsRec>
-						</clade>
-					</clade>
-					<clade>
-						<name>NULL</name>
-						<branchLength>0.016766081183075654</branchLength>
-						<eventsRec>
-							<duplication speciesLocation="C"/>
-						</eventsRec>
-						<clade>
-							<name>NULL</name>
-							<branchLength>0.36908182883526597</branchLength>
-							<eventsRec>
-								<branchingOut speciesLocation="C"/>
-							</eventsRec>
-							<clade>
-								<name>NULL</name>
-								<branchLength>0.03632316231881538</branchLength>
-								<eventsRec>
-									<duplication speciesLocation="C"/>
-								</eventsRec>
-								<clade>
-									<name>4_43</name>
-									<branchLength>0.4385771762463737</branchLength>
-									<eventsRec>
-										<leaf speciesLocation="C"/>
-									</eventsRec>
-								</clade>
-								<clade>
-									<name>NULL</name>
-									<branchLength>0.16244673139085442</branchLength>
-									<eventsRec>
-										<branchingOut speciesLocation="C"/>
-									</eventsRec>
-									<clade>
-										<name>4_45</name>
-										<branchLength>0.2761304448555193</branchLength>
-										<eventsRec>
-											<leaf speciesLocation="C"/>
-										</eventsRec>
-									</clade>
-									<clade>
-										<name>3_46</name>
-										<branchLength>0.2761304448555193</branchLength>
-										<eventsRec>
-											<transferBack destinationSpecies="B"/>
-											<leaf speciesLocation="B"/>
-										</eventsRec>
-									</clade>
-								</clade>
-							</clade>
-							<clade>
-								<name>loss</name>
-								<branchLength>0.3591780677683114</branchLength>
-								<eventsRec>
-									<transferBack destinationSpecies="B"/>
-									<loss speciesLocation="B"/>
-								</eventsRec>
-							</clade>
-						</clade>
-						<clade>
-							<name>NULL</name>
-							<branchLength>0.3609593482288711</branchLength>
-							<eventsRec>
-								<duplication speciesLocation="C"/>
-							</eventsRec>
-							<clade>
-								<name>4_41</name>
-								<branchLength>0.48302281917158396</branchLength>
-								<eventsRec>
-									<leaf speciesLocation="C"/>
-								</eventsRec>
-							</clade>
-							<clade>
-								<name>4_42</name>
-								<branchLength>0.48302281917158396</branchLength>
-								<eventsRec>
-									<leaf speciesLocation="C"/>
-								</eventsRec>
-							</clade>
-						</clade>
-					</clade>
-				</clade>
-				<clade>
-					<name>4_20</name>
-					<branchLength>1.1100348406166136</branchLength>
-					<eventsRec>
-						<leaf speciesLocation="C"/>
-					</eventsRec>
-				</clade>
 			</clade>
 		</clade>
 		<clade>
 			<name>4_6</name>
-			<branchLength>1.5491779382689637</branchLength>
+			<branchLength>0.31431881677215223</branchLength>
 			<eventsRec>
 				<leaf speciesLocation="C"/>
 			</eventsRec>

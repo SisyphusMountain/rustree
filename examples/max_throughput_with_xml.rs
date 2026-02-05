@@ -1,7 +1,6 @@
 // Generate as many DTL gene trees as possible within 1 second and export to XML
 use rustree::bd::simulate_bd_tree;
-use rustree::dtl::{simulate_dtl, save_events_to_csv, count_events, count_extant_genes};
-use rustree::node::RecTree;
+use rustree::dtl::{simulate_dtl, count_events, count_extant_genes, DTLEvent};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::time::{Instant, Duration};
@@ -172,23 +171,16 @@ fn main() {
 
     let file = File::create("dtl_all_events.csv").expect("Failed to create CSV");
     let mut writer = BufWriter::new(file);
-    writeln!(writer, "tree_id,time,gene_node_id,event_type,species_node,donor_species,recipient_species,child1,child2")
+    writeln!(writer, "tree_id,{}", DTLEvent::csv_header())
         .expect("Failed to write header");
 
-    for (tree_id, events) in all_events.iter().enumerate() {
+    for (tree_id, (events, rec_tree)) in all_events.iter().zip(rec_trees.iter()).enumerate() {
         for event in events {
             writeln!(
                 writer,
-                "{},{},{},{},{},{},{},{},{}",
+                "{},{}",
                 tree_id,
-                event.time,
-                event.gene_node_id,
-                event.event_type,
-                species_tree.nodes[event.species_node_idx].name,
-                event.donor_species_idx.map_or(String::new(), |idx| species_tree.nodes[idx].name.clone()),
-                event.recipient_species_idx.map_or(String::new(), |idx| species_tree.nodes[idx].name.clone()),
-                event.child1.map_or(String::from(""), |c| c.to_string()),
-                event.child2.map_or(String::from(""), |c| c.to_string())
+                event.to_csv_row(&species_tree, &rec_tree.gene_tree)
             ).expect("Failed to write event");
         }
     }
