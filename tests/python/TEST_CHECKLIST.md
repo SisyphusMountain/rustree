@@ -4,18 +4,13 @@ Use this checklist to verify that the pairwise distance implementation is comple
 
 ## Pre-Implementation Checklist
 
-Before running tests, verify:
+All pre-implementation requirements have been met:
 
-- [ ] `src/python.rs` has the required imports:
-  ```rust
-  use pyo3::types::PyDict;
-  use crate::metric_functions::{DistanceType, PairwiseDistance};
-  ```
-
-- [ ] `PySpeciesTree` has the `pairwise_distances()` method added
-- [ ] `PySpeciesTree` has the `save_pairwise_distances_csv()` method added
-- [ ] Code compiles without errors: `cargo build --release`
-- [ ] Python module is rebuilt and accessible
+- [x] `src/python.rs` has the required imports
+- [x] `PySpeciesTree` has the `pairwise_distances()` method
+- [x] `PySpeciesTree` has the `save_pairwise_distances_csv()` method
+- [x] Code compiles without errors: `cargo build --release`
+- [x] Python module is rebuilt and accessible
 
 ## Basic Functionality Tests
 

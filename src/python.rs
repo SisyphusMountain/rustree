@@ -1082,6 +1082,109 @@ impl PyGeneTree {
         let df = pandas.call_method1("DataFrame", (dict,))?;
         Ok(df.into())
     }
+
+    /// Compute all pairwise distances between nodes in the gene tree.
+    ///
+    /// # Arguments
+    /// * `distance_type` - Type of distance: "topological" (number of edges) or "metric" (sum of branch lengths)
+    /// * `leaves_only` - If true, only compute distances between leaf nodes (default true)
+    ///
+    /// # Returns
+    /// A pandas DataFrame with columns: node1, node2, distance
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    /// species_tree = rustree.simulate_species_tree(5, 1.0, 0.5, seed=42)
+    /// gene_tree = species_tree.simulate_dtl(0.5, 0.2, 0.3, seed=123)
+    /// df = gene_tree.pairwise_distances("metric", leaves_only=True)
+    /// print(df)
+    /// ```
+    #[pyo3(signature = (distance_type, leaves_only=true))]
+    fn pairwise_distances(&self, py: Python, distance_type: &str, leaves_only: bool) -> PyResult<PyObject> {
+        use crate::metric_functions::DistanceType;
+
+        let dist_type = match distance_type.to_lowercase().as_str() {
+            "topological" | "topo" => DistanceType::Topological,
+            "metric" | "branch" | "patristic" => DistanceType::Metric,
+            _ => return Err(PyValueError::new_err(format!(
+                "Invalid distance_type '{}'. Use 'topological' or 'metric'.",
+                distance_type
+            ))),
+        };
+
+        let distances = self.gene_tree.pairwise_distances(dist_type, leaves_only);
+
+        let node1: Vec<&str> = distances.iter().map(|d| d.node1.as_str()).collect();
+        let node2: Vec<&str> = distances.iter().map(|d| d.node2.as_str()).collect();
+        let dist: Vec<f64> = distances.iter().map(|d| d.distance).collect();
+
+        // Create pandas DataFrame
+        let pandas = py.import("pandas")?;
+        let dict = pyo3::types::PyDict::new(py);
+
+        dict.set_item("node1", node1)?;
+        dict.set_item("node2", node2)?;
+        dict.set_item("distance", dist)?;
+
+        let df = pandas.call_method1("DataFrame", (dict,))?;
+        Ok(df.into())
+    }
+
+    /// Save pairwise distances between nodes in the gene tree to a CSV file.
+    ///
+    /// Computes all pairwise distances and writes them to a CSV file with the format:
+    /// node1,node2,distance
+    ///
+    /// # Arguments
+    /// * `filepath` - Path to save the CSV file
+    /// * `distance_type` - Type of distance: "topological" (number of edges) or "metric" (sum of branch lengths)
+    /// * `leaves_only` - If true, only compute distances between leaf nodes (default: true)
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    ///
+    /// # Simulate a species tree and gene tree
+    /// species_tree = rustree.simulate_species_tree(n=10, lambda_=1.0, mu=0.5, seed=42)
+    /// gene_tree = species_tree.simulate_dtl(0.5, 0.2, 0.3, seed=123)
+    ///
+    /// # Save topological distances between all leaves
+    /// gene_tree.save_pairwise_distances_csv("gene_distances.csv", "topological", leaves_only=True)
+    ///
+    /// # Save metric distances between all nodes
+    /// gene_tree.save_pairwise_distances_csv("all_gene_distances.csv", "metric", leaves_only=False)
+    /// ```
+    #[pyo3(signature = (filepath, distance_type, leaves_only=true))]
+    fn save_pairwise_distances_csv(&self, filepath: &str, distance_type: &str, leaves_only: bool) -> PyResult<()> {
+        use crate::metric_functions::{DistanceType, PairwiseDistance};
+
+        // Parse distance type
+        let dist_type = match distance_type.to_lowercase().as_str() {
+            "topological" | "topo" => DistanceType::Topological,
+            "metric" | "branch" | "patristic" => DistanceType::Metric,
+            _ => return Err(PyValueError::new_err(format!(
+                "Invalid distance_type '{}'. Use 'topological' or 'metric'.",
+                distance_type
+            ))),
+        };
+
+        // Compute pairwise distances
+        let distances = self.gene_tree.pairwise_distances(dist_type, leaves_only);
+
+        // Write to CSV
+        let mut csv = String::from(PairwiseDistance::csv_header());
+        csv.push('\n');
+        for d in &distances {
+            csv.push_str(&d.to_csv_row());
+            csv.push('\n');
+        }
+
+        fs::write(filepath, csv)
+            .map_err(|e| PyValueError::new_err(format!("Failed to write CSV file: {}", e)))?;
+
+        Ok(())
+    }
 }
 
 /// Simulate a birth-death species tree.

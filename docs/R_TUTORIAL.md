@@ -12,6 +12,7 @@ This tutorial explains how to build and use the rustree R bindings for simulatin
    - Parse Newick Trees
    - Simulate Gene Trees with DTL
    - Assortative Transfers
+   - Per-Species DTL Model
    - Inspect Gene Trees
    - Sample Extant Genes
    - Export Birth-Death Events
@@ -59,6 +60,10 @@ subset <- extract_induced_subtree_by_names(sp_tree, c("A", "B", "C"))  # Keep sp
 
 # === ASSORTATIVE TRANSFERS ===
 gt <- simulate_dtl(sp_tree, 0.5, 0.5, 0.3, transfer_alpha=1.0)  # Local transfers
+
+# === PER-SPECIES DTL MODEL (Zombi-style) ===
+gt <- simulate_dtl_per_species(sp_tree, 0.5, 0.2, 0.3, seed=123L)
+gts <- simulate_dtl_per_species_batch(sp_tree, n=100L, 0.5, 0.2, 0.3, seed=123L)
 
 # === PAIRWISE DISTANCES ===
 dists <- pairwise_distances(sp_tree, "metric", leaves_only = TRUE)
@@ -253,6 +258,68 @@ gene_trees <- simulate_dtl_batch(
 The distance between species A and B at time t is computed as:
 ```
 d(A, B, t) = 2 × (t - depth_of_LCA(A, B))
+```
+
+### 4a. Per-Species DTL Model (Zombi-Style)
+
+The standard DTL model (`simulate_dtl`) draws event rates proportional to the number of **gene copies** -- more gene copies means more events per unit time. The per-species model (`simulate_dtl_per_species`) instead draws event rates proportional to the number of **alive species**. When an event is triggered, a random alive species is chosen uniformly. If that species has no gene copies, the event "fails": time advances but nothing happens. This means duplications do not increase the overall event rate, producing dynamics that more closely match the Zombi simulator.
+
+```r
+# Single gene tree with per-species model
+gene_tree <- simulate_dtl_per_species(
+  species_tree = sp_tree,
+  lambda_d = 0.5,    # Duplication rate per species per unit time
+  lambda_t = 0.2,    # Transfer rate per species per unit time
+  lambda_l = 0.3,    # Loss rate per species per unit time
+  seed = 123L
+)
+
+# Batch of gene trees (more efficient, precomputes shared data once)
+gene_trees <- simulate_dtl_per_species_batch(
+  species_tree = sp_tree,
+  n = 100L,
+  lambda_d = 0.5,
+  lambda_t = 0.2,
+  lambda_l = 0.3,
+  seed = 123L
+)
+
+# All the same options are supported: assortative transfers and require_extant
+gene_tree <- simulate_dtl_per_species(
+  species_tree = sp_tree,
+  lambda_d = 0.5,
+  lambda_t = 0.3,
+  lambda_l = 0.5,
+  transfer_alpha = 1.0,   # Distance-dependent transfers
+  require_extant = TRUE,   # Retry until at least one extant gene
+  seed = 123L
+)
+```
+
+**Key difference from `simulate_dtl`:** In the standard model, if a gene duplicates 10 times in one species, the total event rate increases because there are now 10 gene copies each independently experiencing events. In the per-species model, the event rate stays the same because it depends only on the number of alive species. A species with 10 gene copies is no more likely to be chosen for the next event than a species with 1 copy.
+
+```r
+# Compare the two models on the same species tree
+sp_tree <- simulate_species_tree(30L, 1.0, 0.4, seed = 42L)
+
+# Standard per-gene-copy model
+gt_standard <- simulate_dtl_batch(
+  sp_tree, 50L,
+  lambda_d = 0.8, lambda_t = 0.2, lambda_l = 0.3,
+  seed = 1L
+)
+
+# Per-species model (Zombi-style)
+gt_per_species <- simulate_dtl_per_species_batch(
+  sp_tree, 50L,
+  lambda_d = 0.8, lambda_t = 0.2, lambda_l = 0.3,
+  seed = 1L
+)
+
+# Per-species model typically produces smaller gene families
+# because duplications don't cause explosive growth
+cat("Standard model - mean extant:", mean(sapply(gt_standard, gene_tree_num_extant)), "\n")
+cat("Per-species model - mean extant:", mean(sapply(gt_per_species, gene_tree_num_extant)), "\n")
 ```
 
 ### 5. Inspect Gene Trees
@@ -766,15 +833,17 @@ boxplot(extant_no, extant_uni, extant_loc,
 |----------|-------------|---------|
 | `simulate_dtl(sp_tree, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, seed)` | Simulate single gene tree along species tree with DTL events | List with gene tree and reconciliation |
 | `simulate_dtl_batch(sp_tree, n, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, seed)` | Simulate batch of n gene trees (more efficient) | List of gene tree lists |
+| `simulate_dtl_per_species(sp_tree, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, seed)` | Simulate single gene tree using per-species DTL model (Zombi-style) | List with gene tree and reconciliation |
+| `simulate_dtl_per_species_batch(sp_tree, n, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, seed)` | Simulate batch of n gene trees using per-species model | List of gene tree lists |
 | `gene_tree_num_extant(gt)` | Count extant genes (on extant species only) | Integer |
 | `gene_tree_to_newick(gt)` | Convert gene tree to Newick format | String |
 | `gene_tree_to_xml(gt)` | Convert to RecPhyloXML format for visualization | String (XML) |
 
-**Parameters for DTL simulation:**
+**Parameters for `simulate_dtl` / `simulate_dtl_batch`:**
 - `species_tree`: Species tree object from `simulate_species_tree()` or `parse_newick()`
-- `lambda_d`: Duplication rate per unit time (Numeric, >= 0)
-- `lambda_t`: Horizontal transfer rate per unit time (Numeric, >= 0)
-- `lambda_l`: Loss rate per unit time (Numeric, >= 0)
+- `lambda_d`: Duplication rate per gene copy per unit time (Numeric, >= 0)
+- `lambda_t`: Horizontal transfer rate per gene copy per unit time (Numeric, >= 0)
+- `lambda_l`: Loss rate per gene copy per unit time (Numeric, >= 0)
 - `transfer_alpha`: Distance decay for assortative transfers (Numeric or `NULL` for uniform)
   - `NULL`: Uniform random transfer recipients
   - `0`: Equivalent to uniform
@@ -793,6 +862,21 @@ boxplot(extant_no, extant_uni, extant_loc,
 - `species_node`: Mapped species node name for each gene node
 - `event`: Event type ("Speciation", "Duplication", "Transfer", "Loss", "Leaf")
 - `species_tree`: The original species tree (nested list)
+
+**Parameters for `simulate_dtl_per_species` / `simulate_dtl_per_species_batch`:**
+
+These functions accept the same parameters as the standard DTL functions above, with identical types and defaults. The difference is in the underlying model, not the interface:
+
+- `species_tree`: Species tree object from `simulate_species_tree()` or `parse_newick()`
+- `lambda_d`: Duplication rate per alive species per unit time (Numeric, >= 0)
+- `lambda_t`: Transfer rate per alive species per unit time (Numeric, >= 0)
+- `lambda_l`: Loss rate per alive species per unit time (Numeric, >= 0)
+- `transfer_alpha`: Distance decay for assortative transfers (Numeric or `NULL` for uniform)
+- `require_extant`: Whether to ensure trees have extant genes (Logical, default `FALSE`)
+- `n`: Number of gene trees to simulate (for batch, Integer with `L`)
+- `seed`: Random seed (Integer with `L` or `NULL`)
+
+**Model difference:** In the standard model, the total event rate at time t is `(lambda_d + lambda_t + lambda_l) * n_gene_copies(t)`. In the per-species model, the total event rate is `(lambda_d + lambda_t + lambda_l) * n_alive_species(t)`. When an event fires, a random alive species is chosen; if it has no gene copies, the event is discarded. This prevents duplications from causing runaway gene family expansion.
 
 ### Tree Sampling and Analysis Functions
 
@@ -987,6 +1071,8 @@ The birth-death process simulates a tree with exactly `n` extant species using t
 - `lambda_d`: Duplication rate per unit time along branches (Numeric, >= 0)
 - `lambda_t`: Transfer rate per unit time along branches (Numeric, >= 0)
 - `lambda_l`: Loss rate per unit time along branches (Numeric, >= 0)
+
+**Note:** For the standard model (`simulate_dtl`), these rates are per gene copy. For the per-species model (`simulate_dtl_per_species`), these rates are per alive species.
 - `transfer_alpha`: Distance decay parameter for assortative transfers
   - `NULL` (default): Uniform random selection among contemporary species
   - `0`: Equivalent to uniform random
@@ -1007,11 +1093,15 @@ For species trees simulated with `simulate_species_tree()`, this correctly exclu
 
 The `require_extant = TRUE` parameter uses this definition to ensure returned gene trees have at least one truly extant gene.
 
-DTL rates are per unit time along branches. Higher rates lead to more events. The model allows:
+DTL rates are per unit time along branches. Higher rates lead to more events. Both models support:
 - **Duplications**: Gene copies within the same species
 - **Transfers**: Horizontal gene transfer between contemporary species
 - **Losses**: Gene lineage goes extinct
 - **Speciations**: Gene follows the species tree split
+
+Two DTL models are available:
+- **Per-gene-copy model** (`simulate_dtl`): Total event rate = `(lambda_d + lambda_t + lambda_l) * number_of_gene_copies`. Duplications increase the rate because each new copy independently experiences events.
+- **Per-species model** (`simulate_dtl_per_species`): Total event rate = `(lambda_d + lambda_t + lambda_l) * number_of_alive_species`. A random alive species is chosen; if it has no genes, the event fails silently. Duplications do not increase the rate.
 
 ### Assortative Transfers
 
@@ -1041,7 +1131,7 @@ Examples:
 
 ### Performance Tips
 
-- Use `simulate_dtl_batch()` instead of looping `simulate_dtl()` - it's much faster
+- Use `simulate_dtl_batch()` / `simulate_dtl_per_species_batch()` instead of looping the single-tree versions - they are much faster
 - For large species trees (>100 species), DTL simulation can be slow
 - Setting a seed ensures reproducibility but doesn't affect performance
 - Birth-death simulation time scales with the number of extinction events
@@ -1274,7 +1364,7 @@ cat("All outputs saved to output/ directory\n")
 cat("Parameters saved in simulation_parameters.rds\n")
 ```
 
-## Summary of All 19 Available Functions
+## Summary of All 21 Available Functions
 
 | # | Function | Category | Description |
 |---|----------|----------|-------------|
@@ -1285,18 +1375,20 @@ cat("Parameters saved in simulation_parameters.rds\n")
 | 5 | `tree_leaf_names_r` | Species Tree | Get leaf names |
 | 6 | `simulate_dtl_r` | Gene Tree | Simulate single gene tree with DTL |
 | 7 | `simulate_dtl_batch_r` | Gene Tree | Simulate batch of gene trees |
-| 8 | `gene_tree_num_extant_r` | Gene Tree | Count extant genes |
-| 9 | `gene_tree_to_newick_r` | Gene Tree | Convert gene tree to Newick |
-| 10 | `gene_tree_to_xml_r` | Gene Tree | Convert to RecPhyloXML |
-| 11 | `save_newick_r` | Export | Save tree to Newick file |
-| 12 | `save_xml_r` | Export | Save gene tree to RecPhyloXML |
-| 13 | `save_csv_r` | Export | Save gene tree to CSV |
-| 14 | `save_bd_events_csv_r` | Export | Save birth-death events to CSV |
-| 15 | `save_pairwise_distances_csv_r` | Export | Save pairwise distances to CSV |
-| 16 | `gene_tree_to_svg_r` | Visualization | Generate SVG with thirdkind |
-| 17 | `sample_extant_r` | Analysis | Extract extant-only subtree |
-| 18 | `extract_induced_subtree_by_names_r` | Analysis | Extract induced subtree by leaf names |
-| 19 | `pairwise_distances_r` | Analysis | Compute pairwise node distances |
+| 8 | `simulate_dtl_per_species_r` | Gene Tree | Simulate single gene tree with per-species DTL |
+| 9 | `simulate_dtl_per_species_batch_r` | Gene Tree | Simulate batch of gene trees with per-species DTL |
+| 10 | `gene_tree_num_extant_r` | Gene Tree | Count extant genes |
+| 11 | `gene_tree_to_newick_r` | Gene Tree | Convert gene tree to Newick |
+| 12 | `gene_tree_to_xml_r` | Gene Tree | Convert to RecPhyloXML |
+| 13 | `save_newick_r` | Export | Save tree to Newick file |
+| 14 | `save_xml_r` | Export | Save gene tree to RecPhyloXML |
+| 15 | `save_csv_r` | Export | Save gene tree to CSV |
+| 16 | `save_bd_events_csv_r` | Export | Save birth-death events to CSV |
+| 17 | `save_pairwise_distances_csv_r` | Export | Save pairwise distances to CSV |
+| 18 | `gene_tree_to_svg_r` | Visualization | Generate SVG with thirdkind |
+| 19 | `sample_extant_r` | Analysis | Extract extant-only subtree |
+| 20 | `extract_induced_subtree_by_names_r` | Analysis | Extract induced subtree by leaf names |
+| 21 | `pairwise_distances_r` | Analysis | Compute pairwise node distances |
 
 **Note:** The R wrapper functions in `R/rustree.R` remove the `_r` suffix for cleaner syntax (e.g., `simulate_species_tree` instead of `simulate_species_tree_r`).
 

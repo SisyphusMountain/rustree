@@ -4,110 +4,12 @@ This directory contains comprehensive tests for pairwise distance functionality 
 
 ## Current Status
 
-The pairwise distance functions (`pairwise_distances` and `save_pairwise_distances_csv`) are currently:
+The pairwise distance functions (`pairwise_distances` and `save_pairwise_distances_csv`) are:
 - ✅ **Implemented in Rust** (`src/metric_functions.rs`)
 - ✅ **Exposed in R bindings** (`src/r.rs`)
-- ❌ **Not yet exposed in Python bindings** (`src/python.rs`)
+- ✅ **Exposed in Python bindings** (`src/python.rs`)
 
-## Required Python Bindings
-
-To make the tests in `test_pairwise_distances.py` work, the following methods need to be added to `PySpeciesTree` in `src/python.rs`:
-
-### 1. `pairwise_distances` method
-
-```rust
-/// Compute all pairwise distances between nodes in the tree.
-///
-/// # Arguments
-/// * `distance_type` - Type of distance: "topological" (edge count) or "metric" (branch length sum)
-/// * `leaves_only` - If true, only compute distances between leaf nodes
-///
-/// # Returns
-/// A pandas DataFrame with columns: node1, node2, distance
-fn pairwise_distances(&self, py: Python, distance_type: &str, leaves_only: bool) -> PyResult<PyObject> {
-    use crate::metric_functions::DistanceType;
-
-    let dist_type = match distance_type.to_lowercase().as_str() {
-        "topological" => DistanceType::Topological,
-        "metric" => DistanceType::Metric,
-        _ => return Err(PyValueError::new_err(
-            format!("Invalid distance type '{}'. Must be 'topological' or 'metric'", distance_type)
-        )),
-    };
-
-    let distances = self.tree.pairwise_distances(dist_type, leaves_only);
-
-    // Convert to pandas DataFrame
-    let pandas = py.import("pandas")?;
-    let dict = PyDict::new(py);
-
-    let node1_list: Vec<String> = distances.iter().map(|d| d.node1.clone()).collect();
-    let node2_list: Vec<String> = distances.iter().map(|d| d.node2.clone()).collect();
-    let distance_list: Vec<f64> = distances.iter().map(|d| d.distance).collect();
-
-    dict.set_item("node1", node1_list)?;
-    dict.set_item("node2", node2_list)?;
-    dict.set_item("distance", distance_list)?;
-
-    let df = pandas.call_method1("DataFrame", (dict,))?;
-    Ok(df.into())
-}
-```
-
-### 2. `save_pairwise_distances_csv` method
-
-```rust
-/// Save pairwise distances to a CSV file.
-///
-/// # Arguments
-/// * `filepath` - Path to the output CSV file
-/// * `distance_type` - Type of distance: "topological" or "metric"
-/// * `leaves_only` - If true, only include leaf node distances
-fn save_pairwise_distances_csv(
-    &self,
-    filepath: &str,
-    distance_type: &str,
-    leaves_only: bool
-) -> PyResult<()> {
-    use crate::metric_functions::DistanceType;
-    use std::fs::File;
-    use std::io::Write;
-
-    let dist_type = match distance_type.to_lowercase().as_str() {
-        "topological" => DistanceType::Topological,
-        "metric" => DistanceType::Metric,
-        _ => return Err(PyValueError::new_err(
-            format!("Invalid distance type '{}'. Must be 'topological' or 'metric'", distance_type)
-        )),
-    };
-
-    let distances = self.tree.pairwise_distances(dist_type, leaves_only);
-
-    let mut file = File::create(filepath)
-        .map_err(|e| PyValueError::new_err(format!("Failed to create file: {}", e)))?;
-
-    // Write header
-    writeln!(file, "{}", crate::metric_functions::PairwiseDistance::csv_header())
-        .map_err(|e| PyValueError::new_err(format!("Failed to write header: {}", e)))?;
-
-    // Write data rows
-    for dist in distances {
-        writeln!(file, "{}", dist.to_csv_row())
-            .map_err(|e| PyValueError::new_err(format!("Failed to write row: {}", e)))?;
-    }
-
-    Ok(())
-}
-```
-
-### Required imports in python.rs
-
-Add these imports at the top of `src/python.rs`:
-
-```rust
-use pyo3::types::PyDict;
-use crate::metric_functions::{DistanceType, PairwiseDistance};
-```
+Both `pairwise_distances(distance_type, leaves_only)` and `save_pairwise_distances_csv(filepath, distance_type, leaves_only)` are fully implemented and available in the Python API.
 
 ## Test Coverage
 
@@ -155,8 +57,6 @@ The test file `test_pairwise_distances.py` provides comprehensive coverage inclu
 
 ## Running the Tests
 
-Once the Python bindings are added:
-
 ```bash
 # Run all tests
 pytest rustree/tests/python/test_pairwise_distances.py -v
@@ -169,8 +69,6 @@ pytest rustree/tests/python/test_pairwise_distances.py --cov=rustree --cov-repor
 ```
 
 ## Example Usage
-
-Once implemented, the Python API will work like this:
 
 ```python
 import rustree

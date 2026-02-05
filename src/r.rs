@@ -14,7 +14,7 @@ use std::fs;
 use std::process::Command;
 
 use crate::bd::{simulate_bd_tree, generate_events_from_tree, TreeEvent, BDEvent};
-use crate::dtl::{simulate_dtl, simulate_dtl_batch};
+use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch};
 use crate::node::{FlatTree, FlatNode, Event};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names};
 
@@ -241,6 +241,126 @@ fn simulate_dtl_batch_r(
 
     let origin_species = species_tree.root;
     let (rec_trees, _all_events) = simulate_dtl_batch(
+        &species_tree,
+        origin_species,
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        alpha,
+        n as usize,
+        require_extant,
+        &mut rng,
+    );
+
+    // Convert to list of lists
+    let gene_tree_lists: Vec<List> = rec_trees
+        .iter()
+        .map(|rec_tree| {
+            rectree_to_rlist(&species_tree, &rec_tree.gene_tree, &rec_tree.node_mapping, &rec_tree.event_mapping)
+        })
+        .collect();
+
+    Ok(List::from_values(gene_tree_lists))
+}
+
+/// Simulate a single DTL gene tree using the Zombi-style per-species model.
+///
+/// In this model, the event rate is proportional to the number of SPECIES
+/// with gene copies, NOT the number of gene copies themselves. This means
+/// duplications don't increase the event rate.
+///
+/// @param species_tree_list Species tree from simulate_species_tree_r
+/// @param lambda_d Duplication rate per species per unit time
+/// @param lambda_t Transfer rate per species per unit time
+/// @param lambda_l Loss rate per species per unit time
+/// @param transfer_alpha Optional distance decay for assortative transfers (NULL = uniform)
+/// @param require_extant If TRUE, retry until a tree with extant genes is produced (default FALSE)
+/// @param seed Optional random seed
+/// @return A list containing the gene tree data with reconciliation info
+/// @export
+#[extendr]
+fn simulate_dtl_per_species_r(
+    species_tree_list: List,
+    lambda_d: f64,
+    lambda_t: f64,
+    lambda_l: f64,
+    transfer_alpha: Robj,
+    require_extant: bool,
+    seed: Robj,
+) -> Result<List> {
+    if lambda_d < 0.0 || lambda_t < 0.0 || lambda_l < 0.0 {
+        return Err("Rates must be non-negative".into());
+    }
+
+    let species_tree = rlist_to_flattree(&species_tree_list)?;
+
+    let mut rng = if seed.is_null() {
+        StdRng::from_entropy()
+    } else {
+        StdRng::seed_from_u64(seed.as_integer().unwrap() as u64)
+    };
+
+    let alpha = if transfer_alpha.is_null() || transfer_alpha.is_na() {
+        None
+    } else {
+        Some(transfer_alpha.as_real().ok_or("transfer_alpha must be a number")?)
+    };
+
+    let origin_species = species_tree.root;
+    let (rec_tree, _events) = simulate_dtl_per_species(&species_tree, origin_species, lambda_d, lambda_t, lambda_l, alpha, require_extant, &mut rng);
+
+    Ok(rectree_to_rlist(&species_tree, &rec_tree.gene_tree, &rec_tree.node_mapping, &rec_tree.event_mapping))
+}
+
+/// Simulate a batch of DTL gene trees using the Zombi-style per-species model.
+///
+/// This is faster than calling simulate_dtl_per_species_r multiple times because
+/// species tree events and LCA depths are computed only once.
+///
+/// @param species_tree_list Species tree from simulate_species_tree_r
+/// @param n Number of gene trees to simulate
+/// @param lambda_d Duplication rate per species per unit time
+/// @param lambda_t Transfer rate per species per unit time
+/// @param lambda_l Loss rate per species per unit time
+/// @param transfer_alpha Optional distance decay for assortative transfers (NULL = uniform)
+/// @param require_extant If TRUE, only include trees with extant genes (default FALSE)
+/// @param seed Optional random seed
+/// @return A list of gene tree lists
+/// @export
+#[extendr]
+fn simulate_dtl_per_species_batch_r(
+    species_tree_list: List,
+    n: i32,
+    lambda_d: f64,
+    lambda_t: f64,
+    lambda_l: f64,
+    transfer_alpha: Robj,
+    require_extant: bool,
+    seed: Robj,
+) -> Result<List> {
+    if n <= 0 {
+        return Err("Number of trees must be positive".into());
+    }
+    if lambda_d < 0.0 || lambda_t < 0.0 || lambda_l < 0.0 {
+        return Err("Rates must be non-negative".into());
+    }
+
+    let species_tree = rlist_to_flattree(&species_tree_list)?;
+
+    let mut rng = if seed.is_null() {
+        StdRng::from_entropy()
+    } else {
+        StdRng::seed_from_u64(seed.as_integer().unwrap() as u64)
+    };
+
+    let alpha = if transfer_alpha.is_null() || transfer_alpha.is_na() {
+        None
+    } else {
+        Some(transfer_alpha.as_real().ok_or("transfer_alpha must be a number")?)
+    };
+
+    let origin_species = species_tree.root;
+    let (rec_trees, _all_events) = simulate_dtl_per_species_batch(
         &species_tree,
         origin_species,
         lambda_d,
@@ -969,6 +1089,8 @@ extendr_module! {
     fn tree_leaf_names_r;
     fn simulate_dtl_r;
     fn simulate_dtl_batch_r;
+    fn simulate_dtl_per_species_r;
+    fn simulate_dtl_per_species_batch_r;
     fn gene_tree_num_extant_r;
     fn gene_tree_to_newick_r;
     fn gene_tree_to_xml_r;

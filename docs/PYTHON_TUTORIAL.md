@@ -22,7 +22,7 @@ This tutorial explains how to use the rustree Python bindings for simulating spe
 - [API Reference](#api-reference)
 - [Parameters](#parameters)
 - [Notes](#notes)
-- [Implementation Guide](#implementation-guide-for-missing-features)
+- [Implementation Notes](#implementation-notes)
 
 ## Prerequisites
 
@@ -165,7 +165,73 @@ The distance between species A and B at time t is computed as:
 d(A, B, t) = 2 × (t - depth_of_LCA(A, B))
 ```
 
-### 5. Inspect Gene Trees
+### 5. Per-Species DTL Model
+
+The standard DTL model (`simulate_dtl`) uses event rates proportional to the number of **gene copies** alive at any point in time. This means that duplications increase the total event rate, since more gene copies means more potential events.
+
+The **per-species DTL model** (`simulate_dtl_per_species`) instead uses event rates proportional to the number of **alive species**, regardless of how many gene copies exist. When an event fires, a random alive species is chosen first, and then a random gene copy within that species is affected. If the chosen species has no gene copies (e.g., because all were previously lost), the event fails silently -- time advances but nothing happens. This means duplications do not increase the event rate, since the rate depends only on the number of species, not the number of genes.
+
+This is the model used by Zombi and is appropriate when DTL events are driven by species-level processes rather than gene-copy-level processes.
+
+```python
+# Single gene tree with per-species DTL model
+gene_tree = sp_tree.simulate_dtl_per_species(
+    lambda_d=0.5,    # Duplication rate per species per unit time
+    lambda_t=0.2,    # Transfer rate per species per unit time
+    lambda_l=0.3,    # Loss rate per species per unit time
+    seed=123
+)
+
+# Batch of gene trees (more efficient, pre-computes shared data)
+gene_trees = sp_tree.simulate_dtl_per_species_batch(
+    n=100,           # Number of gene trees
+    lambda_d=0.5,
+    lambda_t=0.2,
+    lambda_l=0.3,
+    seed=123
+)
+
+# Assortative transfers also work with the per-species model
+gene_tree = sp_tree.simulate_dtl_per_species(
+    lambda_d=0.5,
+    lambda_t=0.5,
+    lambda_l=0.3,
+    transfer_alpha=1.0,  # Distance-dependent transfers
+    seed=123
+)
+
+# Require at least one extant gene
+gene_tree = sp_tree.simulate_dtl_per_species(
+    lambda_d=0.5,
+    lambda_t=0.2,
+    lambda_l=0.3,
+    require_extant=True,  # Retry until at least one gene survives
+    seed=123
+)
+```
+
+**Comparing the two models:**
+
+```python
+import rustree
+
+sp_tree = rustree.simulate_species_tree(50, 1.0, 0.3, seed=42)
+
+# Per-gene-copy model (standard): event rate grows with gene copies
+gt_per_copy = sp_tree.simulate_dtl(0.5, 0.2, 0.3, seed=123)
+
+# Per-species model (Zombi-style): event rate depends only on species count
+gt_per_species = sp_tree.simulate_dtl_per_species(0.5, 0.2, 0.3, seed=123)
+
+s1, d1, t1, l1, _ = gt_per_copy.count_events()
+s2, d2, t2, l2, _ = gt_per_species.count_events()
+
+print(f"Per-copy model:    D={d1}, T={t1}, L={l1}, extant={gt_per_copy.num_extant()}")
+print(f"Per-species model: D={d2}, T={t2}, L={l2}, extant={gt_per_species.num_extant()}")
+# The per-species model typically produces fewer duplications and smaller gene families
+```
+
+### 6. Inspect Gene Trees
 
 ```python
 gt = gene_trees[0]
@@ -189,7 +255,7 @@ df = gt.to_csv()  # Returns DataFrame
 print(df.head())
 ```
 
-### 6. Sample Extant Genes
+### 7. Sample Extant Genes
 
 ```python
 # Extract induced subtree containing only extant genes
@@ -203,7 +269,7 @@ print(f"Sampled tree has {sampled_gt.num_nodes()} nodes")
 sampled_gt = gt.sample_by_names(["G1_A", "G2_B", "G3_C"])
 ```
 
-### 7. Export Results
+### 8. Export Results
 
 ```python
 # Save species tree to Newick
@@ -219,7 +285,7 @@ gt.save_xml("gene_tree.recphyloxml")
 df = gt.to_csv("gene_tree.csv")  # Also saves to file
 ```
 
-### 8. Visualize with thirdkind
+### 9. Visualize with thirdkind
 
 ```python
 # Generate SVG (requires thirdkind to be installed)
@@ -276,9 +342,9 @@ print("Done! Results saved.")
 
 ## Advanced Features
 
-> **Implementation Status:** The features documented below are part of the rustree API. Features marked with ⚠️ are currently available in the R bindings but need to be added to the Python bindings. If a feature is not yet available, you'll see an `AttributeError`. To implement these features, add the corresponding methods to `PySpeciesTree` and `PyGeneTree` in `/home/enzo/Documents/git/WP2/rustree/src/python.rs` following the patterns in `/home/enzo/Documents/git/WP2/rustree/src/r.rs`.
+> **Implementation Status:** All features documented below are fully implemented and available in the Python bindings.
 
-### Birth-Death Event Analysis ⚠️
+### Birth-Death Event Analysis
 
 Birth-death simulations track all speciation and extinction events. You can analyze and export these events:
 
@@ -307,7 +373,7 @@ The CSV file contains:
 - `event_type`: "Speciation", "Extinction", or "Leaf"
 - `child1_name`, `child2_name`: Names of child nodes (for speciation events)
 
-### Pairwise Distance Analysis ⚠️
+### Pairwise Distance Analysis
 
 Calculate distances between nodes in a tree for phylogenetic analysis:
 
@@ -390,7 +456,7 @@ sampled_gt2 = gt.sample_species_leaves(species_subset)
 print(f"Gene tree after species sampling: {sampled_gt2.num_extant()} extant genes")
 ```
 
-### Gene Tree Distance Analysis ⚠️
+### Gene Tree Distance Analysis
 
 Gene trees also support distance computations, useful for analyzing gene family evolution:
 
@@ -666,14 +732,18 @@ print("\nPipeline complete! Results saved to output directory.")
 | `leaf_names()` | ✅ | Get list of leaf names |
 | `root_index()` | ✅ | Get root node index |
 | `extract_induced_subtree_by_names(names)` | ✅ | Extract subtree with specified leaves |
-| `simulate_dtl(...)` | ✅ | Simulate single gene tree |
-| `simulate_dtl_batch(...)` | ✅ | Simulate batch of gene trees |
-| `get_bd_events()` | ⚠️ | Get birth-death events as list of TreeEvent |
-| `save_bd_events_csv(filepath)` | ⚠️ | Save BD events to CSV file |
-| `pairwise_distances(distance_type, leaves_only)` | ⚠️ | Compute pairwise distances |
-| `save_pairwise_distances_csv(filepath, distance_type, leaves_only)` | ⚠️ | Save distances to CSV |
+| `simulate_dtl(...)` | ✅ | Simulate single gene tree (per-gene-copy model) |
+| `simulate_dtl_batch(...)` | ✅ | Simulate batch of gene trees (per-gene-copy model) |
+| `simulate_dtl_per_species(...)` | ✅ | Simulate single gene tree (per-species model) |
+| `simulate_dtl_per_species_batch(...)` | ✅ | Simulate batch of gene trees (per-species model) |
+| `get_bd_events()` | ✅ | Get birth-death events as dictionary |
+| `save_bd_events_csv(filepath)` | ✅ | Save BD events to CSV file |
+| `get_ltt_data()` | ✅ | Get lineages-through-time data |
+| `plot_ltt(...)` | ✅ | Plot LTT using matplotlib |
+| `pairwise_distances(distance_type, leaves_only)` | ✅ | Compute pairwise distances as DataFrame |
+| `save_pairwise_distances_csv(filepath, distance_type, leaves_only)` | ✅ | Save distances to CSV |
 
-**Status Legend:** ✅ Available | ⚠️ Needs implementation (see R bindings for reference)
+**Status:** All methods are implemented and available.
 
 ### PyGeneTree Methods
 
@@ -693,8 +763,8 @@ print("\nPipeline complete! Results saved to output directory.")
 | `to_csv(filepath=None)` | ✅ | Export to DataFrame (optionally save) |
 | `to_svg(filepath=None, open_browser=False)` | ✅ | Generate SVG visualization |
 | `display()` | ✅ | Display in Jupyter notebook |
-| `pairwise_distances(distance_type, leaves_only)` | ⚠️ | Compute pairwise distances |
-| `save_pairwise_distances_csv(filepath, distance_type, leaves_only)` | ⚠️ | Save distances to CSV |
+| `pairwise_distances(distance_type, leaves_only)` | ✅ | Compute pairwise distances |
+| `save_pairwise_distances_csv(filepath, distance_type, leaves_only)` | ✅ | Save distances to CSV |
 
 ## Parameters
 
@@ -702,6 +772,8 @@ print("\nPipeline complete! Results saved to output directory.")
 - `lambda_d`: Duplication rate per unit time along branches
 - `lambda_t`: Transfer rate per unit time along branches
 - `lambda_l`: Loss rate per unit time along branches
+
+In `simulate_dtl` / `simulate_dtl_batch` (per-gene-copy model), rates are per gene copy: the total event rate scales with the number of gene copies alive. In `simulate_dtl_per_species` / `simulate_dtl_per_species_batch` (per-species model), rates are per species: the total event rate scales with the number of alive species, regardless of how many gene copies each species carries.
 
 ### Assortative Transfers
 - `transfer_alpha`: Distance decay parameter for transfer recipient selection
@@ -743,76 +815,13 @@ For species trees simulated with birth-death, this correctly excludes genes that
 
 The `require_extant=True` parameter in `simulate_dtl()` and `simulate_dtl_batch()` uses this definition to ensure returned gene trees have at least one truly extant gene.
 
-## Implementation Guide for Missing Features
+## Implementation Notes
 
-Features marked with ⚠️ in the API reference are documented but not yet implemented in the Python bindings. They are available in the R bindings and can be ported to Python. Here's how to implement them:
+All features documented in this tutorial are fully implemented in the Python bindings (`src/python.rs`), including:
 
-### Adding Methods to PySpeciesTree
-
-To add `get_bd_events()`, `save_bd_events_csv()`, `pairwise_distances()`, and `save_pairwise_distances_csv()` to Python:
-
-1. **Location**: Edit `/home/enzo/Documents/git/WP2/rustree/src/python.rs`
-
-2. **Reference Implementation**: See `/home/enzo/Documents/git/WP2/rustree/src/r.rs` for the R versions of these methods
-
-3. **Example Pattern for `save_bd_events_csv()`**:
-```rust
-// Add to #[pymethods] impl PySpeciesTree block in python.rs
-fn save_bd_events_csv(&self, filepath: &str) -> PyResult<()> {
-    use crate::bd::TreeEvent;
-    use crate::io::save_bd_events_to_csv;
-
-    // Get BD events from tree nodes
-    let events: Vec<TreeEvent> = // ... extract from self.tree.nodes
-
-    save_bd_events_to_csv(&events, &self.tree, filepath)
-        .map_err(|e| PyValueError::new_err(format!("Failed to write CSV: {}", e)))?;
-
-    Ok(())
-}
-```
-
-4. **Example Pattern for `pairwise_distances()`**:
-```rust
-// Add to #[pymethods] impl PySpeciesTree block in python.rs
-fn pairwise_distances(&self, distance_type: &str, leaves_only: bool) -> PyResult<Vec<PyObject>> {
-    use crate::metric_functions::{DistanceType, PairwiseDistance};
-
-    let dist_type = match distance_type.to_lowercase().as_str() {
-        "topological" | "topo" => DistanceType::Topological,
-        "metric" | "branch" | "patristic" => DistanceType::Metric,
-        _ => return Err(PyValueError::new_err("Invalid distance_type")),
-    };
-
-    let distances = self.tree.pairwise_distances(dist_type, leaves_only);
-
-    // Convert to Python objects (list of dicts or custom class)
-    // ... implementation details
-}
-```
-
-5. **Key Imports Needed**:
-```rust
-use crate::bd::TreeEvent;
-use crate::io::save_bd_events_to_csv;
-use crate::metric_functions::{DistanceType, PairwiseDistance};
-```
-
-6. **Build and Test**:
-```bash
-cd /path/to/rustree
-maturin develop --release
-python3 -c "import rustree; tree = rustree.simulate_species_tree(10, 1.0, 0.3); tree.save_bd_events_csv('test.csv')"
-```
-
-### Adding Methods to PyGeneTree
-
-The same methods (`pairwise_distances()`, `save_pairwise_distances_csv()`) can be added to `PyGeneTree` following the same pattern but using `self.gene_tree` instead of `self.tree`.
-
-### Why These Features Matter
-
-- **Birth-Death Events**: Essential for understanding macroevolutionary dynamics, extinction patterns, and diversification rates
-- **Pairwise Distances**: Critical for phylogenetic distance-based methods, molecular clock analysis, and comparing gene vs species tree distances
-- **Subtree Extraction**: Already implemented! Use for focused analysis, computational efficiency, and studying specific clades
-
-For complete implementation details, examine the R binding implementations in `/home/enzo/Documents/git/WP2/rustree/src/r.rs` at lines 406-430 (BD events) and 873-935 (pairwise distances).
+- **Birth-Death Events**: `get_bd_events()` and `save_bd_events_csv(filepath)` for exporting speciation, extinction, and leaf events
+- **Pairwise Distances**: `pairwise_distances(distance_type, leaves_only)` and `save_pairwise_distances_csv(filepath, distance_type, leaves_only)` for computing and exporting node-to-node distances
+- **Per-Species DTL Model**: `simulate_dtl_per_species(...)` and `simulate_dtl_per_species_batch(...)` for Zombi-style per-species rate DTL simulation
+- **LTT Data**: `get_ltt_data()` and `plot_ltt(...)` for lineages-through-time analysis
+- **Subtree Extraction**: `extract_induced_subtree_by_names(names)` for focused analysis on specific taxa
+- **RecPhyloXML**: `parse_recphyloxml(filepath)` for parsing reconciled gene trees
