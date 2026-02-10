@@ -1,45 +1,27 @@
 // Unified simulation state for both per-gene and per-species DTL models
 
 use std::collections::HashMap;
+use rand::Rng;
 use crate::node::{FlatNode, Event};
 use super::event::DTLEvent;
 
-/// Represents an active gene copy being simulated (per-gene model only)
-#[derive(Clone, Debug)]
-pub(crate) struct GeneCopy {
-    pub gene_node_idx: usize,
-    pub species_node_idx: usize,
-    pub current_time: f64,
-}
-
 /// Holds the mutable state during DTL simulation.
 ///
-/// Used by both per-gene and per-species simulation models.
-/// The `genes_per_species` field is only populated in per-species mode.
+/// Used by both per-gene and per-species simulation models via the shared
+/// Gillespie loop. Tracks gene nodes, their mapping to species, and which
+/// genes are alive in each species.
 pub(crate) struct SimulationState {
     pub gene_nodes: Vec<FlatNode>,
     pub node_mapping: Vec<usize>,
     pub event_mapping: Vec<Event>,
     pub events: Vec<DTLEvent>,
-    /// Maps species_idx -> Vec of gene node indices in that species.
-    /// Only used in per-species mode (None in per-gene mode).
+    /// Maps species_idx -> Vec of gene node indices alive in that species.
     pub genes_per_species: Option<HashMap<usize, Vec<usize>>>,
 }
 
 impl SimulationState {
-    /// Create state for per-gene mode (no gene-per-species tracking)
+    // TODO: make the function names more coherent and clear.
     pub fn new(capacity: usize) -> Self {
-        Self {
-            gene_nodes: Vec::with_capacity(capacity),
-            node_mapping: Vec::with_capacity(capacity),
-            event_mapping: Vec::with_capacity(capacity),
-            events: Vec::with_capacity(capacity),
-            genes_per_species: None,
-        }
-    }
-
-    /// Create state for per-species mode (with gene-per-species tracking)
-    pub fn new_per_species(capacity: usize) -> Self {
         Self {
             gene_nodes: Vec::with_capacity(capacity),
             node_mapping: Vec::with_capacity(capacity),
@@ -166,6 +148,45 @@ impl SimulationState {
             gene_id: gene_idx,
             species_id: species_idx,
         });
+    }
+
+    /// Picks a random gene in a species.
+    /// Used by replacement transfers to find a victim gene before adding the transferred copy.
+    pub fn random_gene_in_species<R: Rng>(
+        &self,
+        species_idx: usize,
+        rng: &mut R,
+    ) -> Option<usize> {
+        if let Some(ref map) = self.genes_per_species {
+            if let Some(genes) = map.get(&species_idx) {
+                if !genes.is_empty() {
+                    return Some(genes[rng.gen_range(0..genes.len())]);
+                }
+            }
+        }
+        None
+    }
+
+    /// Picks a random gene copy from all alive copies across all species.
+    /// Used by per-gene Gillespie to select which copy experiences the next event.
+    pub fn pick_random_gene_copy<R: Rng>(&self, rng: &mut R) -> Option<(usize, usize)> {
+        let gps = self.genes_per_species.as_ref()?;
+        let total: usize = gps.values().map(|g| g.len()).sum();
+        if total == 0 { return None; }
+        let mut target = rng.gen_range(0..total);
+        for (&species, genes) in gps.iter() {
+            if target < genes.len() {
+                return Some((species, genes[target]));
+            }
+            target -= genes.len();
+        }
+        None
+    }
+
+    /// Returns the total number of alive gene copies across all species.
+    pub fn total_gene_copies(&self) -> usize {
+        self.genes_per_species.as_ref()
+            .map_or(0, |gps| gps.values().map(|g| g.len()).sum())
     }
 
     /// Handles reaching a leaf species: gene survives as extant.

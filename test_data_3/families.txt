@@ -1,0 +1,5 @@
+[FAMILIES]
+- family_1
+gene_tree = output_zombi/G/Gene_trees/1_prunedtree.nwk
+- family_2
+gene_tree = output_zombi/G/Gene_trees/2_prunedtree.nwk

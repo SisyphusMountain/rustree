@@ -14,6 +14,7 @@ use crate::bd::simulate_bd_tree;
 use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch};
 use crate::node::{FlatTree, Event};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names, find_leaf_indices_by_names};
+use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
 
@@ -25,6 +26,18 @@ use std::process::Command;
 fn validate_dtl_rates(lambda_d: f64, lambda_t: f64, lambda_l: f64) -> PyResult<()> {
     if lambda_d < 0.0 || lambda_t < 0.0 || lambda_l < 0.0 {
         return Err(PyValueError::new_err("Rates must be non-negative"));
+    }
+    Ok(())
+}
+
+/// Validate replacement_transfer probability parameter
+fn validate_replacement_transfer(replacement_transfer: Option<f64>) -> PyResult<()> {
+    if let Some(p) = replacement_transfer {
+        if !(0.0..=1.0).contains(&p) {
+            return Err(PyValueError::new_err(
+                "replacement_transfer must be between 0.0 and 1.0"
+            ));
+        }
     }
     Ok(())
 }
@@ -146,6 +159,82 @@ impl PySpeciesTree {
         fs::write(filepath, newick)
             .map_err(|e| PyValueError::new_err(format!("Failed to write Newick file: {}", e)))?;
         Ok(())
+    }
+
+    /// Generate an SVG visualization of the species tree using thirdkind.
+    ///
+    /// Requires thirdkind to be installed (`cargo install thirdkind`).
+    ///
+    /// # Arguments
+    /// * `filepath` - Optional path to save the SVG file. If None, returns SVG as string.
+    /// * `open_browser` - If True, opens the SVG in a web browser (default: False)
+    /// * `internal_names` - If True, display internal node names (default: True)
+    ///
+    /// # Returns
+    /// The SVG content as a string.
+    #[pyo3(signature = (filepath=None, open_browser=false, internal_names=true))]
+    fn to_svg(&self, filepath: Option<&str>, open_browser: bool, internal_names: bool) -> PyResult<String> {
+        let temp_dir = std::env::temp_dir();
+        let nwk_path = temp_dir.join("rustree_species_temp.nwk");
+        let svg_path = temp_dir.join("rustree_species_temp.svg");
+
+        // Write Newick to temp file
+        let newick = self.to_newick();
+        fs::write(&nwk_path, &newick)
+            .map_err(|e| PyValueError::new_err(format!("Failed to write temp Newick: {}", e)))?;
+
+        // Call thirdkind
+        let mut cmd = Command::new("thirdkind");
+        cmd.arg("--input-file").arg(&nwk_path)
+           .arg("-o").arg(&svg_path);
+
+        if internal_names {
+            cmd.arg("-i");
+        }
+
+        if open_browser {
+            cmd.arg("-b");
+        }
+
+        let output = cmd.output()
+            .map_err(|e| PyValueError::new_err(format!(
+                "Failed to run thirdkind. Is it installed? (`cargo install thirdkind`)\nError: {}", e
+            )))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(PyValueError::new_err(format!("thirdkind failed: {}", stderr)));
+        }
+
+        let svg = fs::read_to_string(&svg_path)
+            .map_err(|e| PyValueError::new_err(format!("Failed to read SVG output: {}", e)))?;
+
+        if let Some(path) = filepath {
+            fs::write(path, &svg)
+                .map_err(|e| PyValueError::new_err(format!("Failed to write SVG file: {}", e)))?;
+        }
+
+        let _ = fs::remove_file(&nwk_path);
+        let _ = fs::remove_file(&svg_path);
+
+        Ok(svg)
+    }
+
+    /// Display the species tree visualization in a Jupyter notebook.
+    ///
+    /// Requires thirdkind to be installed and IPython/Jupyter environment.
+    ///
+    /// # Arguments
+    /// * `internal_names` - If True, display internal node names (default: True)
+    #[pyo3(signature = (internal_names=true))]
+    fn display(&self, py: Python, internal_names: bool) -> PyResult<PyObject> {
+        let svg = self.to_svg(None, false, internal_names)?;
+
+        let ipython_display = py.import("IPython.display")?;
+        let svg_class = ipython_display.getattr("SVG")?;
+        let display_obj = svg_class.call1((svg,))?;
+
+        Ok(display_obj.into())
     }
 
     /// Save birth-death events to a CSV file.
@@ -396,12 +485,13 @@ impl PySpeciesTree {
     ///
     /// # Returns
     /// A PyGeneTree containing the simulated gene tree with its mapping to the species tree.
-    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, require_extant=false, seed=None))]
-    fn simulate_dtl(&self, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneTree> {
+    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
+    fn simulate_dtl(&self, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, replacement_transfer: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneTree> {
         validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
+        validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
-        let (rec_tree, _events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, &mut rng);
+        let (rec_tree, _events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng);
 
         // Extract owned data from RecTree
         let gene_tree = rec_tree.gene_tree;
@@ -432,9 +522,10 @@ impl PySpeciesTree {
     ///
     /// # Returns
     /// A list of PyGeneTree objects.
-    #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, require_extant=false, seed=None))]
-    fn simulate_dtl_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<Vec<PyGeneTree>> {
+    #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
+    fn simulate_dtl_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, replacement_transfer: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<Vec<PyGeneTree>> {
         validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
+        validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
 
         let origin_species = self.tree.root;
@@ -445,6 +536,7 @@ impl PySpeciesTree {
             lambda_t,
             lambda_l,
             transfer_alpha,
+            replacement_transfer,
             n,
             require_extant,
             &mut rng,
@@ -502,12 +594,13 @@ impl PySpeciesTree {
     /// print(f"Per-species model: {gene_tree_per_species.num_leaves()} leaves")
     /// # Per-species typically has fewer leaves since duplications don't increase rate
     /// ```
-    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, require_extant=false, seed=None))]
-    fn simulate_dtl_per_species(&self, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneTree> {
+    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
+    fn simulate_dtl_per_species(&self, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, replacement_transfer: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneTree> {
         validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
+        validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
-        let (rec_tree, _events) = simulate_dtl_per_species(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, &mut rng);
+        let (rec_tree, _events) = simulate_dtl_per_species(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng);
 
         // Extract owned data from RecTree
         let gene_tree = rec_tree.gene_tree;
@@ -556,9 +649,10 @@ impl PySpeciesTree {
     /// )
     /// print(f"Generated {len(gene_trees)} gene trees")
     /// ```
-    #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, require_extant=false, seed=None))]
-    fn simulate_dtl_per_species_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<Vec<PyGeneTree>> {
+    #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
+    fn simulate_dtl_per_species_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, replacement_transfer: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<Vec<PyGeneTree>> {
         validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
+        validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
         let (rec_trees, _all_events) = simulate_dtl_per_species_batch(
@@ -568,6 +662,7 @@ impl PySpeciesTree {
             lambda_t,
             lambda_l,
             transfer_alpha,
+            replacement_transfer,
             n,
             require_extant,
             &mut rng,
@@ -1224,18 +1319,36 @@ fn simulate_species_tree(n: usize, lambda_: f64, mu: f64, seed: Option<u64>) -> 
     Ok(PySpeciesTree { tree })
 }
 
-/// Parse a Newick string into a species tree.
+/// Parse a Newick string or file into a species tree.
 ///
 /// # Arguments
-/// * `newick_str` - A Newick formatted string representing the tree
+/// * `newick_str` - A Newick formatted string or path to a Newick file
 ///
 /// # Returns
 /// A PySpeciesTree parsed from the Newick string.
+///
+/// # Example
+/// ```python
+/// # From Newick string
+/// tree = rustree.parse_species_tree("(A:1.0,B:1.0):0.5;")
+///
+/// # From file
+/// tree = rustree.parse_species_tree("species.nwk")
+/// ```
 #[pyfunction]
 fn parse_species_tree(newick_str: &str) -> PyResult<PySpeciesTree> {
     use crate::newick::newick::parse_newick;
+    use std::path::Path;
 
-    let mut nodes = parse_newick(newick_str)
+    // Check if input is a file path
+    let newick_content = if Path::new(newick_str).exists() {
+        fs::read_to_string(newick_str)
+            .map_err(|e| PyValueError::new_err(format!("Failed to read file '{}': {}", newick_str, e)))?
+    } else {
+        newick_str.to_string()
+    };
+
+    let mut nodes = parse_newick(&newick_content)
         .map_err(|e| PyValueError::new_err(format!("Failed to parse Newick: {}", e)))?;
 
     let mut root = nodes.pop()
@@ -1270,13 +1383,483 @@ fn parse_recphyloxml(filepath: &str) -> PyResult<PyGeneTree> {
     })
 }
 
+/// Event counts from reconciliation analysis
+#[pyclass]
+#[derive(Clone)]
+pub struct PyEventCounts {
+    /// Number of speciation events
+    #[pyo3(get)]
+    pub speciations: f64,
+
+    /// Number of speciation loss events
+    #[pyo3(get)]
+    pub speciation_losses: f64,
+
+    /// Number of duplication events
+    #[pyo3(get)]
+    pub duplications: f64,
+
+    /// Number of duplication loss events
+    #[pyo3(get)]
+    pub duplication_losses: f64,
+
+    /// Number of transfer events
+    #[pyo3(get)]
+    pub transfers: f64,
+
+    /// Number of transfer loss events
+    #[pyo3(get)]
+    pub transfer_losses: f64,
+
+    /// Number of loss events
+    #[pyo3(get)]
+    pub losses: f64,
+
+    /// Number of leaf nodes
+    #[pyo3(get)]
+    pub leaves: f64,
+}
+
+#[pymethods]
+impl PyEventCounts {
+    fn __repr__(&self) -> String {
+        format!(
+            "EventCounts(S={:.1}, D={:.1}, T={:.1}, L={:.1})",
+            self.speciations,
+            self.duplications,
+            self.transfers,
+            self.losses
+        )
+    }
+}
+
+/// Summary statistics for reconciliation analysis
+#[pyclass]
+#[derive(Clone)]
+pub struct PyReconciliationStatistics {
+    /// Mean event counts across all samples
+    #[pyo3(get)]
+    pub mean_event_counts: PyEventCounts,
+
+    /// Mean transfers between species pairs
+    /// Returns a dict of dicts: {source_species: {dest_species: mean_count}}
+    #[pyo3(get)]
+    pub mean_transfers: HashMap<String, HashMap<String, f64>>,
+
+    /// Mean events per species node
+    /// Returns a dict: {species_name: EventCounts}
+    #[pyo3(get)]
+    pub events_per_species: HashMap<String, PyEventCounts>,
+}
+
+#[pymethods]
+impl PyReconciliationStatistics {
+    fn __repr__(&self) -> String {
+        let total_transfers: f64 = self.mean_transfers.values()
+            .flat_map(|dests| dests.values())
+            .sum();
+        format!(
+            "ReconciliationStatistics(mean_events={}, mean_transfers={:.1}, species_count={})",
+            self.mean_event_counts.__repr__(),
+            total_transfers,
+            self.events_per_species.len()
+        )
+    }
+
+    /// Returns a pandas DataFrame of mean transfers between species pairs.
+    ///
+    /// Columns: source, destination, mean_count
+    fn transfers_df(&self, py: Python) -> PyResult<PyObject> {
+        let pandas = py.import("pandas")?;
+        let dict = pyo3::types::PyDict::new(py);
+
+        let mut sources: Vec<String> = Vec::new();
+        let mut destinations: Vec<String> = Vec::new();
+        let mut counts: Vec<f64> = Vec::new();
+
+        for (source, dests) in &self.mean_transfers {
+            for (dest, count) in dests {
+                sources.push(source.clone());
+                destinations.push(dest.clone());
+                counts.push(*count);
+            }
+        }
+
+        dict.set_item("source", sources)?;
+        dict.set_item("destination", destinations)?;
+        dict.set_item("mean_count", counts)?;
+
+        let df = pandas.call_method1("DataFrame", (dict,))?;
+        Ok(df.into())
+    }
+
+    /// Returns a pandas DataFrame of mean events per species.
+    ///
+    /// Columns: species, speciations, speciation_losses, duplications,
+    ///          duplication_losses, transfers, transfer_losses, losses, leaves
+    fn events_df(&self, py: Python) -> PyResult<PyObject> {
+        let pandas = py.import("pandas")?;
+        let dict = pyo3::types::PyDict::new(py);
+
+        let mut species_names: Vec<String> = Vec::new();
+        let mut speciations: Vec<f64> = Vec::new();
+        let mut speciation_losses: Vec<f64> = Vec::new();
+        let mut duplications: Vec<f64> = Vec::new();
+        let mut duplication_losses: Vec<f64> = Vec::new();
+        let mut transfers: Vec<f64> = Vec::new();
+        let mut transfer_losses: Vec<f64> = Vec::new();
+        let mut losses: Vec<f64> = Vec::new();
+        let mut leaves: Vec<f64> = Vec::new();
+
+        // Sort by species name for consistent output
+        let mut sorted_species: Vec<(&String, &PyEventCounts)> =
+            self.events_per_species.iter().collect();
+        sorted_species.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+        for (species, counts) in sorted_species {
+            species_names.push(species.clone());
+            speciations.push(counts.speciations);
+            speciation_losses.push(counts.speciation_losses);
+            duplications.push(counts.duplications);
+            duplication_losses.push(counts.duplication_losses);
+            transfers.push(counts.transfers);
+            transfer_losses.push(counts.transfer_losses);
+            losses.push(counts.losses);
+            leaves.push(counts.leaves);
+        }
+
+        dict.set_item("species", species_names)?;
+        dict.set_item("speciations", speciations)?;
+        dict.set_item("speciation_losses", speciation_losses)?;
+        dict.set_item("duplications", duplications)?;
+        dict.set_item("duplication_losses", duplication_losses)?;
+        dict.set_item("transfers", transfers)?;
+        dict.set_item("transfer_losses", transfer_losses)?;
+        dict.set_item("losses", losses)?;
+        dict.set_item("leaves", leaves)?;
+
+        let df = pandas.call_method1("DataFrame", (dict,))?;
+        Ok(df.into())
+    }
+}
+
+/// Result of ALERax reconciliation for a gene family.
+///
+/// Contains all reconciliation samples, estimated evolutionary rates,
+/// log-likelihood, and summary statistics.
+#[pyclass]
+pub struct PyAleRaxResult {
+    /// All reconciliation samples (typically 100)
+    #[pyo3(get)]
+    gene_trees: Vec<PyGeneTree>,
+
+    /// Estimated duplication rate
+    #[pyo3(get)]
+    duplication_rate: f64,
+
+    /// Estimated loss rate
+    #[pyo3(get)]
+    loss_rate: f64,
+
+    /// Estimated transfer rate
+    #[pyo3(get)]
+    transfer_rate: f64,
+
+    /// Log-likelihood of the reconciliation
+    #[pyo3(get)]
+    likelihood: f64,
+
+    /// Summary statistics across all reconciliation samples
+    #[pyo3(get)]
+    statistics: PyReconciliationStatistics,
+}
+
+#[pymethods]
+impl PyAleRaxResult {
+    /// Get a summary string of the reconciliation result.
+    fn __repr__(&self) -> String {
+        format!(
+            "PyAleRaxResult(samples={}, D={:.4}, L={:.4}, T={:.4}, logL={:.2})",
+            self.gene_trees.len(),
+            self.duplication_rate,
+            self.loss_rate,
+            self.transfer_rate,
+            self.likelihood
+        )
+    }
+}
+
+/// Reconcile gene trees with species tree using ALERax.
+///
+/// Calls the external ALERax tool to perform phylogenetic reconciliation,
+/// inferring duplication, transfer, and loss events. Returns reconciliation
+/// samples that can be analyzed, visualized, and exported.
+///
+/// # Arguments
+/// * `species_tree` - Species tree as PySpeciesTree, Newick string, or file path
+/// * `gene_trees` - Gene trees as:
+///   - Single Newick string or file path (creates "family_0")
+///   - List of Newick strings/paths (creates "family_0", "family_1", ...)
+///   - Dict mapping family names to Newick strings/paths
+/// * `output_dir` - Optional output directory (default: temporary directory)
+/// * `num_samples` - Number of reconciliation samples per family (default: 100)
+/// * `model` - Model parametrization: "PER-FAMILY" or "GLOBAL" (default: "PER-FAMILY")
+/// * `seed` - Random seed for reproducibility (default: None)
+/// * `keep_output` - Whether to preserve ALERax output files (default: False)
+/// * `alerax_path` - Path to alerax executable (default: "alerax")
+///
+/// # Returns
+/// Dictionary mapping family names to PyAleRaxResult objects containing
+/// reconciled gene trees and estimated evolutionary rates.
+///
+/// # Example
+/// ```python
+/// import rustree
+///
+/// species_tree = rustree.parse_species_tree("species.nwk")
+/// results = rustree.reconcile_with_alerax(species_tree, "gene.nwk", seed=42)
+///
+/// result = results["family_0"]
+/// print(f"D={result.duplication_rate}, T={result.transfer_rate}")
+///
+/// # Access reconciliation samples
+/// best_tree = result.gene_trees[0]
+/// best_tree.to_svg("reconciled.svg")
+/// ```
+#[pyfunction]
+#[pyo3(signature = (species_tree, gene_trees, output_dir=None, num_samples=100, model="PER-FAMILY".to_string(), seed=None, keep_output=false, alerax_path="alerax".to_string()))]
+fn reconcile_with_alerax(
+    py: Python,
+    species_tree: PyObject,
+    gene_trees: PyObject,
+    output_dir: Option<String>,
+    num_samples: usize,
+    model: String,
+    seed: Option<u64>,
+    keep_output: bool,
+    alerax_path: String,
+) -> PyResult<HashMap<String, PyAleRaxResult>> {
+    use crate::alerax::{run_alerax, AleRaxConfig, GeneFamily, ModelType, validate_inputs};
+    use std::fs;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    // Parse model type
+    let model_type = match model.to_uppercase().as_str() {
+        "PER-FAMILY" | "PER_FAMILY" => ModelType::PerFamily,
+        "GLOBAL" => ModelType::Global,
+        _ => return Err(PyValueError::new_err(format!(
+            "Invalid model type '{}'. Must be 'PER-FAMILY' or 'GLOBAL'", model
+        ))),
+    };
+
+    // Parse species tree
+    let species_tree_obj = species_tree.extract::<PySpeciesTree>(py)
+        .or_else(|_| {
+            // Try as string (Newick or file path)
+            let tree_str = species_tree.extract::<String>(py)?;
+
+            // Check if it's a file path
+            if PathBuf::from(&tree_str).exists() {
+                // Read file and parse
+                let content = fs::read_to_string(&tree_str)
+                    .map_err(|e| PyValueError::new_err(format!("Failed to read species tree file: {}", e)))?;
+                parse_species_tree(&content)
+            } else {
+                // Parse as Newick string
+                parse_species_tree(&tree_str)
+            }
+        })?;
+
+    let species_tree_newick = species_tree_obj.tree.to_newick();
+
+    // Parse gene trees
+    let mut gene_tree_list: Vec<(String, String)> = Vec::new();
+
+    // Try as dict first
+    if let Ok(dict) = gene_trees.extract::<HashMap<String, String>>(py) {
+        for (name, newick_or_path) in dict {
+            let newick = if PathBuf::from(&newick_or_path).exists() {
+                fs::read_to_string(&newick_or_path)
+                    .map_err(|e| PyValueError::new_err(format!(
+                        "Failed to read gene tree file '{}': {}", newick_or_path, e
+                    )))?
+            } else {
+                newick_or_path
+            };
+            gene_tree_list.push((name, newick));
+        }
+    } else if let Ok(list) = gene_trees.extract::<Vec<String>>(py) {
+        // List of Newick strings or file paths
+        for (idx, newick_or_path) in list.iter().enumerate() {
+            let (name, newick) = if PathBuf::from(newick_or_path).exists() {
+                let path = PathBuf::from(newick_or_path);
+                let name = path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(&format!("family_{}", idx))
+                    .to_string();
+                let newick = fs::read_to_string(&path)
+                    .map_err(|e| PyValueError::new_err(format!(
+                        "Failed to read gene tree file '{}': {}", newick_or_path, e
+                    )))?;
+                (name, newick)
+            } else {
+                (format!("family_{}", idx), newick_or_path.clone())
+            };
+            gene_tree_list.push((name, newick));
+        }
+    } else if let Ok(single) = gene_trees.extract::<String>(py) {
+        // Single Newick string or file path
+        let (name, newick) = if PathBuf::from(&single).exists() {
+            let path = PathBuf::from(&single);
+            let name = path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("family_0")
+                .to_string();
+            let newick = fs::read_to_string(&path)
+                .map_err(|e| PyValueError::new_err(format!(
+                    "Failed to read gene tree file '{}': {}", single, e
+                )))?;
+            (name, newick)
+        } else {
+            ("family_0".to_string(), single)
+        };
+        gene_tree_list.push((name, newick));
+    } else {
+        return Err(PyValueError::new_err(
+            "gene_trees must be a Newick string, file path, list of strings/paths, or dict mapping names to strings/paths"
+        ));
+    }
+
+    if gene_tree_list.is_empty() {
+        return Err(PyValueError::new_err("No gene trees provided"));
+    }
+
+    // Validate inputs before running ALERax
+    validate_inputs(&species_tree_obj.tree, &gene_tree_list)
+        .map_err(|e| PyValueError::new_err(format!("Input validation failed: {}", e)))?;
+
+    // Create output directory
+    let (output_path, _temp_dir) = if let Some(dir) = output_dir {
+        (PathBuf::from(dir), None)
+    } else {
+        let temp_dir = TempDir::new()
+            .map_err(|e| PyValueError::new_err(format!("Failed to create temp directory: {}", e)))?;
+        let path = temp_dir.path().to_path_buf();
+        (path, Some(temp_dir))
+    };
+
+    // Create input directory for ALERax files
+    let input_dir = output_path.join("input");
+    fs::create_dir_all(&input_dir)
+        .map_err(|e| PyValueError::new_err(format!("Failed to create input directory: {}", e)))?;
+
+    let species_tree_path = input_dir.join("species_tree.newick");
+    let families_file_path = input_dir.join("families.txt");
+
+    // Prepare gene families
+    let families: Vec<GeneFamily> = gene_tree_list.iter().map(|(name, newick)| {
+        GeneFamily {
+            name: name.clone(),
+            gene_tree_path: input_dir.join(format!("{}.newick", name)),
+            gene_tree_newick: newick.clone(),
+        }
+    }).collect();
+
+    let alerax_output_dir = output_path.join("alerax_output");
+
+    // Create ALERax config
+    let config = AleRaxConfig {
+        species_tree_path,
+        families,
+        families_file_path,
+        output_dir: alerax_output_dir,
+        num_samples,
+        model_parametrization: model_type,
+        seed,
+        alerax_path,
+    };
+
+    // Run ALERax
+    let results = run_alerax(config, &species_tree_newick)
+        .map_err(|e| PyValueError::new_err(format!("ALERax execution failed: {}", e)))?;
+
+    // Convert to Python types
+    let mut py_results = HashMap::new();
+    for (family_name, result) in results {
+        let py_gene_trees: Vec<PyGeneTree> = result.reconciled_trees
+            .into_iter()
+            .map(|rec_tree| PyGeneTree {
+                gene_tree: rec_tree.gene_tree,
+                species_tree: rec_tree.species_tree,
+                node_mapping: rec_tree.node_mapping,
+                event_mapping: rec_tree.event_mapping,
+            })
+            .collect();
+
+        // Convert statistics
+        let mean_event_counts = PyEventCounts {
+            speciations: result.statistics.mean_event_counts.speciations,
+            speciation_losses: result.statistics.mean_event_counts.speciation_losses,
+            duplications: result.statistics.mean_event_counts.duplications,
+            duplication_losses: result.statistics.mean_event_counts.duplication_losses,
+            transfers: result.statistics.mean_event_counts.transfers,
+            transfer_losses: result.statistics.mean_event_counts.transfer_losses,
+            losses: result.statistics.mean_event_counts.losses,
+            leaves: result.statistics.mean_event_counts.leaves,
+        };
+
+        let events_per_species: HashMap<String, PyEventCounts> = result.statistics.events_per_species
+            .into_iter()
+            .map(|(species, counts)| {
+                (species, PyEventCounts {
+                    speciations: counts.speciations,
+                    speciation_losses: counts.speciation_losses,
+                    duplications: counts.duplications,
+                    duplication_losses: counts.duplication_losses,
+                    transfers: counts.transfers,
+                    transfer_losses: counts.transfer_losses,
+                    losses: counts.losses,
+                    leaves: counts.leaves,
+                })
+            })
+            .collect();
+
+        let statistics = PyReconciliationStatistics {
+            mean_event_counts,
+            mean_transfers: result.statistics.mean_transfers,
+            events_per_species,
+        };
+
+        py_results.insert(family_name, PyAleRaxResult {
+            gene_trees: py_gene_trees,
+            duplication_rate: result.duplication_rate,
+            loss_rate: result.loss_rate,
+            transfer_rate: result.transfer_rate,
+            likelihood: result.likelihood,
+            statistics,
+        });
+    }
+
+    // Clean up temp directory if not keeping output
+    if !keep_output {
+        drop(_temp_dir);
+    }
+
+    Ok(py_results)
+}
+
 /// Python module for rustree.
 #[pymodule]
 fn rustree(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(simulate_species_tree, m)?)?;
     m.add_function(wrap_pyfunction!(parse_species_tree, m)?)?;
     m.add_function(wrap_pyfunction!(parse_recphyloxml, m)?)?;
+    m.add_function(wrap_pyfunction!(reconcile_with_alerax, m)?)?;
     m.add_class::<PySpeciesTree>()?;
     m.add_class::<PyGeneTree>()?;
+    m.add_class::<PyEventCounts>()?;
+    m.add_class::<PyReconciliationStatistics>()?;
+    m.add_class::<PyAleRaxResult>()?;
     Ok(())
 }

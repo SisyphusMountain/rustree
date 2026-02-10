@@ -19,6 +19,7 @@ prettytable-rs = "0.10.0"
 lazy_static = "1.4"
 num_cpus = "1.16"
 quick-xml = "0.31"
+tempfile = "3.8"
 
 [features]
 default = ["python"]

@@ -20,7 +20,7 @@ pub use iter::{NodeIter, FlatTreeIter};
 pub use traits::HasName;
 
 // Re-export conversion functions
-pub use conversion::{node_to_flat, flat_to_node};
+pub use conversion::{node_to_flat, flat_to_node, obtain_mapping, rename_reconciled_tree};
 
 // Re-export reconciliation types
 pub use rectree::{Event, RecTree, RecTreeOwned};

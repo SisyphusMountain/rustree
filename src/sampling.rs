@@ -5,7 +5,7 @@ use crate::node::{FlatTree, FlatNode};
 
 /// Status of a node during induced subtree extraction.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum NodeMark {
+pub(crate) enum NodeMark {
     /// Node will be kept in the induced tree (sampled leaf or MRCA of sampled leaves)
     Keep,
     /// Node has descendants to keep but will be collapsed (not an MRCA)
@@ -60,7 +60,7 @@ pub fn extract_induced_subtree(tree: &FlatTree, keep_leaf_indices: &HashSet<usiz
 }
 
 /// Marks nodes using postorder traversal (children before parents).
-fn mark_nodes_postorder(
+pub(crate) fn mark_nodes_postorder(
     tree: &FlatTree,
     node_idx: usize,
     keep_leaves: &HashSet<usize>,
