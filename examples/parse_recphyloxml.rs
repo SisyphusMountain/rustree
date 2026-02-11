@@ -59,7 +59,7 @@ fn main() {
                 .collect();
 
             for (idx, node) in leaf_nodes {
-                let species_idx = rec_tree.node_mapping[idx];
+                let species_idx = rec_tree.node_mapping[idx].unwrap();
                 let species_name = &rec_tree.species_tree.nodes[species_idx].name;
                 println!("  {} → {}", node.name, species_name);
             }

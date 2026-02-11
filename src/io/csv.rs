@@ -19,7 +19,7 @@ pub fn save_bd_events_to_csv(events: &[TreeEvent], tree: &FlatTree, filename: &s
     let mut file = File::create(filename)?;
     writeln!(file, "{}", TreeEvent::csv_header())?;
     for event in events {
-        writeln!(file, "{}", event.to_csv_row(tree))?;
+        writeln!(file, "{}", event.to_csv_row(tree).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?)?;
     }
     Ok(())
 }

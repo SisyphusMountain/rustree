@@ -60,6 +60,7 @@ fn main() {
             lambda_t,
             lambda_l,
             None,
+            None,
             false,
             &mut rng,
         );
@@ -139,7 +140,8 @@ fn main() {
     fs::create_dir_all("dtl_gene_trees_newick").expect("Failed to create newick directory");
 
     for (i, rec_tree) in rec_trees.iter().enumerate() {
-        let newick = rec_tree.gene_tree.to_newick();
+        let newick = rec_tree.gene_tree.to_newick()
+            .expect("Failed to convert gene tree to Newick");
         let filename = format!("dtl_gene_trees_newick/gene_tree_{:04}.newick", i);
 
         // Use BufWriter for faster file writing

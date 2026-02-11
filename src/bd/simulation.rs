@@ -32,8 +32,8 @@ use super::types::{BDEvent, TreeEvent};
 /// Systematic Biology, 60(5), 676-684.
 pub fn simulate_bd_tree<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> (FlatTree, Vec<TreeEvent>) {
     assert!(n > 0, "Number of species must be positive");
-    assert!(lambda > 0.0, "Speciation rate must be positive");
-    assert!(mu >= 0.0, "Extinction rate must be non-negative");
+    assert!(lambda.is_finite() && lambda > 0.0, "Speciation rate must be finite and positive");
+    assert!(mu.is_finite() && mu >= 0.0, "Extinction rate must be finite and non-negative");
     assert!(lambda > mu, "Speciation rate must be strictly greater than extinction rate");
 
     // Start at present (time = 0) with n isolated vertices

@@ -16,21 +16,23 @@ use super::types::{BDEvent, TreeEvent};
 /// # Returns
 /// A vector of TreeEvent representing the tree's evolutionary history, sorted by time
 ///
-/// # Panics
-/// Panics if any node doesn't have a depth assigned
+/// # Errors
+/// Returns an error if any node doesn't have a depth assigned
 ///
 /// # Example
 /// ```ignore
 /// let tree = parse_newick("((A:1,B:1):1,C:2):0;").unwrap();
 /// let mut flat_tree = tree.to_flat_tree();
 /// flat_tree.assign_depths();
-/// let events = generate_events_from_tree(&flat_tree);
+/// let events = generate_events_from_tree(&flat_tree).unwrap();
 /// ```
-pub fn generate_events_from_tree(tree: &FlatTree) -> Vec<TreeEvent> {
+pub fn generate_events_from_tree(tree: &FlatTree) -> Result<Vec<TreeEvent>, String> {
     let mut events = Vec::with_capacity(tree.nodes.len());
 
     for (idx, node) in tree.nodes.iter().enumerate() {
-        let depth = node.depth.expect("Tree must have depths assigned. Call assign_depths() first.");
+        let depth = node.depth.ok_or_else(||
+            format!("Node {} ('{}') has no assigned depth. Call assign_depths() before generating events.", idx, node.name)
+        )?;
 
         // Use bd_event annotation if available, otherwise infer from structure
         let event_type = if let Some(bd_event) = node.bd_event {
@@ -55,7 +57,7 @@ pub fn generate_events_from_tree(tree: &FlatTree) -> Vec<TreeEvent> {
     }
 
     // Sort by time (depth) for consistency
-    events.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+    events.sort_by(|a, b| a.time.total_cmp(&b.time));
 
-    events
+    Ok(events)
 }

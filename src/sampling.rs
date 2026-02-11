@@ -29,7 +29,9 @@ pub(crate) enum NodeMark {
 ///
 /// # Returns
 /// A new `FlatTree` containing only the induced subtree, or `None` if no leaves are kept.
-pub fn extract_induced_subtree(tree: &FlatTree, keep_leaf_indices: &HashSet<usize>) -> Option<FlatTree> {
+/// The returned `Vec<Option<usize>>` maps original node indices to new node indices
+/// (`old_to_new[old_idx] = Some(new_idx)` for kept nodes, `None` for discarded/collapsed nodes).
+pub fn extract_induced_subtree(tree: &FlatTree, keep_leaf_indices: &HashSet<usize>) -> Option<(FlatTree, Vec<Option<usize>>)> {
     if keep_leaf_indices.is_empty() {
         return None;
     }
@@ -53,10 +55,10 @@ pub fn extract_induced_subtree(tree: &FlatTree, keep_leaf_indices: &HashSet<usiz
         return None;
     }
 
-    Some(FlatTree {
+    Some((FlatTree {
         nodes: new_nodes,
         root: 0, // Root is always first node added
-    })
+    }, old_to_new))
 }
 
 /// Marks nodes using postorder traversal (children before parents).
@@ -139,7 +141,7 @@ fn build_induced_tree(
                 left_child: None,  // Will be set when processing children
                 right_child: None,
                 parent: new_parent,
-                depth: node.depth,
+                depth: None,
                 length: accumulated_length + node.length,
                 bd_event: node.bd_event,  // Preserve event type from original node
             });
@@ -207,7 +209,7 @@ pub fn find_all_leaf_indices(tree: &FlatTree) -> Vec<usize> {
 ///
 /// # Returns
 /// A new `FlatTree` containing only the induced subtree, or `None` if no matching leaves found.
-pub fn extract_induced_subtree_by_names(tree: &FlatTree, leaf_names: &[String]) -> Option<FlatTree> {
+pub fn extract_induced_subtree_by_names(tree: &FlatTree, leaf_names: &[String]) -> Option<(FlatTree, Vec<Option<usize>>)> {
     let keep_indices = find_leaf_indices_by_names(tree, leaf_names);
     extract_induced_subtree(tree, &keep_indices)
 }
@@ -327,7 +329,7 @@ pub fn build_sampled_to_original_mapping(
     original_tree: &FlatTree,
     _sampled_lca_map: &HashMap<(String, String), usize>,
     original_lca_map: &HashMap<(String, String), usize>,
-) -> HashMap<usize, usize> {
+) -> Result<HashMap<usize, usize>, String> {
     let mut mapping = HashMap::new();
 
     // For each node in sampled tree
@@ -338,7 +340,10 @@ pub fn build_sampled_to_original_mapping(
             // Leaf node - use name-based lookup
             let original_idx = original_tree.nodes.iter()
                 .position(|n| n.name == sampled_node.name)
-                .expect("Leaf must exist in original tree");
+                .ok_or_else(|| format!(
+                    "Sampled leaf '{}' (index {}) not found in original tree",
+                    sampled_node.name, sampled_idx
+                ))?;
             mapping.insert(sampled_idx, original_idx);
         } else {
             // Internal node - use LCA-based lookup
@@ -348,13 +353,16 @@ pub fn build_sampled_to_original_mapping(
                 // Use first two leaves to identify this internal node
                 let key = (leaf_names[0].clone(), leaf_names[1].clone());
                 let original_idx = original_lca_map.get(&key)
-                    .expect("LCA must exist in original tree");
+                    .ok_or_else(|| format!(
+                        "LCA for leaves ('{}', '{}') not found in original tree",
+                        key.0, key.1
+                    ))?;
                 mapping.insert(sampled_idx, *original_idx);
             }
         }
     }
 
-    mapping
+    Ok(mapping)
 }
 
 #[cfg(test)]
@@ -373,7 +381,7 @@ mod tests {
         let tree = make_tree("((A:1,B:1):1,C:2):0;");
         let leaves: HashSet<usize> = find_all_leaf_indices(&tree).into_iter().collect();
 
-        let induced = extract_induced_subtree(&tree, &leaves).unwrap();
+        let (induced, _) = extract_induced_subtree(&tree, &leaves).unwrap();
         assert_eq!(induced.nodes.len(), 5); // 3 leaves + 2 internal
     }
 
@@ -383,7 +391,7 @@ mod tests {
         let tree = make_tree("((A:1,B:1):1,C:2):0;");
         let keep = find_leaf_indices_by_names(&tree, &["A".to_string(), "B".to_string()]);
 
-        let induced = extract_induced_subtree(&tree, &keep).unwrap();
+        let (induced, _) = extract_induced_subtree(&tree, &keep).unwrap();
         assert_eq!(induced.nodes.len(), 3); // A, B, and their parent
     }
 
@@ -393,7 +401,7 @@ mod tests {
         let tree = make_tree("((A:1,B:1):1,C:2):0;");
         let keep = find_leaf_indices_by_names(&tree, &["A".to_string(), "C".to_string()]);
 
-        let induced = extract_induced_subtree(&tree, &keep).unwrap();
+        let (induced, _) = extract_induced_subtree(&tree, &keep).unwrap();
         assert_eq!(induced.nodes.len(), 3); // A, C, and root
 
         // A should have length 2 (1 + 1 from collapsed node)
@@ -406,7 +414,7 @@ mod tests {
         let tree = make_tree("((A:1,B:1):1,C:2):0;");
         let keep = find_leaf_indices_by_names(&tree, &["A".to_string()]);
 
-        let induced = extract_induced_subtree(&tree, &keep).unwrap();
+        let (induced, _) = extract_induced_subtree(&tree, &keep).unwrap();
         assert_eq!(induced.nodes.len(), 1); // Just A
         assert_eq!(induced.nodes[0].name, "A");
         assert_eq!(induced.nodes[0].length, 2.0); // 1 + 1

@@ -53,6 +53,7 @@ fn main() {
             lambda_t,
             lambda_l,
             None,
+            None,
             n_gene_trees,
             false,
             &mut rng1,
@@ -69,6 +70,7 @@ fn main() {
             lambda_d,
             lambda_t,
             lambda_l,
+            None,
             None,
             n_gene_trees,
             false,
@@ -137,7 +139,7 @@ fn main() {
         let _ = simulate_dtl_batch(
             &species_tree, species_tree.root,
             lambda_d, lambda_t, lambda_l, None,
-            batch_size, false, &mut rng1,
+            None, batch_size, false, &mut rng1,
         );
         let pg_time = start.elapsed().as_secs_f64();
         let pg_rate = batch_size as f64 / pg_time;
@@ -148,7 +150,7 @@ fn main() {
         let _ = simulate_dtl_per_species_batch(
             &species_tree, species_tree.root,
             lambda_d, lambda_t, lambda_l, None,
-            batch_size, false, &mut rng2,
+            None, batch_size, false, &mut rng2,
         );
         let ps_time = start.elapsed().as_secs_f64();
         let ps_rate = batch_size as f64 / ps_time;

@@ -314,7 +314,7 @@ fn test_rectree_owned_methods() {
 
     // Test species_node_for
     let root_species_idx = rec_tree.species_node_for(rec_tree.gene_tree.root);
-    assert_eq!(rec_tree.species_tree.nodes[root_species_idx].name, "Root");
+    assert_eq!(rec_tree.species_tree.nodes[root_species_idx.unwrap()].name, "Root");
 
     // Test event_for
     let root_event = rec_tree.event_for(rec_tree.gene_tree.root);
@@ -323,7 +323,7 @@ fn test_rectree_owned_methods() {
     // Test get_full_info
     let (gene_node, species_idx, event) = rec_tree.get_full_info(rec_tree.gene_tree.root);
     assert_eq!(gene_node.name, "NULL");
-    assert_eq!(rec_tree.species_tree.nodes[species_idx].name, "Root");
+    assert_eq!(rec_tree.species_tree.nodes[species_idx.unwrap()].name, "Root");
     assert_eq!(*event, Event::Speciation);
 
     // Test as_rectree conversion

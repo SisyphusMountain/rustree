@@ -26,7 +26,7 @@ fn test_bd_tree_basic() {
 
     // Export tree to Newick format and save
     let newick = tree.to_newick();
-    let newick_with_semicolon = format!("{};", newick);
+    let newick_with_semicolon = format!("{};", newick.expect("Failed to convert to Newick"));
     fs::write("bd_tree_basic.nwk", &newick_with_semicolon)
         .expect("Failed to write tree to file");
     println!("Tree saved to bd_tree_basic.nwk");
@@ -40,6 +40,10 @@ fn test_bd_tree_basic() {
     // The tree should have some nodes
     assert!(tree.nodes.len() > 0);
     assert!(events.len() > 0);
+
+    // Cleanup test files
+    let _ = std::fs::remove_file("bd_tree_basic.nwk");
+    let _ = std::fs::remove_file("bd_tree_basic_events.csv");
 }
 
 #[test]
@@ -95,7 +99,7 @@ fn test_bd_tree_pure_birth() {
 
     // Export tree to Newick format and save
     let newick = tree.to_newick();
-    let newick_with_semicolon = format!("{};", newick);
+    let newick_with_semicolon = format!("{};", newick.expect("Failed to convert to Newick"));
     fs::write("bd_tree_pure_birth.nwk", &newick_with_semicolon)
         .expect("Failed to write tree to file");
     println!("Pure birth tree saved to bd_tree_pure_birth.nwk");
@@ -122,4 +126,8 @@ fn test_bd_tree_pure_birth() {
     assert_eq!(extant_leaves, n);
     // In pure birth, we should have only leaf and speciation events
     assert!(events.iter().all(|e| e.event_type == BDEvent::Leaf || e.event_type == BDEvent::Speciation));
+
+    // Cleanup test files
+    let _ = std::fs::remove_file("bd_tree_pure_birth.nwk");
+    let _ = std::fs::remove_file("bd_tree_pure_birth_events.csv");
 }

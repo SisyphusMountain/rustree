@@ -23,7 +23,7 @@ pub use traits::HasName;
 pub use conversion::{node_to_flat, flat_to_node, obtain_mapping, rename_reconciled_tree};
 
 // Re-export reconciliation types
-pub use rectree::{Event, RecTree, RecTreeOwned};
+pub use rectree::{Event, RecTree, RecTreeOwned, RecTreeColumns};
 
 // Re-export XML parsing functions
 pub use recphyloxml::{parse_recphyloxml, parse_recphyloxml_file, parse_gene_tree_only, parse_gene_tree_only_file};

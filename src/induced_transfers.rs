@@ -285,7 +285,7 @@ mod tests {
     fn test_induced_transfers_basic() {
         let complete_tree = make_tree("((A:1,B:1)AB:1,(C:1,D:1)CD:1)root:0;");
         let sampled_names: Vec<String> = vec!["A".into(), "C".into()];
-        let sampled_tree = extract_induced_subtree_by_names(&complete_tree, &sampled_names).unwrap();
+        let (sampled_tree, _) = extract_induced_subtree_by_names(&complete_tree, &sampled_names).unwrap();
 
         let idx = |name: &str| complete_tree.find_node_index(name).unwrap();
 
@@ -327,7 +327,7 @@ mod tests {
         // Ghost lengths: A = 1 + 1 = 2, C = 1 + 1 = 2, root = 0
         let complete = make_tree("((A:1,B:1)AB:1,(C:1,D:1)CD:1)root:0;");
         let sampled_names: Vec<String> = vec!["A".into(), "C".into()];
-        let sampled = extract_induced_subtree_by_names(&complete, &sampled_names).unwrap();
+        let (sampled, _) = extract_induced_subtree_by_names(&complete, &sampled_names).unwrap();
 
         let ghost = ghost_lengths(&complete, &sampled, &sampled_names);
 
@@ -348,7 +348,7 @@ mod tests {
         // Ghost length of AB = 0 + 1 + 1 + 1 = 3
         let complete = make_tree("((A:1,B:1)AB:1,(C:1,D:1)CD:1)root:0;");
         let sampled_names: Vec<String> = vec!["A".into(), "B".into()];
-        let sampled = extract_induced_subtree_by_names(&complete, &sampled_names).unwrap();
+        let (sampled, _) = extract_induced_subtree_by_names(&complete, &sampled_names).unwrap();
 
         let ghost = ghost_lengths(&complete, &sampled, &sampled_names);
 
@@ -365,7 +365,7 @@ mod tests {
     fn test_induced_transfers_non_transfer_events_filtered() {
         let complete_tree = make_tree("((A:1,B:1)AB:1,C:2)root:0;");
         let sampled_names: Vec<String> = vec!["A".into(), "C".into()];
-        let sampled_tree = extract_induced_subtree_by_names(&complete_tree, &sampled_names).unwrap();
+        let (sampled_tree, _) = extract_induced_subtree_by_names(&complete_tree, &sampled_names).unwrap();
 
         let events = vec![
             DTLEvent::Duplication {

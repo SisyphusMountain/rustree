@@ -5,7 +5,7 @@
 // Uses the shared Gillespie loop with PerSpecies mode.
 
 use crate::bd::{TreeEvent, generate_events_from_tree};
-use crate::node::{FlatTree, RecTree};
+use crate::node::{FlatTree, RecTreeOwned};
 use rand::Rng;
 
 use super::event::DTLEvent;
@@ -19,8 +19,8 @@ use super::utils::{validate_rates, precompute_lca, count_extant_genes};
 /// chosen uniformly. If that species has no gene copies, the event "fails" (no action
 /// is taken, but time advances). This means the effective event rate depends on
 /// which species have genes, but the waiting times are drawn based on species count.
-pub fn simulate_dtl_per_species<'a, R: Rng>(
-    species_tree: &'a FlatTree,
+pub fn simulate_dtl_per_species<R: Rng>(
+    species_tree: &FlatTree,
     origin_species: usize,
     lambda_d: f64,
     lambda_t: f64,
@@ -29,10 +29,10 @@ pub fn simulate_dtl_per_species<'a, R: Rng>(
     replacement_transfer: Option<f64>,
     require_extant: bool,
     rng: &mut R,
-) -> (RecTree<'a>, Vec<DTLEvent>) {
-    validate_rates(lambda_d, lambda_t, lambda_l);
+) -> Result<(RecTreeOwned, Vec<DTLEvent>), String> {
+    validate_rates(lambda_d, lambda_t, lambda_l)?;
 
-    let species_events = generate_events_from_tree(species_tree);
+    let species_events = generate_events_from_tree(species_tree)?;
     let depths = species_tree.make_subdivision();
     let contemporaneity = species_tree.find_contemporaneity(&depths);
     let lca_depths = precompute_lca(species_tree, transfer_alpha);
@@ -51,18 +51,18 @@ pub fn simulate_dtl_per_species<'a, R: Rng>(
             replacement_transfer,
             lca_depths.as_ref(),
             rng,
-        );
+        )?;
 
         if !require_extant || count_extant_genes(&rec_tree) > 0 {
-            return (rec_tree, events);
+            return Ok((rec_tree, events));
         }
         // Retry if no extant genes
     }
 }
 
 /// Simulates multiple gene trees using the Zombi-style per-species DTL model.
-pub fn simulate_dtl_per_species_batch<'a, R: Rng>(
-    species_tree: &'a FlatTree,
+pub fn simulate_dtl_per_species_batch<R: Rng>(
+    species_tree: &FlatTree,
     origin_species: usize,
     lambda_d: f64,
     lambda_t: f64,
@@ -72,10 +72,10 @@ pub fn simulate_dtl_per_species_batch<'a, R: Rng>(
     n_simulations: usize,
     require_extant: bool,
     rng: &mut R,
-) -> (Vec<RecTree<'a>>, Vec<Vec<DTLEvent>>) {
-    validate_rates(lambda_d, lambda_t, lambda_l);
+) -> Result<(Vec<RecTreeOwned>, Vec<Vec<DTLEvent>>), String> {
+    validate_rates(lambda_d, lambda_t, lambda_l)?;
 
-    let species_events = generate_events_from_tree(species_tree);
+    let species_events = generate_events_from_tree(species_tree)?;
     let depths = species_tree.make_subdivision();
     let contemporaneity = species_tree.find_contemporaneity(&depths);
     let lca_depths = precompute_lca(species_tree, transfer_alpha);
@@ -97,7 +97,7 @@ pub fn simulate_dtl_per_species_batch<'a, R: Rng>(
             replacement_transfer,
             lca_depths.as_ref(),
             rng,
-        );
+        )?;
 
         if !require_extant || count_extant_genes(&rec_tree) > 0 {
             rec_trees.push(rec_tree);
@@ -106,12 +106,12 @@ pub fn simulate_dtl_per_species_batch<'a, R: Rng>(
         // Otherwise, discard and try again
     }
 
-    (rec_trees, all_events)
+    Ok((rec_trees, all_events))
 }
 
 /// Internal implementation of per-species DTL simulation
-pub fn simulate_dtl_per_species_internal<'a, R: Rng>(
-    species_tree: &'a FlatTree,
+pub fn simulate_dtl_per_species_internal<R: Rng>(
+    species_tree: &FlatTree,
     species_events: &[TreeEvent],
     depths: &[f64],
     contemporaneity: &[Vec<usize>],
@@ -123,7 +123,7 @@ pub fn simulate_dtl_per_species_internal<'a, R: Rng>(
     replacement_transfer: Option<f64>,
     lca_depths: Option<&Vec<Vec<f64>>>,
     rng: &mut R,
-) -> (RecTree<'a>, Vec<DTLEvent>) {
+) -> Result<(RecTreeOwned, Vec<DTLEvent>), String> {
     simulate_dtl_gillespie(
         DTLMode::PerSpecies,
         species_tree,

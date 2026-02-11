@@ -12,11 +12,12 @@ use rand::SeedableRng;
 
 use crate::bd::simulate_bd_tree;
 use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch};
-use crate::node::{FlatTree, Event};
+use crate::node::{FlatTree, Event, RecTree};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names, find_leaf_indices_by_names};
 use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
+use std::sync::Arc;
 
 // ============================================================================
 // Helper Functions (Refactored to reduce duplication)
@@ -61,14 +62,16 @@ fn is_leaf(node: &crate::node::FlatNode) -> bool {
 #[pyclass]
 #[derive(Clone)]
 pub struct PySpeciesTree {
-    tree: FlatTree,
+    tree: Arc<FlatTree>,
 }
 
 #[pymethods]
 impl PySpeciesTree {
     /// Convert the species tree to Newick format.
-    fn to_newick(&self) -> String {
-        self.tree.to_newick() + ";"
+    fn to_newick(&self) -> PyResult<String> {
+        let nwk = self.tree.to_newick()
+            .map_err(|e| PyValueError::new_err(e))?;
+        Ok(nwk + ";")
     }
 
     /// Get the number of nodes in the tree.
@@ -140,13 +143,13 @@ impl PySpeciesTree {
             return Err(PyValueError::new_err("Leaf names list cannot be empty"));
         }
 
-        let induced_tree = extract_induced_subtree_by_names(&self.tree, &names)
+        let (induced_tree, _) = extract_induced_subtree_by_names(&self.tree, &names)
             .ok_or_else(|| PyValueError::new_err(
                 "Failed to extract induced subtree (no matching leaves found or subtree extraction failed)"
             ))?;
 
         Ok(PySpeciesTree {
-            tree: induced_tree,
+            tree: Arc::new(induced_tree),
         })
     }
 
@@ -155,7 +158,7 @@ impl PySpeciesTree {
     /// # Arguments
     /// * `filepath` - Path to save the Newick file
     fn save_newick(&self, filepath: &str) -> PyResult<()> {
-        let newick = self.to_newick();
+        let newick = self.to_newick()?;
         fs::write(filepath, newick)
             .map_err(|e| PyValueError::new_err(format!("Failed to write Newick file: {}", e)))?;
         Ok(())
@@ -179,7 +182,7 @@ impl PySpeciesTree {
         let svg_path = temp_dir.join("rustree_species_temp.svg");
 
         // Write Newick to temp file
-        let newick = self.to_newick();
+        let newick = self.to_newick()?;
         fs::write(&nwk_path, &newick)
             .map_err(|e| PyValueError::new_err(format!("Failed to write temp Newick: {}", e)))?;
 
@@ -261,7 +264,8 @@ impl PySpeciesTree {
         use crate::io::save_bd_events_to_csv;
 
         // For parsed trees without stored events, generate them from tree structure
-        let events = generate_events_from_tree(&self.tree);
+        let events = generate_events_from_tree(&self.tree)
+            .map_err(|e| PyValueError::new_err(e))?;
 
         save_bd_events_to_csv(&events, &self.tree, filepath)
             .map_err(|e| PyValueError::new_err(format!("Failed to write CSV file: {}", e)))?;
@@ -304,7 +308,8 @@ impl PySpeciesTree {
         use pyo3::types::PyDict;
 
         // For parsed trees without stored events, generate them from tree structure
-        let events = generate_events_from_tree(&self.tree);
+        let events = generate_events_from_tree(&self.tree)
+            .map_err(|e| PyValueError::new_err(e))?;
 
         // Build dictionary with lists
         let dict = PyDict::new(py);
@@ -364,10 +369,11 @@ impl PySpeciesTree {
         use pyo3::types::PyDict;
 
         // Get all events
-        let mut events = generate_events_from_tree(&self.tree);
+        let mut events = generate_events_from_tree(&self.tree)
+            .map_err(|e| PyValueError::new_err(e))?;
 
         // Sort events by time (ascending, from present to past)
-        events.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+        events.sort_by(|a, b| a.time.total_cmp(&b.time));
 
         // Build LTT data
         let mut times = Vec::new();
@@ -491,7 +497,8 @@ impl PySpeciesTree {
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
-        let (rec_tree, _events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng);
+        let (rec_tree, _events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
+            .map_err(|e| PyValueError::new_err(e))?;
 
         // Extract owned data from RecTree
         let gene_tree = rec_tree.gene_tree;
@@ -500,7 +507,7 @@ impl PySpeciesTree {
 
         Ok(PyGeneTree {
             gene_tree,
-            species_tree: self.tree.clone(),
+            species_tree: Arc::clone(&self.tree),
             node_mapping,
             event_mapping,
         })
@@ -540,13 +547,13 @@ impl PySpeciesTree {
             n,
             require_extant,
             &mut rng,
-        );
+        ).map_err(|e| PyValueError::new_err(e))?;
 
         let gene_trees: Vec<PyGeneTree> = rec_trees
             .into_iter()
             .map(|rec_tree| PyGeneTree {
                 gene_tree: rec_tree.gene_tree,
-                species_tree: self.tree.clone(),
+                species_tree: Arc::clone(&self.tree),
                 node_mapping: rec_tree.node_mapping,
                 event_mapping: rec_tree.event_mapping,
             })
@@ -600,7 +607,8 @@ impl PySpeciesTree {
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
-        let (rec_tree, _events) = simulate_dtl_per_species(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng);
+        let (rec_tree, _events) = simulate_dtl_per_species(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
+            .map_err(|e| PyValueError::new_err(e))?;
 
         // Extract owned data from RecTree
         let gene_tree = rec_tree.gene_tree;
@@ -609,7 +617,7 @@ impl PySpeciesTree {
 
         Ok(PyGeneTree {
             gene_tree,
-            species_tree: self.tree.clone(),
+            species_tree: Arc::clone(&self.tree),
             node_mapping,
             event_mapping,
         })
@@ -666,13 +674,13 @@ impl PySpeciesTree {
             n,
             require_extant,
             &mut rng,
-        );
+        ).map_err(|e| PyValueError::new_err(e))?;
 
         let gene_trees: Vec<PyGeneTree> = rec_trees
             .into_iter()
             .map(|rec_tree| PyGeneTree {
                 gene_tree: rec_tree.gene_tree,
-                species_tree: self.tree.clone(),
+                species_tree: Arc::clone(&self.tree),
                 node_mapping: rec_tree.node_mapping,
                 event_mapping: rec_tree.event_mapping,
             })
@@ -710,10 +718,11 @@ impl PySpeciesTree {
             ))),
         };
 
-        let distances = self.tree.pairwise_distances(dist_type, leaves_only);
+        let distances = self.tree.pairwise_distances(dist_type, leaves_only)
+            .map_err(|e| PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e)))?;
 
-        let node1: Vec<&str> = distances.iter().map(|d| d.node1.as_str()).collect();
-        let node2: Vec<&str> = distances.iter().map(|d| d.node2.as_str()).collect();
+        let node1: Vec<&str> = distances.iter().map(|d| d.node1).collect();
+        let node2: Vec<&str> = distances.iter().map(|d| d.node2).collect();
         let dist: Vec<f64> = distances.iter().map(|d| d.distance).collect();
 
         // Create pandas DataFrame
@@ -766,7 +775,8 @@ impl PySpeciesTree {
         };
 
         // Compute pairwise distances
-        let distances = self.tree.pairwise_distances(dist_type, leaves_only);
+        let distances = self.tree.pairwise_distances(dist_type, leaves_only)
+            .map_err(|e| PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e)))?;
 
         // Write to CSV
         let mut csv = String::from(PairwiseDistance::csv_header());
@@ -788,16 +798,18 @@ impl PySpeciesTree {
 #[derive(Clone)]
 pub struct PyGeneTree {
     gene_tree: FlatTree,
-    species_tree: FlatTree,
-    node_mapping: Vec<usize>,
+    species_tree: Arc<FlatTree>,
+    node_mapping: Vec<Option<usize>>,
     event_mapping: Vec<Event>,
 }
 
 #[pymethods]
 impl PyGeneTree {
     /// Convert the gene tree to Newick format.
-    fn to_newick(&self) -> String {
-        self.gene_tree.to_newick() + ";"
+    fn to_newick(&self) -> PyResult<String> {
+        let nwk = self.gene_tree.to_newick()
+            .map_err(|e| PyValueError::new_err(e))?;
+        Ok(nwk + ";")
     }
 
     /// Save the gene tree to a Newick file.
@@ -805,7 +817,7 @@ impl PyGeneTree {
     /// # Arguments
     /// * `filepath` - Path to save the Newick file
     fn save_newick(&self, filepath: &str) -> PyResult<()> {
-        let newick = self.to_newick();
+        let newick = self.to_newick()?;
         fs::write(filepath, newick)
             .map_err(|e| PyValueError::new_err(format!("Failed to write Newick file: {}", e)))?;
         Ok(())
@@ -882,31 +894,56 @@ impl PyGeneTree {
             return Err(PyValueError::new_err("No extant genes to sample"));
         }
 
-        // Extract induced subtree
-        let sampled_tree = extract_induced_subtree(&self.gene_tree, &extant_indices)
+        // Extract induced subtree with old→new index mapping
+        let (sampled_tree, old_to_new) = extract_induced_subtree(&self.gene_tree, &extant_indices)
             .ok_or_else(|| PyValueError::new_err("Failed to extract induced subtree"))?;
 
-        // For the sampled tree, we need to rebuild mappings
-        // The sampled tree is just the topology - we lose the detailed event mapping
-        // since internal nodes may be collapsed
-        let num_nodes = sampled_tree.nodes.len();
-        let new_event_mapping: Vec<Event> = sampled_tree.nodes.iter()
-            .map(|n| {
-                if n.left_child.is_none() && n.right_child.is_none() {
-                    Event::Leaf
+        // Build new→old mapping by inverting old_to_new
+        let mut new_to_old: Vec<Option<usize>> = vec![None; sampled_tree.nodes.len()];
+        for (old_idx, new_idx_opt) in old_to_new.iter().enumerate() {
+            if let Some(new_idx) = new_idx_opt {
+                new_to_old[*new_idx] = Some(old_idx);
+            }
+        }
+
+        // Rebuild event mapping using index-based lookup
+        let new_event_mapping: Vec<Event> = new_to_old.iter()
+            .enumerate()
+            .map(|(new_idx, old_idx_opt)| {
+                if let Some(old_idx) = old_idx_opt {
+                    self.event_mapping[*old_idx].clone()
                 } else {
-                    Event::Speciation // Internal nodes are treated as speciations in sampled tree
+                    // Collapsed node — shouldn't happen since extract_induced_subtree
+                    // only keeps nodes marked Keep
+                    if sampled_tree.nodes[new_idx].left_child.is_none() {
+                        Event::Leaf
+                    } else {
+                        Event::Speciation
+                    }
                 }
             })
             .collect();
 
-        // For node mapping, we can't preserve it accurately after collapsing
-        // Just map all nodes to root species as a placeholder
-        let new_node_mapping = vec![self.species_tree.root; num_nodes];
+        // Rebuild node mapping: leaves get species from gene name, internal nodes get None
+        let new_node_mapping: Vec<Option<usize>> = sampled_tree.nodes.iter()
+            .map(|n| {
+                if n.left_child.is_none() && n.right_child.is_none() {
+                    if let Some(pos) = n.name.rfind('_') {
+                        let species_name = &n.name[..pos];
+                        self.species_tree.nodes.iter()
+                            .position(|sn| sn.name == species_name)
+                    } else {
+                        None
+                    }
+                } else {
+                    None // Internal node: no valid mapping after sampling
+                }
+            })
+            .collect();
 
         Ok(PyGeneTree {
             gene_tree: sampled_tree,
-            species_tree: self.species_tree.clone(),
+            species_tree: Arc::clone(&self.species_tree),
             node_mapping: new_node_mapping,
             event_mapping: new_event_mapping,
         })
@@ -926,25 +963,53 @@ impl PyGeneTree {
             return Err(PyValueError::new_err("No matching genes found"));
         }
 
-        let sampled_tree = extract_induced_subtree(&self.gene_tree, &keep_indices)
+        let (sampled_tree, old_to_new) = extract_induced_subtree(&self.gene_tree, &keep_indices)
             .ok_or_else(|| PyValueError::new_err("Failed to extract induced subtree"))?;
 
-        let num_nodes = sampled_tree.nodes.len();
-        let new_event_mapping: Vec<Event> = sampled_tree.nodes.iter()
-            .map(|n| {
-                if n.left_child.is_none() && n.right_child.is_none() {
-                    Event::Leaf
+        // Build new→old mapping by inverting old_to_new
+        let mut new_to_old: Vec<Option<usize>> = vec![None; sampled_tree.nodes.len()];
+        for (old_idx, new_idx_opt) in old_to_new.iter().enumerate() {
+            if let Some(new_idx) = new_idx_opt {
+                new_to_old[*new_idx] = Some(old_idx);
+            }
+        }
+
+        // Rebuild event mapping using index-based lookup
+        let new_event_mapping: Vec<Event> = new_to_old.iter()
+            .enumerate()
+            .map(|(new_idx, old_idx_opt)| {
+                if let Some(old_idx) = old_idx_opt {
+                    self.event_mapping[*old_idx].clone()
                 } else {
-                    Event::Speciation
+                    if sampled_tree.nodes[new_idx].left_child.is_none() {
+                        Event::Leaf
+                    } else {
+                        Event::Speciation
+                    }
                 }
             })
             .collect();
 
-        let new_node_mapping = vec![self.species_tree.root; num_nodes];
+        // Rebuild node mapping: leaves get species from gene name, internal nodes get None
+        let new_node_mapping: Vec<Option<usize>> = sampled_tree.nodes.iter()
+            .map(|n| {
+                if n.left_child.is_none() && n.right_child.is_none() {
+                    if let Some(pos) = n.name.rfind('_') {
+                        let species_name = &n.name[..pos];
+                        self.species_tree.nodes.iter()
+                            .position(|sn| sn.name == species_name)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         Ok(PyGeneTree {
             gene_tree: sampled_tree,
-            species_tree: self.species_tree.clone(),
+            species_tree: Arc::clone(&self.species_tree),
             node_mapping: new_node_mapping,
             event_mapping: new_event_mapping,
         })
@@ -978,9 +1043,9 @@ impl PyGeneTree {
     fn sample_species_leaves(&self, species_leaf_names: Vec<String>) -> PyResult<PyGeneTree> {
         use crate::node::RecTreeOwned;
 
-        // Build a RecTreeOwned from self
+        // Build a RecTreeOwned from self (deep-clone species tree out of Arc for owned use)
         let rec_tree_owned = RecTreeOwned::new(
-            self.species_tree.clone(),
+            (*self.species_tree).clone(),
             self.gene_tree.clone(),
             self.node_mapping.clone(),
             self.event_mapping.clone(),
@@ -991,10 +1056,10 @@ impl PyGeneTree {
             .sample_species_leaves(&species_leaf_names)
             .map_err(|e| PyValueError::new_err(format!("Failed to sample species leaves: {}", e)))?;
 
-        // Convert back to PyGeneTree
+        // Convert back to PyGeneTree (wrap species tree in Arc for sharing)
         Ok(PyGeneTree {
             gene_tree: sampled_rec_tree.gene_tree,
-            species_tree: sampled_rec_tree.species_tree,
+            species_tree: Arc::new(sampled_rec_tree.species_tree),
             node_mapping: sampled_rec_tree.node_mapping,
             event_mapping: sampled_rec_tree.event_mapping,
         })
@@ -1005,10 +1070,10 @@ impl PyGeneTree {
         // Rebuild RecTree temporarily for XML export
         use crate::node::RecTree;
         let rec_tree = RecTree::new(
-            &self.species_tree,
-            self.gene_tree.clone(),
-            self.node_mapping.clone(),
-            self.event_mapping.clone(),
+            &*self.species_tree,
+            &self.gene_tree,
+            &self.node_mapping,
+            &self.event_mapping,
         );
         rec_tree.to_xml()
     }
@@ -1097,8 +1162,9 @@ impl PyGeneTree {
 
     /// Export gene tree data as a pandas DataFrame.
     ///
-    /// Returns a DataFrame with columns: node_id, name, parent, left_child, right_child,
-    /// length, depth, species_node, event
+    /// Returns a DataFrame with columns: node_id, name, parent, left_child,
+    /// left_child_name, right_child, right_child_name, length, depth,
+    /// species_node, species_node_left, species_node_right, event
     ///
     /// # Arguments
     /// * `filepath` - Optional path to save the CSV file
@@ -1107,72 +1173,34 @@ impl PyGeneTree {
     /// A pandas DataFrame with the gene tree data.
     #[pyo3(signature = (filepath=None))]
     fn to_csv(&self, py: Python, filepath: Option<&str>) -> PyResult<PyObject> {
-        // Build CSV data
-        let mut rows: Vec<(usize, String, String, String, String, f64, String, String, String)> = Vec::new();
+        let rec_tree = RecTree::new(
+            &self.species_tree,
+            &self.gene_tree,
+            &self.node_mapping,
+            &self.event_mapping,
+        );
+        let cols = rec_tree.to_columns();
 
-        for (i, node) in self.gene_tree.nodes.iter().enumerate() {
-            let parent = node.parent.map_or(String::new(), |p| p.to_string());
-            let left = node.left_child.map_or(String::new(), |c| c.to_string());
-            let right = node.right_child.map_or(String::new(), |c| c.to_string());
-            let depth = node.depth.map_or(String::new(), |d| format!("{:.6}", d));
-            let species_node = self.species_tree.nodes[self.node_mapping[i]].name.clone();
-            let event = match self.event_mapping[i] {
-                Event::Speciation => "Speciation",
-                Event::Duplication => "Duplication",
-                Event::Transfer => "Transfer",
-                Event::Loss => "Loss",
-                Event::Leaf => "Leaf",
-            };
-
-            rows.push((
-                i,
-                node.name.clone(),
-                parent,
-                left,
-                right,
-                node.length,
-                depth,
-                species_node,
-                event.to_string(),
-            ));
-        }
-
-        // Save to CSV if filepath provided
         if let Some(path) = filepath {
-            let mut csv_content = String::from("node_id,name,parent,left_child,right_child,length,depth,species_node,event\n");
-            for row in &rows {
-                csv_content.push_str(&format!(
-                    "{},{},{},{},{},{:.6},{},{},{}\n",
-                    row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8
-                ));
-            }
-            fs::write(path, csv_content)
-                .map_err(|e| PyValueError::new_err(format!("Failed to write CSV file: {}", e)))?;
+            cols.save_csv(path)
+                .map_err(|e| PyValueError::new_err(format!("Failed to write CSV: {}", e)))?;
         }
 
-        // Create pandas DataFrame
         let pandas = py.import("pandas")?;
         let dict = pyo3::types::PyDict::new(py);
-
-        let node_ids: Vec<usize> = rows.iter().map(|r| r.0).collect();
-        let names: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
-        let parents: Vec<&str> = rows.iter().map(|r| r.2.as_str()).collect();
-        let lefts: Vec<&str> = rows.iter().map(|r| r.3.as_str()).collect();
-        let rights: Vec<&str> = rows.iter().map(|r| r.4.as_str()).collect();
-        let lengths: Vec<f64> = rows.iter().map(|r| r.5).collect();
-        let depths: Vec<&str> = rows.iter().map(|r| r.6.as_str()).collect();
-        let species_nodes: Vec<&str> = rows.iter().map(|r| r.7.as_str()).collect();
-        let events: Vec<&str> = rows.iter().map(|r| r.8.as_str()).collect();
-
-        dict.set_item("node_id", node_ids)?;
-        dict.set_item("name", names)?;
-        dict.set_item("parent", parents)?;
-        dict.set_item("left_child", lefts)?;
-        dict.set_item("right_child", rights)?;
-        dict.set_item("length", lengths)?;
-        dict.set_item("depth", depths)?;
-        dict.set_item("species_node", species_nodes)?;
-        dict.set_item("event", events)?;
+        dict.set_item("node_id", cols.node_id)?;
+        dict.set_item("name", cols.name)?;
+        dict.set_item("parent", cols.parent)?;
+        dict.set_item("left_child", cols.left_child)?;
+        dict.set_item("left_child_name", cols.left_child_name)?;
+        dict.set_item("right_child", cols.right_child)?;
+        dict.set_item("right_child_name", cols.right_child_name)?;
+        dict.set_item("length", cols.length)?;
+        dict.set_item("depth", cols.depth)?;
+        dict.set_item("species_node", cols.species_node)?;
+        dict.set_item("species_node_left", cols.species_node_left)?;
+        dict.set_item("species_node_right", cols.species_node_right)?;
+        dict.set_item("event", cols.event)?;
 
         let df = pandas.call_method1("DataFrame", (dict,))?;
         Ok(df.into())
@@ -1208,10 +1236,11 @@ impl PyGeneTree {
             ))),
         };
 
-        let distances = self.gene_tree.pairwise_distances(dist_type, leaves_only);
+        let distances = self.gene_tree.pairwise_distances(dist_type, leaves_only)
+            .map_err(|e| PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e)))?;
 
-        let node1: Vec<&str> = distances.iter().map(|d| d.node1.as_str()).collect();
-        let node2: Vec<&str> = distances.iter().map(|d| d.node2.as_str()).collect();
+        let node1: Vec<&str> = distances.iter().map(|d| d.node1).collect();
+        let node2: Vec<&str> = distances.iter().map(|d| d.node2).collect();
         let dist: Vec<f64> = distances.iter().map(|d| d.distance).collect();
 
         // Create pandas DataFrame
@@ -1265,7 +1294,8 @@ impl PyGeneTree {
         };
 
         // Compute pairwise distances
-        let distances = self.gene_tree.pairwise_distances(dist_type, leaves_only);
+        let distances = self.gene_tree.pairwise_distances(dist_type, leaves_only)
+            .map_err(|e| PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e)))?;
 
         // Write to CSV
         let mut csv = String::from(PairwiseDistance::csv_header());
@@ -1316,7 +1346,7 @@ fn simulate_species_tree(n: usize, lambda_: f64, mu: f64, seed: Option<u64>) -> 
     let (mut tree, _events) = simulate_bd_tree(n, lambda_, mu, &mut rng);
     tree.assign_depths();
 
-    Ok(PySpeciesTree { tree })
+    Ok(PySpeciesTree { tree: Arc::new(tree) })
 }
 
 /// Parse a Newick string or file into a species tree.
@@ -1357,7 +1387,7 @@ fn parse_species_tree(newick_str: &str) -> PyResult<PySpeciesTree> {
     root.assign_depths(0.0);
     let tree = root.to_flat_tree();
 
-    Ok(PySpeciesTree { tree })
+    Ok(PySpeciesTree { tree: Arc::new(tree) })
 }
 
 /// Parse a RecPhyloXML file into a gene tree with reconciliation information.
@@ -1377,7 +1407,7 @@ fn parse_recphyloxml(filepath: &str) -> PyResult<PyGeneTree> {
 
     Ok(PyGeneTree {
         gene_tree: rec_tree_owned.gene_tree,
-        species_tree: rec_tree_owned.species_tree,
+        species_tree: Arc::new(rec_tree_owned.species_tree),
         node_mapping: rec_tree_owned.node_mapping,
         event_mapping: rec_tree_owned.event_mapping,
     })
@@ -1671,7 +1701,8 @@ fn reconcile_with_alerax(
             }
         })?;
 
-    let species_tree_newick = species_tree_obj.tree.to_newick();
+    let species_tree_newick = species_tree_obj.tree.to_newick()
+        .map_err(|e| PyValueError::new_err(e))?;
 
     // Parse gene trees
     let mut gene_tree_list: Vec<(String, String)> = Vec::new();
@@ -1787,15 +1818,34 @@ fn reconcile_with_alerax(
     // Convert to Python types
     let mut py_results = HashMap::new();
     for (family_name, result) in results {
-        let py_gene_trees: Vec<PyGeneTree> = result.reconciled_trees
-            .into_iter()
-            .map(|rec_tree| PyGeneTree {
-                gene_tree: rec_tree.gene_tree,
-                species_tree: rec_tree.species_tree,
-                node_mapping: rec_tree.node_mapping,
-                event_mapping: rec_tree.event_mapping,
-            })
-            .collect();
+        // Wrap species tree in Arc so all gene trees in this family share the same allocation.
+        // Take the species tree from the first reconciled tree; all trees in a family share
+        // the same species tree.
+        let mut rec_trees_iter = result.reconciled_trees.into_iter();
+        let first_rec_tree = rec_trees_iter.next();
+        let (shared_species_tree, first_py_gene_tree) = match first_rec_tree {
+            Some(rt) => {
+                let arc_st = Arc::new(rt.species_tree);
+                let py_gt = PyGeneTree {
+                    gene_tree: rt.gene_tree,
+                    species_tree: Arc::clone(&arc_st),
+                    node_mapping: rt.node_mapping,
+                    event_mapping: rt.event_mapping,
+                };
+                (arc_st, Some(py_gt))
+            }
+            None => {
+                // No reconciled trees — produce empty result
+                (Arc::new(species_tree_obj.tree.as_ref().clone()), None)
+            }
+        };
+        let mut py_gene_trees: Vec<PyGeneTree> = first_py_gene_tree.into_iter().collect();
+        py_gene_trees.extend(rec_trees_iter.map(|rec_tree| PyGeneTree {
+            gene_tree: rec_tree.gene_tree,
+            species_tree: Arc::clone(&shared_species_tree),
+            node_mapping: rec_tree.node_mapping,
+            event_mapping: rec_tree.event_mapping,
+        }));
 
         // Convert statistics
         let mean_event_counts = PyEventCounts {

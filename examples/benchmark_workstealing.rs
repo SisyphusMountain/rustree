@@ -48,6 +48,7 @@ fn main() {
                         species_tree_clone.root,
                         0.2, 0.2, 0.1,
                         None,
+                        None,
                         false,
                         &mut rng_thread,
                     );
@@ -109,6 +110,7 @@ fn main() {
                         &species_tree_clone,
                         species_tree_clone.root,
                         0.2, 0.2, 0.1,
+                        None,
                         None,
                         false,
                         &mut rng_thread,

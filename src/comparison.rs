@@ -5,14 +5,14 @@ use crate::node::Node;
 
 
 /// Recursively compares two Node objects (ignoring the order of children).
-pub fn compare_nodes(n1: &Node, n2: &Node, use_lengths: bool, tol: f64) -> bool {
-    if n1.name != n2.name { return false; }
-    
+pub fn compare_nodes(n1: &Node, n2: &Node, use_lengths: bool, tol: f64) -> Result<bool, String> {
+    if n1.name != n2.name { return Ok(false); }
+
     if use_lengths {
-        if (n1.length - n2.length).abs() > tol { return false; }
+        if (n1.length - n2.length).abs() > tol { return Ok(false); }
     }
 
-    
+
 
     // Collect non-None children for each node.
     let mut children1 = Vec::new();
@@ -25,22 +25,22 @@ pub fn compare_nodes(n1: &Node, n2: &Node, use_lengths: bool, tol: f64) -> bool 
 
     // Check if the number of children is the same.
     // It may be the case that one node has 2 children (internal node) and the other has 1
-    
+
     if children1.len() != children2.len() {
-        return false;
+        return Ok(false);
     }
 
     match children1.len() {
-        0 => true,
+        0 => Ok(true),
         2 => {
-            (compare_nodes(children1[0], children2[0], use_lengths, tol) && compare_nodes(children1[1], children2[1], use_lengths, tol))
-            || (compare_nodes(children1[0], children2[1], use_lengths, tol) && compare_nodes(children1[1], children2[0], use_lengths, tol))
+            Ok((compare_nodes(children1[0], children2[0], use_lengths, tol)? && compare_nodes(children1[1], children2[1], use_lengths, tol)?)
+            || (compare_nodes(children1[0], children2[1], use_lengths, tol)? && compare_nodes(children1[1], children2[0], use_lengths, tol)?))
         },
-        n => panic!("Invalid binary tree: node '{}' has {} children (expected 0 or 2)", n1.name, n)
+        n => Err(format!("Invalid binary tree: node '{}' has {} children (expected 0 or 2)", n1.name, n))
     }
 }
 
 /// Convenience wrapper for topology-only comparison (ignores branch lengths).
-pub fn compare_nodes_topology(n1: &Node, n2: &Node) -> bool {
+pub fn compare_nodes_topology(n1: &Node, n2: &Node) -> Result<bool, String> {
     compare_nodes(n1, n2, false, 0.0)
 }

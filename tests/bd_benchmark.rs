@@ -6,6 +6,7 @@ use rand::rngs::StdRng;
 use std::time::Instant;
 
 #[test]
+#[ignore] // Run with: cargo test --test bd_benchmark -- --ignored --nocapture
 fn benchmark_bd_tree_1000x1000() {
     let mut rng = StdRng::seed_from_u64(12345);
     let n_trees = 1000;

@@ -1,6 +1,7 @@
 use rustree::{RecTreeOwned, Event};
 
 #[test]
+#[ignore] // Requires local data files at /home/enzo/... - run with: cargo test --test test_real_separate_files -- --ignored
 fn test_parse_real_separate_files() {
     let species_path = "/home/enzo/Documents/git/WP2/data/output_1/T/CompleteTree.nwk";
     let gene_path = "/home/enzo/Documents/git/WP2/data/output_1/G/Gene_trees/1_rec.xml";
@@ -93,7 +94,7 @@ fn test_parse_real_separate_files() {
         .collect();
 
     for (idx, node) in leaf_nodes {
-        let species_idx = rec_tree.node_mapping[idx];
+        let species_idx = rec_tree.node_mapping[idx].unwrap();
         let species_name = &rec_tree.species_tree.nodes[species_idx].name;
         println!("  {} → {}", node.name, species_name);
     }

@@ -29,13 +29,13 @@ fn test_extract_induced_subtree_keep_cd() {
     );
 
     // Extract induced subtree
-    let induced = extract_induced_subtree(&flat_tree, &leaves_to_keep)
+    let (induced, _) = extract_induced_subtree(&flat_tree, &leaves_to_keep)
         .expect("Failed to extract induced subtree");
 
     // Reconstruct the tree
     let mut reconstructed_tree = induced.to_node();
     reconstructed_tree.assign_depths(0.0);
-    let newick_result = reconstructed_tree.to_newick() + ";";
+    let newick_result = reconstructed_tree.to_newick().expect("Failed to convert to Newick") + ";";
     println!("Resulting Newick string: {}", newick_result);
 
     // Read expected tree from test_tree_F.nwk
@@ -47,17 +47,19 @@ fn test_extract_induced_subtree_keep_cd() {
     expected_tree.assign_depths(0.0);
 
     // Display both trees
-    let recon_newick = reconstructed_tree.to_newick() + ";";
-    let expected_recon_newick = expected_tree.to_newick() + ";";
+    let recon_newick = reconstructed_tree.to_newick().expect("Failed to convert to Newick") + ";";
+    let expected_recon_newick = expected_tree.to_newick().expect("Failed to convert to Newick") + ";";
     println!("Reconstructed Newick string: {}", recon_newick);
     println!("Expected Newick string: {}", expected_recon_newick);
 
     // Compare the reconstructed tree and the expected tree
-    if !compare_nodes(&reconstructed_tree, &expected_tree, false, 0.0) {
-        println!("Reconstructed Node: {:?}", reconstructed_tree);
-        println!("Expected Node: {:?}", expected_tree);
-        panic!("Reconstructed tree does not match the expected tree.");
-    } else {
-        println!("Reconstructed tree matches the expected tree.");
+    match compare_nodes(&reconstructed_tree, &expected_tree, false, 0.0) {
+        Ok(true) => println!("Reconstructed tree matches the expected tree."),
+        Ok(false) => {
+            println!("Reconstructed Node: {:?}", reconstructed_tree);
+            println!("Expected Node: {:?}", expected_tree);
+            panic!("Reconstructed tree does not match the expected tree.");
+        }
+        Err(e) => panic!("Error comparing trees: {}", e),
     }
 }

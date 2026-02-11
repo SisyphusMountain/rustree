@@ -4,7 +4,7 @@
 // and how the affected gene copy is selected.
 
 use crate::bd::{BDEvent, TreeEvent};
-use crate::node::{FlatTree, Event, RecTree};
+use crate::node::{FlatTree, Event, RecTreeOwned};
 use rand::Rng;
 
 use super::event::DTLEvent;
@@ -34,9 +34,9 @@ pub(crate) enum DTLMode {
 /// Doing so will involve changing the rates at which events are proposed,
 /// as well as the probability of a given event affecting each gene or species at time t.
 /// We can have auxillary functions to flexibly handle the different generalizations without loss of performance.
-pub(crate) fn simulate_dtl_gillespie<'a, R: Rng>(
+pub(crate) fn simulate_dtl_gillespie<R: Rng>(
     mode: DTLMode,
-    species_tree: &'a FlatTree,
+    species_tree: &FlatTree,
     species_events: &[TreeEvent],
     depths: &[f64],
     contemporaneity: &[Vec<usize>],
@@ -48,7 +48,7 @@ pub(crate) fn simulate_dtl_gillespie<'a, R: Rng>(
     transfer_alpha: Option<f64>,
     replacement_transfer: Option<f64>,
     rng: &mut R,
-) -> (RecTree<'a>, Vec<DTLEvent>) {
+) -> Result<(RecTreeOwned, Vec<DTLEvent>), String> {
 
     let total_dtl_rate = lambda_d + lambda_t + lambda_l;
     let dup_threshold = if total_dtl_rate > 0.0 { lambda_d / total_dtl_rate } else { 0.0 };
@@ -58,7 +58,8 @@ pub(crate) fn simulate_dtl_gillespie<'a, R: Rng>(
     let mut state = SimulationState::new(estimated_capacity);
 
     // Find when origin species starts (beginning of its branch)
-    let origin_start_time = species_tree.nodes[origin_species].depth.expect("Species tree must have depths precomputed")
+    let origin_start_time = species_tree.nodes[origin_species].depth
+        .ok_or_else(|| format!("Species node {} has no assigned depth. Call assign_depths() first.", origin_species))?
         - species_tree.nodes[origin_species].length;
 
     let mut current_time = origin_start_time;
@@ -131,8 +132,9 @@ pub(crate) fn simulate_dtl_gillespie<'a, R: Rng>(
 
             match sp_event.event_type {
                 BDEvent::Speciation => {
-                    let (child1, child2) = (sp_event.child1.unwrap(), sp_event.child2.unwrap());
-                    let gps = state.genes_per_species.as_mut().unwrap();
+                    let child1 = sp_event.child1.ok_or_else(|| format!("Speciation event for node {} has no child1", sp_event.node_id))?;
+                    let child2 = sp_event.child2.ok_or_else(|| format!("Speciation event for node {} has no child2", sp_event.node_id))?;
+                    let gps = state.genes_per_species.as_mut().ok_or("Internal error: genes_per_species not initialized")?;
                     if let Some(genes) = gps.remove(&sp_event.node_id) {
                         for gene_idx in genes {
                             state.handle_speciation(
@@ -142,7 +144,7 @@ pub(crate) fn simulate_dtl_gillespie<'a, R: Rng>(
                     }
                 }
                 BDEvent::Extinction => {
-                    let gps = state.genes_per_species.as_mut().unwrap();
+                    let gps = state.genes_per_species.as_mut().ok_or("Internal error: genes_per_species not initialized")?;
                     if let Some(genes) = gps.remove(&sp_event.node_id) {
                         for gene_idx in genes {
                             state.handle_loss(gene_idx, sp_event.node_id, current_time);
@@ -150,7 +152,7 @@ pub(crate) fn simulate_dtl_gillespie<'a, R: Rng>(
                     }
                 }
                 BDEvent::Leaf => {
-                    let gps = state.genes_per_species.as_mut().unwrap();
+                    let gps = state.genes_per_species.as_mut().ok_or("Internal error: genes_per_species not initialized")?;
                     if let Some(genes) = gps.remove(&sp_event.node_id) {
                         for gene_idx in genes {
                             state.handle_leaf(gene_idx, sp_event.node_id, current_time);
@@ -175,7 +177,7 @@ pub(crate) fn simulate_dtl_gillespie<'a, R: Rng>(
                     if alive_species.is_empty() { None }
                     else {
                         let species = alive_species[rng.gen_range(0..alive_species.len())];
-                        let gps = state.genes_per_species.as_ref().unwrap();
+                        let gps = state.genes_per_species.as_ref().ok_or("Internal error: genes_per_species not initialized")?;
                         match gps.get(&species) {
                             Some(genes) if !genes.is_empty() => {
                                 let gene = genes[rng.gen_range(0..genes.len())];
@@ -236,12 +238,12 @@ pub(crate) fn simulate_dtl_gillespie<'a, R: Rng>(
 
     // Finalize tree
     let rec_tree = finalize_simulation(
-        species_tree,
+        species_tree.clone(),
         state.gene_nodes,
         state.node_mapping,
         state.event_mapping,
         origin_species,
         origin_start_time,
     );
-    (rec_tree, state.events)
+    Ok((rec_tree, state.events))
 }

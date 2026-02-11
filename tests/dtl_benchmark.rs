@@ -65,9 +65,10 @@ fn benchmark_dtl_varying_rates() {
                 lambda_t,
                 lambda_l,
                 None,
+                None,
                 false,
                 &mut rng,
-            );
+            ).unwrap();
 
             let (s, d, t, l, leaves) = count_events(&rec_tree);
             total_s += s;
@@ -132,9 +133,10 @@ fn benchmark_dtl_varying_species_tree_size() {
                 lambda_t,
                 lambda_l,
                 None,
+                None,
                 false,
                 &mut rng,
-            );
+            ).unwrap();
             let elapsed = start.elapsed();
 
             total_time += elapsed.as_secs_f64() * 1000.0;
@@ -198,9 +200,10 @@ fn benchmark_dtl_scalability() {
                 lambda_t,
                 lambda_l,
                 None,
+                None,
                 false,
                 &mut rng,
-            );
+            ).unwrap();
             let elapsed = start.elapsed();
 
             total_time += elapsed.as_secs_f64() * 1000.0;
@@ -253,9 +256,10 @@ fn benchmark_dtl_transfer_intensity() {
                 lambda_t,
                 lambda_l,
                 None,
+                None,
                 false,
                 &mut rng,
-            );
+            ).unwrap();
             let elapsed = start.elapsed();
 
             total_time += elapsed.as_secs_f64() * 1000.0;
@@ -321,9 +325,10 @@ fn benchmark_dtl_loss_impact() {
                 lambda_t,
                 lambda_l,
                 None,
+                None,
                 false,
                 &mut rng,
-            );
+            ).unwrap();
             let elapsed = start.elapsed();
 
             total_time += elapsed.as_secs_f64() * 1000.0;
@@ -391,9 +396,10 @@ fn benchmark_dtl_large_scale() {
                 lambda_t,
                 lambda_l,
                 None,
+                None,
                 false,
                 &mut rng,
-            );
+            ).unwrap();
             let elapsed = start.elapsed();
 
             total_time += elapsed.as_secs_f64();
@@ -437,9 +443,10 @@ fn benchmark_dtl_quick_test() {
             lambda_t,
             lambda_l,
             None,
+            None,
             false,
             &mut rng,
-        );
+        ).unwrap();
         let elapsed = start.elapsed();
         total_time += elapsed.as_secs_f64() * 1000.0;
         total_events += events.len();

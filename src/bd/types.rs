@@ -51,15 +51,23 @@ pub struct TreeEvent {
 
 impl TreeEvent {
     /// Convert event to CSV row format, resolving node names from the tree
-    pub fn to_csv_row(&self, tree: &FlatTree) -> String {
-        format!(
-            "{},{},{},{},{}",
-            self.time,
-            tree.nodes[self.node_id].name,
-            self.event_type.as_str(),
-            self.child1.map_or(String::new(), |c| tree.nodes[c].name.clone()),
-            self.child2.map_or(String::new(), |c| tree.nodes[c].name.clone())
-        )
+    pub fn to_csv_row(&self, tree: &FlatTree) -> Result<String, String> {
+        let node_name = tree.nodes.get(self.node_id)
+            .map(|n| n.name.as_str())
+            .ok_or_else(|| format!("Invalid node_id {} (tree has {} nodes)", self.node_id, tree.nodes.len()))?;
+        let child1_name = match self.child1 {
+            Some(c) => tree.nodes.get(c)
+                .map(|n| n.name.clone())
+                .ok_or_else(|| format!("Invalid child1 index {} (tree has {} nodes)", c, tree.nodes.len()))?,
+            None => String::new(),
+        };
+        let child2_name = match self.child2 {
+            Some(c) => tree.nodes.get(c)
+                .map(|n| n.name.clone())
+                .ok_or_else(|| format!("Invalid child2 index {} (tree has {} nodes)", c, tree.nodes.len()))?,
+            None => String::new(),
+        };
+        Ok(format!("{},{},{},{},{}", self.time, node_name, self.event_type.as_str(), child1_name, child2_name))
     }
 
     /// CSV header for event data

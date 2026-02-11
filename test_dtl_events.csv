@@ -1,10 +1,10 @@
 time,gene_node_name,event_type,species_node,donor_species,recipient_species,child1_name,child2_name
 0,0_0,Speciation,root,,,1_1,4_2
-0.15278803656239043,1_1,Duplication,AB,,,1_3,1_4
-0.7146817643050063,1_3,Transfer,AB,AB,C,1_5,4_6
-1,1_4,Speciation,AB,,,2_7,3_8
-1,1_5,Speciation,AB,,,2_9,3_10
-1.0058555629334036,4_6,Duplication,C,,,4_11,4_12
+0.15278803656239043,4_2,Duplication,C,,,4_3,4_4
+0.7146817643050063,4_3,Transfer,C,C,AB,4_5,1_6
+1,1_1,Speciation,AB,,,2_7,3_8
+1,1_6,Speciation,AB,,,2_9,3_10
+1.0058555629334036,4_5,Duplication,C,,,4_11,4_12
 1.1458446240783622,4_11,Duplication,C,,,4_13,4_14
 1.4192580083050057,4_13,Duplication,C,,,4_15,4_16
 1.44349459936819,4_14,Transfer,C,C,A,4_17,2_18
@@ -21,7 +21,7 @@ time,gene_node_name,event_type,species_node,donor_species,recipient_species,chil
 2,3_8,Leaf,B,,,,
 2,3_23,Leaf,B,,,,
 2,3_24,Leaf,B,,,,
-2,4_2,Leaf,C,,,,
+2,4_4,Leaf,C,,,,
 2,4_25,Leaf,C,,,,
 2,4_17,Leaf,C,,,,
 2,4_20,Leaf,C,,,,

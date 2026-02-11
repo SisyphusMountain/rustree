@@ -15,7 +15,7 @@ use std::process::Command;
 
 use crate::bd::{simulate_bd_tree, generate_events_from_tree, TreeEvent, BDEvent};
 use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch};
-use crate::node::{FlatTree, FlatNode, Event};
+use crate::node::{FlatTree, FlatNode, Event, RecTreeOwned};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names};
 
 /// Simulate a birth-death species tree.
@@ -41,10 +41,13 @@ fn simulate_species_tree_r(n: i32, lambda: f64, mu: f64, seed: Robj) -> Result<L
         return Err("Speciation rate must be greater than extinction rate".into());
     }
 
-    let mut rng = if seed.is_null() {
+    let mut rng = if seed.is_null() || seed.is_na() {
         StdRng::from_entropy()
     } else {
-        StdRng::seed_from_u64(seed.as_integer().unwrap() as u64)
+        match seed.as_integer() {
+            Some(s) => StdRng::seed_from_u64(s as u64),
+            None => return Err("seed must be an integer".into()),
+        }
     };
 
     let (mut tree, events) = simulate_bd_tree(n as usize, lambda, mu, &mut rng);
@@ -118,7 +121,8 @@ fn parse_newick_r(newick_str: &str) -> Result<List> {
 #[extendr]
 fn tree_to_newick_r(tree_list: List) -> Result<String> {
     let tree = rlist_to_flattree(&tree_list)?;
-    Ok(tree.to_newick() + ";")
+    let nwk = tree.to_newick().map_err(|e| Error::Other(e))?;
+    Ok(nwk + ";")
 }
 
 /// Get the number of leaves in a tree.
@@ -177,10 +181,13 @@ fn simulate_dtl_r(
 
     let species_tree = rlist_to_flattree(&species_tree_list)?;
 
-    let mut rng = if seed.is_null() {
+    let mut rng = if seed.is_null() || seed.is_na() {
         StdRng::from_entropy()
     } else {
-        StdRng::seed_from_u64(seed.as_integer().unwrap() as u64)
+        match seed.as_integer() {
+            Some(s) => StdRng::seed_from_u64(s as u64),
+            None => return Err("seed must be an integer".into()),
+        }
     };
 
     let alpha = if transfer_alpha.is_null() || transfer_alpha.is_na() {
@@ -190,9 +197,10 @@ fn simulate_dtl_r(
     };
 
     let origin_species = species_tree.root;
-    let (rec_tree, _events) = simulate_dtl(&species_tree, origin_species, lambda_d, lambda_t, lambda_l, alpha, require_extant, &mut rng);
+    let (rec_tree, _events) = simulate_dtl(&species_tree, origin_species, lambda_d, lambda_t, lambda_l, alpha, None, require_extant, &mut rng)
+        .map_err(|e| Error::Other(e))?;
 
-    Ok(rectree_to_rlist(&species_tree, &rec_tree.gene_tree, &rec_tree.node_mapping, &rec_tree.event_mapping))
+    rectree_to_rlist(&species_tree, &rec_tree.gene_tree, &rec_tree.node_mapping, &rec_tree.event_mapping)
 }
 
 /// Simulate a batch of DTL gene trees efficiently.
@@ -227,10 +235,13 @@ fn simulate_dtl_batch_r(
 
     let species_tree = rlist_to_flattree(&species_tree_list)?;
 
-    let mut rng = if seed.is_null() {
+    let mut rng = if seed.is_null() || seed.is_na() {
         StdRng::from_entropy()
     } else {
-        StdRng::seed_from_u64(seed.as_integer().unwrap() as u64)
+        match seed.as_integer() {
+            Some(s) => StdRng::seed_from_u64(s as u64),
+            None => return Err("seed must be an integer".into()),
+        }
     };
 
     let alpha = if transfer_alpha.is_null() || transfer_alpha.is_na() {
@@ -247,10 +258,11 @@ fn simulate_dtl_batch_r(
         lambda_t,
         lambda_l,
         alpha,
+        None,
         n as usize,
         require_extant,
         &mut rng,
-    );
+    ).map_err(|e| Error::Other(e))?;
 
     // Convert to list of lists
     let gene_tree_lists: Vec<List> = rec_trees
@@ -258,7 +270,7 @@ fn simulate_dtl_batch_r(
         .map(|rec_tree| {
             rectree_to_rlist(&species_tree, &rec_tree.gene_tree, &rec_tree.node_mapping, &rec_tree.event_mapping)
         })
-        .collect();
+        .collect::<Result<Vec<List>>>()?;
 
     Ok(List::from_values(gene_tree_lists))
 }
@@ -294,10 +306,13 @@ fn simulate_dtl_per_species_r(
 
     let species_tree = rlist_to_flattree(&species_tree_list)?;
 
-    let mut rng = if seed.is_null() {
+    let mut rng = if seed.is_null() || seed.is_na() {
         StdRng::from_entropy()
     } else {
-        StdRng::seed_from_u64(seed.as_integer().unwrap() as u64)
+        match seed.as_integer() {
+            Some(s) => StdRng::seed_from_u64(s as u64),
+            None => return Err("seed must be an integer".into()),
+        }
     };
 
     let alpha = if transfer_alpha.is_null() || transfer_alpha.is_na() {
@@ -307,9 +322,10 @@ fn simulate_dtl_per_species_r(
     };
 
     let origin_species = species_tree.root;
-    let (rec_tree, _events) = simulate_dtl_per_species(&species_tree, origin_species, lambda_d, lambda_t, lambda_l, alpha, require_extant, &mut rng);
+    let (rec_tree, _events) = simulate_dtl_per_species(&species_tree, origin_species, lambda_d, lambda_t, lambda_l, alpha, None, require_extant, &mut rng)
+        .map_err(|e| Error::Other(e))?;
 
-    Ok(rectree_to_rlist(&species_tree, &rec_tree.gene_tree, &rec_tree.node_mapping, &rec_tree.event_mapping))
+    rectree_to_rlist(&species_tree, &rec_tree.gene_tree, &rec_tree.node_mapping, &rec_tree.event_mapping)
 }
 
 /// Simulate a batch of DTL gene trees using the Zombi-style per-species model.
@@ -347,10 +363,13 @@ fn simulate_dtl_per_species_batch_r(
 
     let species_tree = rlist_to_flattree(&species_tree_list)?;
 
-    let mut rng = if seed.is_null() {
+    let mut rng = if seed.is_null() || seed.is_na() {
         StdRng::from_entropy()
     } else {
-        StdRng::seed_from_u64(seed.as_integer().unwrap() as u64)
+        match seed.as_integer() {
+            Some(s) => StdRng::seed_from_u64(s as u64),
+            None => return Err("seed must be an integer".into()),
+        }
     };
 
     let alpha = if transfer_alpha.is_null() || transfer_alpha.is_na() {
@@ -367,10 +386,11 @@ fn simulate_dtl_per_species_batch_r(
         lambda_t,
         lambda_l,
         alpha,
+        None,
         n as usize,
         require_extant,
         &mut rng,
-    );
+    ).map_err(|e| Error::Other(e))?;
 
     // Convert to list of lists
     let gene_tree_lists: Vec<List> = rec_trees
@@ -378,7 +398,7 @@ fn simulate_dtl_per_species_batch_r(
         .map(|rec_tree| {
             rectree_to_rlist(&species_tree, &rec_tree.gene_tree, &rec_tree.node_mapping, &rec_tree.event_mapping)
         })
-        .collect();
+        .collect::<Result<Vec<List>>>()?;
 
     Ok(List::from_values(gene_tree_lists))
 }
@@ -414,7 +434,8 @@ fn gene_tree_num_extant_r(gene_tree_list: List) -> Result<i32> {
 #[extendr]
 fn gene_tree_to_newick_r(gene_tree_list: List) -> Result<String> {
     let (gene_tree, _, _, _) = rlist_to_genetree(&gene_tree_list)?;
-    Ok(gene_tree.to_newick() + ";")
+    let nwk = gene_tree.to_newick().map_err(|e| Error::Other(e))?;
+    Ok(nwk + ";")
 }
 
 /// Export a gene tree to RecPhyloXML format.
@@ -426,8 +447,8 @@ fn gene_tree_to_newick_r(gene_tree_list: List) -> Result<String> {
 fn gene_tree_to_xml_r(gene_tree_list: List) -> Result<String> {
     let (gene_tree, species_tree, node_mapping, event_mapping) = rlist_to_genetree(&gene_tree_list)?;
 
-    use crate::node::RecTree;
-    let rec_tree = RecTree::new(&species_tree, gene_tree, node_mapping, event_mapping);
+    use crate::node::RecTreeOwned;
+    let rec_tree = RecTreeOwned::new(species_tree, gene_tree, node_mapping, event_mapping);
     Ok(rec_tree.to_xml())
 }
 
@@ -475,41 +496,10 @@ fn save_xml_r(gene_tree_list: List, filepath: &str) -> Result<()> {
 /// @export
 #[extendr]
 fn save_csv_r(gene_tree_list: List, filepath: &str) -> Result<()> {
-    let names: Vec<String> = gene_tree_list.dollar("name")?.as_str_vector()
-        .ok_or("Failed to get name column")?
-        .iter().map(|s| s.to_string()).collect();
-    let parents: Vec<i32> = gene_tree_list.dollar("parent")?.as_integer_vector()
-        .ok_or("Failed to get parent column")?;
-    let left_children: Vec<i32> = gene_tree_list.dollar("left_child")?.as_integer_vector()
-        .ok_or("Failed to get left_child column")?;
-    let right_children: Vec<i32> = gene_tree_list.dollar("right_child")?.as_integer_vector()
-        .ok_or("Failed to get right_child column")?;
-    let lengths: Vec<f64> = gene_tree_list.dollar("length")?.as_real_vector()
-        .ok_or("Failed to get length column")?;
-    let depths: Vec<f64> = gene_tree_list.dollar("depth")?.as_real_vector()
-        .ok_or("Failed to get depth column")?;
-    let species_nodes: Vec<String> = gene_tree_list.dollar("species_node")?.as_str_vector()
-        .ok_or("Failed to get species_node column")?
-        .iter().map(|s| s.to_string()).collect();
-    let events: Vec<String> = gene_tree_list.dollar("event")?.as_str_vector()
-        .ok_or("Failed to get event column")?
-        .iter().map(|s| s.to_string()).collect();
-
-    let mut csv = String::from("node_id,name,parent,left_child,right_child,length,depth,species_node,event\n");
-    for i in 0..names.len() {
-        let parent_str = if parents[i].is_na() { String::new() } else { parents[i].to_string() };
-        let left_str = if left_children[i].is_na() { String::new() } else { left_children[i].to_string() };
-        let right_str = if right_children[i].is_na() { String::new() } else { right_children[i].to_string() };
-        let depth_str = if depths[i].is_na() { String::new() } else { format!("{:.6}", depths[i]) };
-
-        csv.push_str(&format!(
-            "{},{},{},{},{},{:.6},{},{},{}\n",
-            i, names[i], parent_str, left_str, right_str, lengths[i], depth_str, species_nodes[i], events[i]
-        ));
-    }
-
-    fs::write(filepath, csv)
-        .map_err(|e| format!("Failed to write file: {}", e))?;
+    let (species_tree, gene_tree, node_mapping, event_mapping) = rlist_to_genetree(&gene_tree_list)?;
+    let rec_tree = RecTreeOwned::new(species_tree, gene_tree, node_mapping, event_mapping);
+    rec_tree.save_csv(filepath)
+        .map_err(|e| extendr_api::Error::Other(format!("Failed to write CSV: {}", e)))?;
     Ok(())
 }
 
@@ -538,7 +528,7 @@ fn save_bd_events_csv_r(species_tree_list: List, filepath: &str) -> Result<()> {
         }
         _ => {
             // No events (from parse_newick) - generate them from tree structure
-            generate_events_from_tree(&tree)
+            generate_events_from_tree(&tree).map_err(|e| Error::Other(e))?
         }
     };
 
@@ -625,23 +615,50 @@ fn sample_extant_r(gene_tree_list: List) -> Result<List> {
         return Err("No extant genes to sample".into());
     }
 
-    let sampled_tree = extract_induced_subtree(&gene_tree, &extant_indices)
+    let (sampled_tree, old_to_new) = extract_induced_subtree(&gene_tree, &extant_indices)
         .ok_or("Failed to extract induced subtree")?;
 
-    let num_nodes = sampled_tree.nodes.len();
-    let new_event_mapping: Vec<Event> = sampled_tree.nodes.iter()
-        .map(|n| {
-            if n.left_child.is_none() && n.right_child.is_none() {
-                Event::Leaf
+    // Build new→old mapping by inverting old_to_new
+    let mut new_to_old: Vec<Option<usize>> = vec![None; sampled_tree.nodes.len()];
+    for (old_idx, new_idx_opt) in old_to_new.iter().enumerate() {
+        if let Some(new_idx) = new_idx_opt {
+            new_to_old[*new_idx] = Some(old_idx);
+        }
+    }
+
+    // Rebuild event mapping using index-based lookup
+    let new_event_mapping: Vec<Event> = new_to_old.iter()
+        .enumerate()
+        .map(|(new_idx, old_idx_opt)| {
+            if let Some(old_idx) = old_idx_opt {
+                event_mapping[*old_idx].clone()
             } else {
-                Event::Speciation
+                if sampled_tree.nodes[new_idx].left_child.is_none() {
+                    Event::Leaf
+                } else {
+                    Event::Speciation
+                }
             }
         })
         .collect();
 
-    let new_node_mapping = vec![species_tree.root; num_nodes];
+    let new_node_mapping: Vec<Option<usize>> = sampled_tree.nodes.iter()
+        .map(|n| {
+            if n.left_child.is_none() && n.right_child.is_none() {
+                if let Some(pos) = n.name.rfind('_') {
+                    let species_name = &n.name[..pos];
+                    species_tree.nodes.iter()
+                        .position(|sn| sn.name == species_name)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect();
 
-    Ok(rectree_to_rlist(&species_tree, &sampled_tree, &new_node_mapping, &new_event_mapping))
+    rectree_to_rlist(&species_tree, &sampled_tree, &new_node_mapping, &new_event_mapping)
 }
 
 /// Sample species tree leaves and filter gene tree accordingly.
@@ -686,12 +703,12 @@ fn sample_species_leaves_r(gene_tree_list: List, species_leaf_names: Robj) -> Re
         .map_err(|e| format!("Failed to sample species leaves: {}", e))?;
 
     // Convert back to R list
-    Ok(rectree_to_rlist(
+    rectree_to_rlist(
         &sampled_rec_tree.species_tree,
         &sampled_rec_tree.gene_tree,
         &sampled_rec_tree.node_mapping,
         &sampled_rec_tree.event_mapping,
-    ))
+    )
 }
 
 /// Extract an induced subtree keeping only specified leaves.
@@ -721,7 +738,7 @@ fn extract_induced_subtree_by_names_r(tree_list: List, leaf_names: Robj) -> Resu
     let tree = rlist_to_flattree(&tree_list)?;
 
     // Extract the induced subtree
-    let induced_tree = extract_induced_subtree_by_names(&tree, &names)
+    let (induced_tree, _) = extract_induced_subtree_by_names(&tree, &names)
         .ok_or("Failed to extract induced subtree (no matching leaves found)")?;
 
     // Return as a simple tree (no reconciliation info)
@@ -855,19 +872,27 @@ fn rlist_to_bd_events(list: &List) -> Result<Vec<TreeEvent>> {
         .ok_or("Failed to get child2 column")?;
 
     let events: Vec<TreeEvent> = (0..times.len())
-        .map(|i| TreeEvent {
-            time: times[i],
-            node_id: node_ids[i] as usize,
-            event_type: BDEvent::from_str(&event_types[i]).unwrap_or(BDEvent::Leaf),
-            child1: if child1s[i].is_na() { None } else { Some(child1s[i] as usize) },
-            child2: if child2s[i].is_na() { None } else { Some(child2s[i] as usize) },
+        .map(|i| {
+            let event_type = BDEvent::from_str(&event_types[i])
+                .ok_or_else(|| format!(
+                    "Unknown BD event type '{}' at index {}. Expected one of: Speciation, Extinction, Leaf",
+                    event_types[i], i
+                ))?;
+            Ok(TreeEvent {
+                time: times[i],
+                node_id: node_ids[i] as usize,
+                event_type,
+                child1: if child1s[i].is_na() { None } else { Some(child1s[i] as usize) },
+                child2: if child2s[i].is_na() { None } else { Some(child2s[i] as usize) },
+            })
         })
-        .collect();
+        .collect::<std::result::Result<Vec<TreeEvent>, String>>()
+        .map_err(|e| extendr_api::Error::Other(e))?;
 
     Ok(events)
 }
 
-fn rectree_to_rlist(species_tree: &FlatTree, gene_tree: &FlatTree, node_mapping: &[usize], event_mapping: &[Event]) -> List {
+fn rectree_to_rlist(species_tree: &FlatTree, gene_tree: &FlatTree, node_mapping: &[Option<usize>], event_mapping: &[Event]) -> Result<List> {
     let names: Vec<String> = gene_tree.nodes.iter().map(|n| n.name.clone()).collect();
     let parents: Vec<Rint> = gene_tree.nodes.iter()
         .map(|n| n.parent.map(|p| Rint::from(p as i32)).unwrap_or(Rint::na()))
@@ -883,8 +908,23 @@ fn rectree_to_rlist(species_tree: &FlatTree, gene_tree: &FlatTree, node_mapping:
         .map(|n| n.depth.map(|d| Rfloat::from(d)).unwrap_or(Rfloat::na()))
         .collect();
 
+    // Validate all node_mapping indices before using them
+    for (gene_idx, opt_idx) in node_mapping.iter().enumerate() {
+        if let Some(idx) = opt_idx {
+            if *idx >= species_tree.nodes.len() {
+                return Err(Error::Other(format!(
+                    "Invalid species node index {} in node_mapping at gene node {}. Species tree has {} nodes.",
+                    idx, gene_idx, species_tree.nodes.len()
+                )));
+            }
+        }
+    }
+
     let species_nodes: Vec<String> = node_mapping.iter()
-        .map(|&idx| species_tree.nodes[idx].name.clone())
+        .map(|opt_idx| match opt_idx {
+            Some(idx) => species_tree.nodes[*idx].name.clone(),
+            None => "NA".to_string(),
+        })
         .collect();
 
     let events: Vec<String> = event_mapping.iter()
@@ -900,7 +940,7 @@ fn rectree_to_rlist(species_tree: &FlatTree, gene_tree: &FlatTree, node_mapping:
     // Also store the species tree for later use
     let species_tree_list = flattree_to_rlist(species_tree);
 
-    list!(
+    Ok(list!(
         name = names,
         parent = parents,
         left_child = left_children,
@@ -911,10 +951,10 @@ fn rectree_to_rlist(species_tree: &FlatTree, gene_tree: &FlatTree, node_mapping:
         event = events,
         root = gene_tree.root as i32,
         species_tree = species_tree_list
-    )
+    ))
 }
 
-fn rlist_to_genetree(list: &List) -> Result<(FlatTree, FlatTree, Vec<usize>, Vec<Event>)> {
+fn rlist_to_genetree(list: &List) -> Result<(FlatTree, FlatTree, Vec<Option<usize>>, Vec<Event>)> {
     // Get gene tree data
     let names: Vec<String> = list.dollar("name")?.as_str_vector()
         .ok_or("Failed to get name column")?
@@ -962,25 +1002,39 @@ fn rlist_to_genetree(list: &List) -> Result<(FlatTree, FlatTree, Vec<usize>, Vec
     };
 
     // Build node mapping (find species node index by name)
-    let node_mapping: Vec<usize> = species_node_names.iter()
-        .map(|name| {
-            species_tree.nodes.iter()
-                .position(|n| &n.name == name)
-                .unwrap_or(species_tree.root)
+    let node_mapping: Vec<Option<usize>> = species_node_names.iter()
+        .enumerate()
+        .map(|(i, name)| {
+            if name == "NA" || name.is_empty() {
+                Ok(None)
+            } else {
+                species_tree.nodes.iter().position(|n| &n.name == name)
+                    .map(Some)
+                    .ok_or_else(|| format!(
+                        "Species node name '{}' (at gene node index {}) not found in species tree",
+                        name, i
+                    ))
+            }
         })
-        .collect();
+        .collect::<std::result::Result<Vec<Option<usize>>, String>>()
+        .map_err(|e| extendr_api::Error::Other(e))?;
 
     // Build event mapping
     let event_mapping: Vec<Event> = event_strs.iter()
-        .map(|s| match s.as_str() {
-            "Speciation" => Event::Speciation,
-            "Duplication" => Event::Duplication,
-            "Transfer" => Event::Transfer,
-            "Loss" => Event::Loss,
-            "Leaf" => Event::Leaf,
-            _ => Event::Speciation,
+        .enumerate()
+        .map(|(i, s)| match s.as_str() {
+            "Speciation" => Ok(Event::Speciation),
+            "Duplication" => Ok(Event::Duplication),
+            "Transfer" => Ok(Event::Transfer),
+            "Loss" => Ok(Event::Loss),
+            "Leaf" => Ok(Event::Leaf),
+            unknown => Err(format!(
+                "Unknown reconciliation event type '{}' at index {}. Expected one of: Speciation, Duplication, Transfer, Loss, Leaf",
+                unknown, i
+            )),
         })
-        .collect();
+        .collect::<std::result::Result<Vec<Event>, String>>()
+        .map_err(|e| extendr_api::Error::Other(e))?;
 
     Ok((gene_tree, species_tree, node_mapping, event_mapping))
 }
@@ -1007,10 +1061,11 @@ fn pairwise_distances_r(tree_list: List, distance_type: &str, leaves_only: bool)
         ).into()),
     };
 
-    let distances = tree.pairwise_distances(dist_type, leaves_only);
+    let distances = tree.pairwise_distances(dist_type, leaves_only)
+        .map_err(|e| format!("Failed to compute pairwise distances: {}", e))?;
 
-    let node1: Vec<String> = distances.iter().map(|d| d.node1.clone()).collect();
-    let node2: Vec<String> = distances.iter().map(|d| d.node2.clone()).collect();
+    let node1: Vec<String> = distances.iter().map(|d| d.node1.to_string()).collect();
+    let node2: Vec<String> = distances.iter().map(|d| d.node2.to_string()).collect();
     let dist: Vec<f64> = distances.iter().map(|d| d.distance).collect();
 
     Ok(list!(
@@ -1042,7 +1097,8 @@ fn save_pairwise_distances_csv_r(tree_list: List, filepath: &str, distance_type:
         ).into()),
     };
 
-    let distances = tree.pairwise_distances(dist_type, leaves_only);
+    let distances = tree.pairwise_distances(dist_type, leaves_only)
+        .map_err(|e| format!("Failed to compute pairwise distances: {}", e))?;
 
     // Write to CSV
     let mut csv = String::from(PairwiseDistance::csv_header());
@@ -1071,12 +1127,12 @@ fn parse_recphyloxml_r(filepath: &str) -> Result<List> {
         .map_err(|e| format!("Failed to parse RecPhyloXML: {}", e))?;
 
     // Convert to R list using the rectree_to_rlist function
-    Ok(rectree_to_rlist(
+    rectree_to_rlist(
         &rec_tree_owned.species_tree,
         &rec_tree_owned.gene_tree,
         &rec_tree_owned.node_mapping,
         &rec_tree_owned.event_mapping,
-    ))
+    )
 }
 
 // Macro to generate exports

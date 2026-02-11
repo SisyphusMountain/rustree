@@ -12,7 +12,7 @@ use super::event::DTLEvent;
 /// genes are alive in each species.
 pub(crate) struct SimulationState {
     pub gene_nodes: Vec<FlatNode>,
-    pub node_mapping: Vec<usize>,
+    pub node_mapping: Vec<Option<usize>>,
     pub event_mapping: Vec<Event>,
     pub events: Vec<DTLEvent>,
     /// Maps species_idx -> Vec of gene node indices alive in that species.
@@ -43,7 +43,7 @@ impl SimulationState {
             length: 0.0,
             bd_event: None,
         });
-        self.node_mapping.push(species_idx);
+        self.node_mapping.push(Some(species_idx));
         self.event_mapping.push(event);
         idx
     }

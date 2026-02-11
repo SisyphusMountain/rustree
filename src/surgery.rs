@@ -292,8 +292,9 @@ pub fn spr_topology(
     // --- Ancestry Check (Cycle Prevention) ---
     if is_ancestor(flat_tree, moving_node_index, recipient_idx) {
         return Err(format!(
-            "Moving node R ({}) cannot be an ancestor of the moving node N ({}). Move would create a cycle.",
-            flat_tree[recipient_idx].name, flat_tree[moving_node_index].name
+            "Invalid SPR: moving node '{moving}' is an ancestor of recipient '{recipient}'. Move would create a cycle.",
+            moving = flat_tree[moving_node_index].name,
+            recipient = flat_tree[recipient_idx].name,
         ));
     }
 

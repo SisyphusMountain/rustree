@@ -337,7 +337,10 @@ fn compute_events_per_species(rec_tree: &RecTreeOwned) -> HashMap<String, EventC
     // Traverse all nodes in the reconciled tree
     for i in 0..rec_tree.gene_tree.nodes.len() {
         // Get the species node this gene node maps to
-        let species_idx = rec_tree.node_mapping[i];
+        let species_idx = match rec_tree.node_mapping[i] {
+            Some(idx) => idx,
+            None => continue, // skip unmapped nodes
+        };
         let species_node = &rec_tree.species_tree.nodes[species_idx];
         let species_name = species_node.name.clone();
 

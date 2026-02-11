@@ -92,10 +92,10 @@ impl GeneNode {
 /// Returns a tuple of (species_tree, gene_tree, node_mapping, event_mapping).
 pub fn parse_recphyloxml(
     xml_content: &str,
-) -> Result<(FlatTree, FlatTree, Vec<usize>, Vec<Event>), ParseError> {
+) -> Result<(FlatTree, FlatTree, Vec<Option<usize>>, Vec<Event>), ParseError> {
     // Parse the species tree
     let species_root = parse_species_tree(xml_content)?;
-    let (species_tree, species_name_map) = species_node_to_flat_tree(&species_root);
+    let (species_tree, species_name_map) = species_node_to_flat_tree(&species_root)?;
 
     // Parse the gene tree
     let gene_root = parse_gene_tree(xml_content)?;
@@ -108,7 +108,7 @@ pub fn parse_recphyloxml(
 /// Parse a RecPhyloXML file and return the components for creating a RecTree.
 pub fn parse_recphyloxml_file(
     filepath: &str,
-) -> Result<(FlatTree, FlatTree, Vec<usize>, Vec<Event>), ParseError> {
+) -> Result<(FlatTree, FlatTree, Vec<Option<usize>>, Vec<Event>), ParseError> {
     let xml_content = fs::read_to_string(filepath)?;
     parse_recphyloxml(&xml_content)
 }
@@ -169,13 +169,22 @@ fn parse_species_tree(xml_content: &str) -> Result<SpeciesNode, ParseError> {
                     }
                     "branchLength" if in_branch_length => {
                         if let Some(node) = clade_stack.last_mut() {
-                            node.branch_length = current_text.trim().parse().unwrap_or(0.0);
+                            let trimmed = current_text.trim();
+                            node.branch_length = match trimmed.parse() {
+                                Ok(v) => v,
+                                Err(_) => {
+                                    eprintln!("Warning: failed to parse branch length '{}' in species tree, defaulting to 0.0", trimmed);
+                                    0.0
+                                }
+                            };
                         }
                         in_branch_length = false;
                     }
                     "clade" if in_phylogeny && depth > 0 => {
                         depth -= 1;
-                        let completed_node = clade_stack.pop().unwrap();
+                        let completed_node = clade_stack.pop().ok_or_else(|| {
+                            ParseError::InvalidFormat("Malformed XML: closing </clade> without matching opening tag in species tree".to_string())
+                        })?;
 
                         if depth == 0 {
                             // This is the root node
@@ -328,7 +337,14 @@ fn parse_gene_tree(xml_content: &str) -> Result<GeneNode, ParseError> {
                     }
                     "branchLength" if in_branch_length => {
                         if let Some(node) = clade_stack.last_mut() {
-                            node.branch_length = current_text.trim().parse().unwrap_or(0.0);
+                            let trimmed = current_text.trim();
+                            node.branch_length = match trimmed.parse() {
+                                Ok(v) => v,
+                                Err(_) => {
+                                    eprintln!("Warning: failed to parse branch length '{}' in gene tree, defaulting to 0.0", trimmed);
+                                    0.0
+                                }
+                            };
                         }
                         in_branch_length = false;
                     }
@@ -337,7 +353,9 @@ fn parse_gene_tree(xml_content: &str) -> Result<GeneNode, ParseError> {
                     }
                     "clade" if in_phylogeny && depth > 0 => {
                         depth -= 1;
-                        let completed_node = clade_stack.pop().unwrap();
+                        let completed_node = clade_stack.pop().ok_or_else(|| {
+                            ParseError::InvalidFormat("Malformed XML: closing </clade> without matching opening tag in gene tree".to_string())
+                        })?;
 
                         if depth == 0 {
                             // This is the root node
@@ -376,7 +394,9 @@ fn get_attribute(element: &quick_xml::events::BytesStart, attr_name: &[u8]) -> O
 }
 
 /// Convert a SpeciesNode tree to a FlatTree with a name-to-index map.
-fn species_node_to_flat_tree(root: &SpeciesNode) -> (FlatTree, HashMap<String, usize>) {
+fn species_node_to_flat_tree(
+    root: &SpeciesNode,
+) -> Result<(FlatTree, HashMap<String, usize>), ParseError> {
     let mut nodes = Vec::new();
     let mut name_map = HashMap::new();
 
@@ -385,7 +405,16 @@ fn species_node_to_flat_tree(root: &SpeciesNode) -> (FlatTree, HashMap<String, u
         parent: Option<usize>,
         nodes: &mut Vec<FlatNode>,
         name_map: &mut HashMap<String, usize>,
-    ) -> usize {
+    ) -> Result<usize, ParseError> {
+        // Reject non-binary nodes
+        if node.children.len() > 2 {
+            return Err(ParseError::InvalidFormat(format!(
+                "Non-binary node detected: species node '{}' has {} children. Only binary trees are supported.",
+                node.name,
+                node.children.len()
+            )));
+        }
+
         let index = nodes.len();
 
         // Add entry to name map (first occurrence wins for ambiguous names)
@@ -406,39 +435,34 @@ fn species_node_to_flat_tree(root: &SpeciesNode) -> (FlatTree, HashMap<String, u
 
         // Process children
         if node.children.len() > 0 {
-            let left_idx = traverse(&node.children[0], Some(index), nodes, name_map);
+            let left_idx = traverse(&node.children[0], Some(index), nodes, name_map)?;
             nodes[index].left_child = Some(left_idx);
 
             if node.children.len() > 1 {
-                let right_idx = traverse(&node.children[1], Some(index), nodes, name_map);
+                let right_idx = traverse(&node.children[1], Some(index), nodes, name_map)?;
                 nodes[index].right_child = Some(right_idx);
-            }
-
-            // If there are more than 2 children, issue a warning (should not happen for binary trees)
-            if node.children.len() > 2 {
-                eprintln!("Warning: Node '{}' has more than 2 children, only first 2 will be used", node.name);
             }
         }
 
-        index
+        Ok(index)
     }
 
-    let root_idx = traverse(root, None, &mut nodes, &mut name_map);
+    let root_idx = traverse(root, None, &mut nodes, &mut name_map)?;
 
-    (
+    Ok((
         FlatTree {
             nodes,
             root: root_idx,
         },
         name_map,
-    )
+    ))
 }
 
 /// Convert a GeneNode tree to a FlatTree with mapping vectors.
 fn gene_node_to_flat_tree(
     root: &GeneNode,
     species_name_map: &HashMap<String, usize>,
-) -> Result<(FlatTree, Vec<usize>, Vec<Event>), ParseError> {
+) -> Result<(FlatTree, Vec<Option<usize>>, Vec<Event>), ParseError> {
     let mut nodes = Vec::new();
     let mut node_mapping = Vec::new();
     let mut event_mapping = Vec::new();
@@ -447,7 +471,7 @@ fn gene_node_to_flat_tree(
         node: &GeneNode,
         parent: Option<usize>,
         nodes: &mut Vec<FlatNode>,
-        node_mapping: &mut Vec<usize>,
+        node_mapping: &mut Vec<Option<usize>>,
         event_mapping: &mut Vec<Event>,
         species_name_map: &HashMap<String, usize>,
     ) -> Result<usize, ParseError> {
@@ -478,8 +502,17 @@ fn gene_node_to_flat_tree(
         });
 
         // Add mappings
-        node_mapping.push(species_idx);
+        node_mapping.push(Some(species_idx));
         event_mapping.push(node.event_type.clone());
+
+        // Reject non-binary nodes
+        if node.children.len() > 2 {
+            return Err(ParseError::InvalidFormat(format!(
+                "Non-binary node detected: gene node '{}' has {} children. Only binary trees are supported.",
+                node.name,
+                node.children.len()
+            )));
+        }
 
         // Process children
         if node.children.len() > 0 {
@@ -503,14 +536,6 @@ fn gene_node_to_flat_tree(
                     species_name_map,
                 )?;
                 nodes[index].right_child = Some(right_idx);
-            }
-
-            // If there are more than 2 children, issue a warning
-            if node.children.len() > 2 {
-                eprintln!(
-                    "Warning: Gene node '{}' has more than 2 children, only first 2 will be used",
-                    node.name
-                );
             }
         }
 
@@ -564,7 +589,7 @@ pub fn build_species_name_map(species_tree: &FlatTree) -> HashMap<String, usize>
 pub fn parse_gene_tree_only(
     xml_content: &str,
     species_tree: &FlatTree,
-) -> Result<(FlatTree, Vec<usize>, Vec<Event>), ParseError> {
+) -> Result<(FlatTree, Vec<Option<usize>>, Vec<Event>), ParseError> {
     // Build name map from provided species tree
     let species_name_map = build_species_name_map(species_tree);
 
@@ -582,7 +607,7 @@ pub fn parse_gene_tree_only(
 pub fn parse_gene_tree_only_file(
     xml_filepath: &str,
     species_tree: &FlatTree,
-) -> Result<(FlatTree, Vec<usize>, Vec<Event>), ParseError> {
+) -> Result<(FlatTree, Vec<Option<usize>>, Vec<Event>), ParseError> {
     let xml_content = fs::read_to_string(xml_filepath)?;
     parse_gene_tree_only(&xml_content, species_tree)
 }

@@ -1,6 +1,7 @@
 use rustree::{RecTreeOwned, Event};
 
 #[test]
+#[ignore] // Requires local data files at /home/enzo/... - run with: cargo test --test test_alerax_real_file -- --ignored
 fn test_parse_alerax_file() {
     let filepath = "/home/enzo/Documents/git/WP2/data/test_data/test_2/alerax_g.xml";
 
@@ -52,7 +53,7 @@ fn test_parse_alerax_file() {
         .collect();
 
     for (idx, node) in leaf_nodes {
-        let species_idx = rec_tree.node_mapping[idx];
+        let species_idx = rec_tree.node_mapping[idx].unwrap();
         let species_name = &rec_tree.species_tree.nodes[species_idx].name;
         println!("  - {} (in species: {})", node.name, species_name);
     }

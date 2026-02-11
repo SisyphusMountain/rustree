@@ -93,25 +93,25 @@ fn test_sample_species_leaves_simple() {
         .collect();
 
     // Simple mapping: map each gene directly to corresponding species
-    let mut node_mapping = vec![0; gene_tree.nodes.len()];
+    let mut node_mapping: Vec<Option<usize>> = vec![Some(0); gene_tree.nodes.len()];
     let mut event_mapping = vec![Event::Speciation; gene_tree.nodes.len()];
 
     for (idx, node) in gene_tree.nodes.iter().enumerate() {
         if node.left_child.is_none() && node.right_child.is_none() {
             // Leaf - map to species by name pattern
             if node.name.contains("gA") {
-                node_mapping[idx] = a_idx;
+                node_mapping[idx] = Some(a_idx);
                 event_mapping[idx] = Event::Leaf;
             } else if node.name.contains("gB") {
-                node_mapping[idx] = b_idx;
+                node_mapping[idx] = Some(b_idx);
                 event_mapping[idx] = Event::Leaf;
             } else if node.name.contains("gC") {
-                node_mapping[idx] = c_idx;
+                node_mapping[idx] = Some(c_idx);
                 event_mapping[idx] = Event::Leaf;
             }
         } else {
             // Internal node - map to AB (LCA of A and B)
-            node_mapping[idx] = ab_idx;
+            node_mapping[idx] = Some(ab_idx);
         }
     }
 
@@ -156,7 +156,7 @@ fn test_sample_species_leaves_single_species() {
     let ab_idx = species_tree.nodes.iter().position(|n| n.name == "AB").unwrap();
     let root_idx = species_tree.root;
 
-    let node_mapping = vec![root_idx, ab_idx, a_idx, b_idx, c_idx];
+    let node_mapping = vec![Some(root_idx), Some(ab_idx), Some(a_idx), Some(b_idx), Some(c_idx)];
     let event_mapping = vec![Event::Speciation, Event::Speciation, Event::Leaf, Event::Leaf, Event::Leaf];
 
     let rec_tree = RecTreeOwned::new(
@@ -189,7 +189,7 @@ fn test_sample_species_leaves_all_species() {
     let ab_idx = species_tree.nodes.iter().position(|n| n.name == "AB").unwrap();
     let root_idx = species_tree.root;
 
-    let node_mapping = vec![root_idx, ab_idx, a_idx, b_idx, c_idx];
+    let node_mapping = vec![Some(root_idx), Some(ab_idx), Some(a_idx), Some(b_idx), Some(c_idx)];
     let event_mapping = vec![Event::Speciation, Event::Speciation, Event::Leaf, Event::Leaf, Event::Leaf];
 
     let rec_tree = RecTreeOwned::new(
@@ -211,10 +211,7 @@ fn test_sample_species_leaves_all_species() {
     assert_eq!(sampled.gene_tree.nodes.len(), rec_tree.gene_tree.nodes.len());
 }
 
-// TODO: This test is currently disabled because duplication events are not being preserved correctly
-// during sampling. This is a known issue that needs further investigation.
 #[test]
-#[ignore]
 fn test_sample_species_leaves_with_duplication() {
     // Create species tree
     let species_tree = make_species_tree("(A:1,B:1)Root:0;");
@@ -226,17 +223,17 @@ fn test_sample_species_leaves_with_duplication() {
     let b_idx = species_tree.nodes.iter().position(|n| n.name == "B").unwrap();
 
     // Build mappings based on gene tree structure
-    let mut node_mapping = vec![0; gene_tree.nodes.len()];
+    let mut node_mapping: Vec<Option<usize>> = vec![Some(0); gene_tree.nodes.len()];
     let mut event_mapping = vec![Event::Speciation; gene_tree.nodes.len()];
 
     for (idx, node) in gene_tree.nodes.iter().enumerate() {
         if node.left_child.is_none() && node.right_child.is_none() {
             // Leaf nodes
             if node.name.contains("gA") {
-                node_mapping[idx] = a_idx;
+                node_mapping[idx] = Some(a_idx);
                 event_mapping[idx] = Event::Leaf;
             } else if node.name.contains("gB") {
-                node_mapping[idx] = b_idx;
+                node_mapping[idx] = Some(b_idx);
                 event_mapping[idx] = Event::Leaf;
             }
         } else {
@@ -249,12 +246,12 @@ fn test_sample_species_leaves_with_duplication() {
 
             if left_name.contains("gA") && right_name.contains("gA") {
                 // This is the duplication node (parent of two A genes)
-                node_mapping[idx] = a_idx;
+                node_mapping[idx] = Some(a_idx);
                 event_mapping[idx] = Event::Duplication;
             } else {
                 // Root speciation node - map to A for this test
                 // (in reality would map to species root, but for sampling test we keep it simple)
-                node_mapping[idx] = a_idx;
+                node_mapping[idx] = Some(a_idx);
                 event_mapping[idx] = Event::Speciation;
             }
         }
@@ -293,7 +290,7 @@ fn test_sample_species_leaves_no_matching_genes() {
     let b_idx = species_tree.nodes.iter().position(|n| n.name == "B").unwrap();
     let ab_idx = species_tree.nodes.iter().position(|n| n.name == "AB").unwrap();
 
-    let node_mapping = vec![ab_idx, a_idx, b_idx];
+    let node_mapping = vec![Some(ab_idx), Some(a_idx), Some(b_idx)];
     let event_mapping = vec![Event::Speciation, Event::Leaf, Event::Leaf];
 
     let rec_tree = RecTreeOwned::new(
@@ -319,7 +316,7 @@ fn test_sample_species_leaves_invalid_species() {
     let b_idx = species_tree.nodes.iter().position(|n| n.name == "B").unwrap();
     let root_idx = species_tree.root;
 
-    let node_mapping = vec![root_idx, a_idx, b_idx];
+    let node_mapping = vec![Some(root_idx), Some(a_idx), Some(b_idx)];
     let event_mapping = vec![Event::Speciation, Event::Leaf, Event::Leaf];
 
     let rec_tree = RecTreeOwned::new(
@@ -336,9 +333,7 @@ fn test_sample_species_leaves_invalid_species() {
     assert!(result.unwrap_err().contains("Failed to sample species tree"));
 }
 
-// TODO: This test is currently disabled for the same reason as test_sample_species_leaves_with_duplication
 #[test]
-#[ignore]
 fn test_sample_preserves_event_types() {
     // Create a tree with multiple event types
     let species_tree = make_species_tree("(A:1,B:1):0;");
@@ -348,17 +343,17 @@ fn test_sample_preserves_event_types() {
     let b_idx = species_tree.nodes.iter().position(|n| n.name == "B").unwrap();
 
     // Build mappings based on gene tree structure
-    let mut node_mapping = vec![0; gene_tree.nodes.len()];
+    let mut node_mapping: Vec<Option<usize>> = vec![Some(0); gene_tree.nodes.len()];
     let mut event_mapping = vec![Event::Speciation; gene_tree.nodes.len()];
 
     for (idx, node) in gene_tree.nodes.iter().enumerate() {
         if node.left_child.is_none() && node.right_child.is_none() {
             // Leaf nodes
             if node.name.contains("gA") {
-                node_mapping[idx] = a_idx;
+                node_mapping[idx] = Some(a_idx);
                 event_mapping[idx] = Event::Leaf;
             } else if node.name.contains("gB") {
-                node_mapping[idx] = b_idx;
+                node_mapping[idx] = Some(b_idx);
                 event_mapping[idx] = Event::Leaf;
             }
         } else {
@@ -370,11 +365,11 @@ fn test_sample_preserves_event_types() {
 
             if left_name.contains("gA") && right_name.contains("gA") {
                 // Duplication node
-                node_mapping[idx] = a_idx;
+                node_mapping[idx] = Some(a_idx);
                 event_mapping[idx] = Event::Duplication;
             } else {
                 // Root speciation node - map to A to keep it simple
-                node_mapping[idx] = a_idx;
+                node_mapping[idx] = Some(a_idx);
                 event_mapping[idx] = Event::Speciation;
             }
         }

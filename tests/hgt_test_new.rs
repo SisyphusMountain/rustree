@@ -64,19 +64,19 @@ fn run_spr_test(moved_node_name: &str, receiver_name: &str, expected_filename: &
     let expected_tree = expected_nodes.pop().expect("No expected tree found");
 
     // Compare the computed tree with the expected tree topology.
-    if !compare_nodes_topology(&computed_tree, &expected_tree) {
-         // Generate Newick strings for easier visual comparison in panic message
-         let computed_newick = computed_tree.to_newick();
-         let expected_newick = expected_tree.to_newick();
+    match compare_nodes_topology(&computed_tree, &expected_tree) {
+        Ok(true) => println!("SPR test passed for {} -> {}", moved_node_name, receiver_name),
+        Ok(false) => {
+            // Generate Newick strings for easier visual comparison in panic message
+            let computed_newick = computed_tree.to_newick().unwrap_or_else(|e| format!("<error: {}>", e));
+            let expected_newick = expected_tree.to_newick().unwrap_or_else(|e| format!("<error: {}>", e));
 
-        println!("Computed tree topology:\n{}", computed_newick);
-        println!("Expected tree topology:\n{}", expected_newick);
-        // Optionally print the flat tree table again for debugging indices/parents
-        // diffed_flat_tree_table(&flat_tree, None, false);
-        panic!("SPR tree topology for donor '{}' -> receiver '{}' does not match expected file '{}'.",
-               moved_node_name, receiver_name, expected_filename);
-    } else {
-         println!("SPR test passed for {} -> {}", moved_node_name, receiver_name);
+            println!("Computed tree topology:\n{}", computed_newick);
+            println!("Expected tree topology:\n{}", expected_newick);
+            panic!("SPR tree topology for donor '{}' -> receiver '{}' does not match expected file '{}'.",
+                   moved_node_name, receiver_name, expected_filename);
+        }
+        Err(e) => panic!("Error comparing tree topologies: {}", e),
     }
 }
 

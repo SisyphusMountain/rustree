@@ -35,7 +35,7 @@ pub mod r;
 pub use newick::newick::parse_newick;
 pub use node::{Node, FlatNode, FlatTree, TraversalOrder, node_to_flat, flat_to_node, obtain_mapping, rename_reconciled_tree};
 pub use node::{RecTree, RecTreeOwned, Event, parse_recphyloxml, parse_recphyloxml_file};
-pub use metric_functions::{DistanceType, PairwiseDistance};
+pub use metric_functions::{DistanceType, PairwiseDistance, LcaTable};
 pub use sampling::{
     extract_induced_subtree, extract_induced_subtree_by_names,
     compute_lca, build_leaf_pair_lca_map, build_sampled_to_original_mapping,

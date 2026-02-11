@@ -31,6 +31,7 @@ fn main() {
             species_tree.root,
             0.2, 0.2, 0.1,
             None,
+            None,
             false,
             &mut rng,
         );
