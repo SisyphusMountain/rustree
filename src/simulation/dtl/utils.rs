@@ -104,6 +104,9 @@ pub(crate) fn select_transfer_recipient_assortative<R: Rng>(
     }
 
     // Compute weights for each potential recipient
+    // We can later make this more efficient by precomputing the 
+    // exponentials for each possible timeslice, due to the softmax
+    // invariance. For now we compute them on the fly for simplicity.
     let mut weights: Vec<f64> = Vec::with_capacity(recipients.len());
     let mut total_weight = 0.0;
 
@@ -192,19 +195,6 @@ pub(crate) fn find_time_index(depths: &[f64], time: f64) -> usize {
     }
 }
 
-/// Draws an exponential waiting time for the next event.
-/// If rates are zero, it is possible that total_rate is zero, in which case we return infinity to indicate no more events will occur.
-/// We will therefore only get speciations, and this edge case must be handled
-/// elsewhere thoughout the code.
-#[inline]
-pub(crate) fn draw_waiting_time<R: Rng>(total_rate: f64, rng: &mut R) -> f64 {
-    if total_rate > 0.0 {
-        let u: f64 = rng.gen();
-        -u.ln() / total_rate
-    } else {
-        f64::INFINITY
-    }
-}
 
 /// Finalizes simulation by finding the root and handling edge cases.
 pub(crate) fn finalize_simulation(

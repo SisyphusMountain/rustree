@@ -3,7 +3,7 @@
 //! This module provides functions to parse RecPhyloXML files (e.g., from ALERax)
 //! into the rustree data structures.
 
-use super::{FlatNode, FlatTree, rectree::Event};
+use crate::node::{FlatNode, FlatTree, rectree::Event};
 use quick_xml::events::Event as XmlEvent;
 use quick_xml::Reader;
 use std::collections::HashMap;

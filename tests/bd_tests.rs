@@ -1,6 +1,6 @@
 // Tests for birth-death tree simulation
 
-use rustree::bd::{simulate_bd_tree, save_events_to_csv, BDEvent};
+use rustree::bd::{simulate_bd_tree_bwd, save_events_to_csv, BDEvent};
 use rustree::node::TraversalOrder;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -13,7 +13,7 @@ fn test_bd_tree_basic() {
     let lambda = 1.0;
     let mu = 0.5;
 
-    let (tree, events) = simulate_bd_tree(n, lambda, mu, &mut rng);
+    let (tree, events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng);
 
     // Count leaf nodes (nodes with no children)
     let leaf_count = tree.nodes.iter()
@@ -53,7 +53,7 @@ fn test_bd_tree_traversal() {
     let lambda = 1.0;
     let mu = 0.3;
 
-    let (tree, _events) = simulate_bd_tree(n, lambda, mu, &mut rng);
+    let (tree, _events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng);
 
     // Test that we can traverse the tree
     let mut node_count = 0;
@@ -72,7 +72,7 @@ fn test_bd_tree_invalid_rates() {
     let lambda = 0.5;
     let mu = 1.0; // mu >= lambda should panic
 
-    simulate_bd_tree(n, lambda, mu, &mut rng);
+    simulate_bd_tree_bwd(n, lambda, mu, &mut rng);
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn test_bd_tree_pure_birth() {
     let lambda = 1.0;
     let mu = 0.0; // Pure birth (Yule) process
 
-    let (tree, events) = simulate_bd_tree(n, lambda, mu, &mut rng);
+    let (tree, events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng);
 
     // In a pure birth process, there should be no extinct lineages
     // So we should have exactly 2n-1 nodes (n leaves + n-1 internal nodes)

@@ -1,5 +1,5 @@
 // Generate as many DTL gene trees as possible within 1 second and export to XML
-use rustree::bd::simulate_bd_tree;
+use rustree::bd::simulate_bd_tree_bwd;
 use rustree::dtl::{simulate_dtl, count_events, count_extant_genes, DTLEvent};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -20,7 +20,7 @@ fn main() {
     let lambda = 1.0;
     let mu = 0.0; // Pure birth
 
-    let (species_tree, _) = simulate_bd_tree(n_species, lambda, mu, &mut rng);
+    let (species_tree, _) = simulate_bd_tree_bwd(n_species, lambda, mu, &mut rng);
     let mut species_tree = species_tree; // Make mutable for assign_depths
     species_tree.assign_depths();
     let phase1_time = phase1_start.elapsed();

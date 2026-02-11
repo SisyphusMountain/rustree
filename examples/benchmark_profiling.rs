@@ -1,5 +1,5 @@
 // Benchmark: Profile where CPU time is spent in DTL simulation
-use rustree::bd::simulate_bd_tree;
+use rustree::bd::simulate_bd_tree_bwd;
 use rustree::dtl::simulate_dtl;
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
@@ -11,7 +11,7 @@ fn main() {
     // Generate species tree
     println!("Generating species tree (1000 leaves)...");
     let mut rng = StdRng::seed_from_u64(42);
-    let (mut species_tree, _) = simulate_bd_tree(1000, 1.0, 0.0, &mut rng);
+    let (mut species_tree, _) = simulate_bd_tree_bwd(1000, 1.0, 0.0, &mut rng);
     species_tree.assign_depths();
     println!("  ✓ Generated {} species\n", species_tree.nodes.len());
 

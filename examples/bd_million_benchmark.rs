@@ -1,7 +1,7 @@
 use std::time::Instant;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use rustree::bd::simulate_bd_tree;
+use rustree::bd::simulate_bd_tree_bwd;
 
 fn fmt_num(n: usize) -> String {
     let s = n.to_string();
@@ -37,7 +37,7 @@ fn main() {
             let mut rng = StdRng::seed_from_u64(42 + i as u64);
 
             let start = Instant::now();
-            let (tree, _events) = simulate_bd_tree(n, lambda, mu, &mut rng);
+            let (tree, _events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng);
             let elapsed = start.elapsed().as_secs_f64();
 
             total_time += elapsed;

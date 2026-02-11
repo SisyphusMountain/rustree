@@ -3,6 +3,8 @@
 use crate::node::FlatTree;
 
 /// Event types in a birth-death process
+// This type only refers to the event of a given node.
+// TreeEvent includes all the other information about a node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BDEvent {
     /// Speciation event - lineage splits into two

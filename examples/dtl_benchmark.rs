@@ -1,7 +1,7 @@
 use std::time::Instant;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use rustree::bd::simulate_bd_tree;
+use rustree::bd::simulate_bd_tree_bwd;
 use rustree::dtl::{simulate_dtl_batch, simulate_dtl_per_species_batch, count_events};
 
 fn fmt_num(n: usize) -> String {
@@ -40,7 +40,7 @@ fn main() {
     for &n_species in &species_sizes {
         // Generate species tree
         let mut rng = StdRng::seed_from_u64(42);
-        let (mut species_tree, _) = simulate_bd_tree(n_species, 1.0, 0.5, &mut rng);
+        let (mut species_tree, _) = simulate_bd_tree_bwd(n_species, 1.0, 0.5, &mut rng);
         species_tree.assign_depths();
 
         // Benchmark per-gene-copy model (simulate_dtl_batch)
@@ -123,7 +123,7 @@ fn main() {
     println!("=============================================================");
 
     let mut rng = StdRng::seed_from_u64(42);
-    let (mut species_tree, _) = simulate_bd_tree(100, 1.0, 0.5, &mut rng);
+    let (mut species_tree, _) = simulate_bd_tree_bwd(100, 1.0, 0.5, &mut rng);
     species_tree.assign_depths();
 
     let batch_sizes = [100, 1_000, 10_000];

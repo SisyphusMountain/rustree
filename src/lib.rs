@@ -8,8 +8,9 @@ pub mod newick; // Newick parsing
 pub mod io;     // I/O utilities (CSV export)
 
 // Simulation modules
-pub mod bd;     // Birth-death tree simulation
-pub mod dtl;    // DTL (Duplication-Transfer-Loss) simulation
+pub mod simulation;
+pub use simulation::bd;
+pub use simulation::dtl;
 
 // Tree operations
 pub mod sampling;
@@ -22,7 +23,8 @@ pub mod debug;
 pub mod induced_transfers;
 
 // External tool integration
-pub mod alerax;
+pub mod external;
+pub use external::alerax;
 
 // Language bindings (feature-gated)
 #[cfg(feature = "python")]

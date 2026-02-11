@@ -147,6 +147,9 @@ pub fn ghost_lengths(
 ///
 /// # Returns
 /// A vector of `InducedTransfer` — one per Transfer event in `events`.
+
+
+// TODO: WTF: why do we need both the sampled tree and the sampled leaf names? 
 pub fn induced_transfers(
     complete_tree: &FlatTree,
     sampled_tree: &FlatTree,
@@ -154,6 +157,7 @@ pub fn induced_transfers(
     events: &[DTLEvent],
 ) -> Vec<InducedTransfer> {
     // Step 1: Mark complete tree nodes
+    println!("Warning: weird API to fix: we need both the sampled tree and the sampled leaf names to compute the projection. Can we just pass the sampled tree and extract the leaf names from it?");
     let keep_indices = find_leaf_indices_by_names(complete_tree, sampled_leaf_names);
     let mut marks = vec![NodeMark::Discard; complete_tree.nodes.len()];
     mark_nodes_postorder(complete_tree, complete_tree.root, &keep_indices, &mut marks);
@@ -293,6 +297,7 @@ mod tests {
         let events = vec![DTLEvent::Transfer {
             time: 0.5,
             gene_id: 0,
+            species_id: idx("B"),
             from_species: idx("B"),
             to_species: idx("D"),
             donor_child: 1,

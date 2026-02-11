@@ -1,4 +1,4 @@
-// DTL Event type definition
+// DTL Event type definition, and functions to export to CSV
 
 use crate::node::FlatTree;
 
@@ -25,7 +25,8 @@ pub enum DTLEvent {
     Transfer {
         time: f64,
         gene_id: usize,
-        from_species: usize,
+        species_id: usize,
+        from_species: usize, // redundant with species_id, but included for clarity
         to_species: usize,
         donor_child: usize,
         recipient_child: usize,
@@ -72,13 +73,13 @@ impl DTLEvent {
                     gene_tree.nodes[*child2].name
                 )
             }
-            DTLEvent::Transfer { time, gene_id, from_species, to_species, donor_child, recipient_child } => {
+            DTLEvent::Transfer { time, gene_id, species_id, from_species, to_species, donor_child, recipient_child } => {
                 format!(
                     "{},{},Transfer,{},{},{},{},{}",
                     time,
                     gene_tree.nodes[*gene_id].name,
-                    species_tree.nodes[*from_species].name,
-                    species_tree.nodes[*from_species].name,
+                    species_tree.nodes[*species_id].name,
+                    species_tree.nodes[*from_species].name, // from_species is the same as species_id, but we include it for clarity in the output
                     species_tree.nodes[*to_species].name,
                     gene_tree.nodes[*donor_child].name,
                     gene_tree.nodes[*recipient_child].name
@@ -104,6 +105,14 @@ impl DTLEvent {
     }
 
     /// CSV header for event data
+    // time: time of event
+    // gene_node_name: name of the gene node involved in the event
+    // event_type: type of event (Speciation, Duplication, Transfer, Loss, Leaf)
+    // species_node: name of the species node where the event occurs
+    // donor_species: for Transfer events, the **name** of the species from which the gene is transferred
+    // recipient_species: for Transfer events, the **name** of the species to which the gene is transferred
+    // child1_name: name of the first child gene node involved in the event (if applicable)
+    // child2_name: name of the second child gene node involved in the event (if applicable)
     pub fn csv_header() -> &'static str {
         "time,gene_node_name,event_type,species_node,donor_species,recipient_species,child1_name,child2_name"
     }

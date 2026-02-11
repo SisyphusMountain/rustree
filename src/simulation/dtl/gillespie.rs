@@ -9,8 +9,9 @@ use rand::Rng;
 
 use super::event::DTLEvent;
 use super::state::SimulationState;
+use crate::simulation::utils::draw_waiting_time;
 use super::utils::{
-    draw_waiting_time, find_time_index,
+    find_time_index,
     select_transfer_recipient, select_transfer_recipient_assortative,
     finalize_simulation,
 };
@@ -169,7 +170,7 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
             // Select affected gene based on mode
             let selection = match mode {
                 DTLMode::PerGene => {
-                    state.pick_random_gene_copy(rng)
+                    state.random_gene_copy(rng)
                 }
                 DTLMode::PerSpecies => {
                     let time_idx = find_time_index(depths, current_time);

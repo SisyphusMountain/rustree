@@ -1,5 +1,5 @@
 // Example: Simulate DTL gene tree and export to XML and CSV
-use rustree::bd::simulate_bd_tree;
+use rustree::bd::simulate_bd_tree_bwd;
 use rustree::dtl::{simulate_dtl, save_events_to_csv};
 use rustree::newick::newick::parse_newick;
 use rand::SeedableRng;
@@ -31,7 +31,7 @@ fn main() {
 
     // Option 2: Generate a random species tree using birth-death process
     let mut rng2 = StdRng::seed_from_u64(123);
-    let (mut bd_tree, _bd_events) = simulate_bd_tree(5, 1.0, 0.3, &mut rng2);
+    let (mut bd_tree, _bd_events) = simulate_bd_tree_bwd(5, 1.0, 0.3, &mut rng2);
     bd_tree.assign_depths();
 
     // Simulate gene tree on the random species tree

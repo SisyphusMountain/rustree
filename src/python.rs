@@ -10,7 +10,7 @@ use pyo3::exceptions::PyValueError;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
-use crate::bd::simulate_bd_tree;
+use crate::bd::simulate_bd_tree_bwd;
 use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch};
 use crate::node::{FlatTree, Event, RecTree};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names, find_leaf_indices_by_names};
@@ -259,13 +259,15 @@ impl PySpeciesTree {
     /// # Save birth-death events to CSV
     /// tree.save_bd_events_csv("events.csv")
     /// ```
-    fn save_bd_events_csv(&self, filepath: &str) -> PyResult<()> {
-        use crate::bd::generate_events_from_tree;
+    #[pyo3(signature = (filepath, eps=None))]
+    fn save_bd_events_csv(&self, filepath: &str, eps: Option<f64>) -> PyResult<()> {
+        use crate::bd::{generate_events_from_tree, generate_events_with_extinction};
         use crate::io::save_bd_events_to_csv;
 
-        // For parsed trees without stored events, generate them from tree structure
-        let events = generate_events_from_tree(&self.tree)
-            .map_err(|e| PyValueError::new_err(e))?;
+        let events = match eps {
+            Some(eps) => generate_events_with_extinction(&self.tree, eps),
+            None => generate_events_from_tree(&self.tree),
+        }.map_err(|e| PyValueError::new_err(e))?;
 
         save_bd_events_to_csv(&events, &self.tree, filepath)
             .map_err(|e| PyValueError::new_err(format!("Failed to write CSV file: {}", e)))?;
@@ -303,13 +305,15 @@ impl PySpeciesTree {
     /// df = pd.DataFrame(events)
     /// print(df.head())
     /// ```
-    fn get_bd_events(&self, py: Python) -> PyResult<PyObject> {
-        use crate::bd::generate_events_from_tree;
+    #[pyo3(signature = (eps=None))]
+    fn get_bd_events(&self, py: Python, eps: Option<f64>) -> PyResult<PyObject> {
+        use crate::bd::{generate_events_from_tree, generate_events_with_extinction};
         use pyo3::types::PyDict;
 
-        // For parsed trees without stored events, generate them from tree structure
-        let events = generate_events_from_tree(&self.tree)
-            .map_err(|e| PyValueError::new_err(e))?;
+        let events = match eps {
+            Some(eps) => generate_events_with_extinction(&self.tree, eps),
+            None => generate_events_from_tree(&self.tree),
+        }.map_err(|e| PyValueError::new_err(e))?;
 
         // Build dictionary with lists
         let dict = PyDict::new(py);
@@ -364,13 +368,16 @@ impl PySpeciesTree {
     /// plt.title('Lineages Through Time')
     /// plt.show()
     /// ```
-    fn get_ltt_data(&self, py: Python) -> PyResult<PyObject> {
-        use crate::bd::generate_events_from_tree;
+    #[pyo3(signature = (eps=None))]
+    fn get_ltt_data(&self, py: Python, eps: Option<f64>) -> PyResult<PyObject> {
+        use crate::bd::{generate_events_from_tree, generate_events_with_extinction};
         use pyo3::types::PyDict;
 
         // Get all events
-        let mut events = generate_events_from_tree(&self.tree)
-            .map_err(|e| PyValueError::new_err(e))?;
+        let mut events = match eps {
+            Some(eps) => generate_events_with_extinction(&self.tree, eps),
+            None => generate_events_from_tree(&self.tree),
+        }.map_err(|e| PyValueError::new_err(e))?;
 
         // Sort events by time (ascending, from present to past)
         events.sort_by(|a, b| a.time.total_cmp(&b.time));
@@ -450,7 +457,7 @@ impl PySpeciesTree {
         ylabel: Option<&str>,
     ) -> PyResult<()> {
         // Get LTT data
-        let ltt_data = self.get_ltt_data(py)?;
+        let ltt_data = self.get_ltt_data(py, None)?;
 
         // Import matplotlib
         let plt = py.import("matplotlib.pyplot")?;
@@ -1343,7 +1350,7 @@ fn simulate_species_tree(n: usize, lambda_: f64, mu: f64, seed: Option<u64>) -> 
         None => StdRng::from_entropy(),
     };
 
-    let (mut tree, _events) = simulate_bd_tree(n, lambda_, mu, &mut rng);
+    let (mut tree, _events) = simulate_bd_tree_bwd(n, lambda_, mu, &mut rng);
     tree.assign_depths();
 
     Ok(PySpeciesTree { tree: Arc::new(tree) })

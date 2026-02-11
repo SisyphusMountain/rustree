@@ -13,7 +13,7 @@ use rand::SeedableRng;
 use std::fs;
 use std::process::Command;
 
-use crate::bd::{simulate_bd_tree, generate_events_from_tree, TreeEvent, BDEvent};
+use crate::bd::{simulate_bd_tree_bwd, generate_events_from_tree, TreeEvent, BDEvent};
 use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch};
 use crate::node::{FlatTree, FlatNode, Event, RecTreeOwned};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names};
@@ -50,7 +50,7 @@ fn simulate_species_tree_r(n: i32, lambda: f64, mu: f64, seed: Robj) -> Result<L
         }
     };
 
-    let (mut tree, events) = simulate_bd_tree(n as usize, lambda, mu, &mut rng);
+    let (mut tree, events) = simulate_bd_tree_bwd(n as usize, lambda, mu, &mut rng);
     tree.assign_depths();
 
     // Serialize tree and events to R list

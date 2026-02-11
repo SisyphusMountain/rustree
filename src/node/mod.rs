@@ -10,8 +10,7 @@
 mod iter;
 mod traits;
 mod conversion;
-mod rectree;
-pub mod recphyloxml;
+pub mod rectree;
 
 // Re-export iterator types
 pub use iter::{NodeIter, FlatTreeIter};
@@ -23,10 +22,11 @@ pub use traits::HasName;
 pub use conversion::{node_to_flat, flat_to_node, obtain_mapping, rename_reconciled_tree};
 
 // Re-export reconciliation types
-pub use rectree::{Event, RecTree, RecTreeOwned, RecTreeColumns};
+pub use rectree::{Event, RecTree, RecTreeOwned};
+pub use crate::io::rectree_csv::RecTreeColumns;
 
-// Re-export XML parsing functions
-pub use recphyloxml::{parse_recphyloxml, parse_recphyloxml_file, parse_gene_tree_only, parse_gene_tree_only_file};
+// Re-export XML parsing functions (now in io module)
+pub use crate::io::recphyloxml::{parse_recphyloxml, parse_recphyloxml_file, parse_gene_tree_only, parse_gene_tree_only_file};
 
 // ============================================================================
 // Core Data Structures

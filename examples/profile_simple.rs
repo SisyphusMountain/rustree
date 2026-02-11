@@ -1,5 +1,5 @@
 // Simple profiling benchmark - runs batch simulation for cleaner profiling
-use rustree::bd::simulate_bd_tree;
+use rustree::bd::simulate_bd_tree_bwd;
 use rustree::dtl::simulate_dtl_batch;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -7,7 +7,7 @@ use rand::rngs::StdRng;
 fn main() {
     // Generate species tree
     let mut rng = StdRng::seed_from_u64(42);
-    let (mut species_tree, _) = simulate_bd_tree(1000, 1.0, 0.0, &mut rng);
+    let (mut species_tree, _) = simulate_bd_tree_bwd(1000, 1.0, 0.0, &mut rng);
     species_tree.assign_depths();
 
     // Run many iterations for better profiling signal

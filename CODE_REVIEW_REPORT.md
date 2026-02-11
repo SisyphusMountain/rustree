@@ -94,7 +94,7 @@ Issues where the code can panic or crash on invalid/unexpected input.
 | 49 | **LOW** | `metric_functions.rs` | 172 | Vec capacity hint is off by one in `make_intervals`. | Use `Vec::with_capacity(depths.len())`. |
 | 50 | **LOW** | `sampling.rs` | 305-306 | `build_leaf_pair_lca_map` stores both (A,B) and (B,A), doubling memory. | Store canonical ordering only. |
 | 51 | **LOW** | `dtl/state.rs` | 69-70 | O(n) gene removal via `.iter().position()`. | Use HashSet instead of Vec for gene tracking if bottleneck. |
-| 52 | **LOW** | `dtl/state.rs` | 172-184 | `pick_random_gene_copy` iterates all species twice. | Cache total gene count incrementally. |
+| 52 | **LOW** | `dtl/state.rs` | 172-184 | `random_gene_copy` iterates all species twice. | Cache total gene count incrementally. |
 
 ---
 

@@ -128,6 +128,7 @@ impl SimulationState {
         self.events.push(DTLEvent::Transfer {
             time: event_time,
             gene_id: parent_idx,
+            species_id: donor_species,
             from_species: donor_species,
             to_species: recipient_species,
             donor_child: donor_child_idx,
@@ -169,7 +170,9 @@ impl SimulationState {
 
     /// Picks a random gene copy from all alive copies across all species.
     /// Used by per-gene Gillespie to select which copy experiences the next event.
-    pub fn pick_random_gene_copy<R: Rng>(&self, rng: &mut R) -> Option<(usize, usize)> {
+    /// It may seem inefficient to iterate over all species and their gene lists, but in practice
+    /// but it will make it easier to implement different transfer rates
+    pub fn random_gene_copy<R: Rng>(&self, rng: &mut R) -> Option<(usize, usize)> {
         let gps = self.genes_per_species.as_ref()?;
         let total: usize = gps.values().map(|g| g.len()).sum();
         if total == 0 { return None; }
