@@ -1,4 +1,4 @@
-use rustree::{RecTreeOwned, Event};
+use rustree::{RecTree, Event};
 
 #[test]
 #[ignore] // Requires local data files at /home/enzo/... - run with: cargo test --test test_real_separate_files -- --ignored
@@ -10,7 +10,7 @@ fn test_parse_real_separate_files() {
     println!("Species tree: {}", species_path);
     println!("Gene tree: {}", gene_path);
 
-    let result = RecTreeOwned::from_separate_files(species_path, gene_path);
+    let result = RecTree::from_separate_files(species_path, gene_path);
 
     assert!(
         result.is_ok(),

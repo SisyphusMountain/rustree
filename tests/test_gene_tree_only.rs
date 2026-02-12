@@ -1,4 +1,4 @@
-use rustree::{RecTreeOwned, Event, parse_newick};
+use rustree::{RecTree, Event, parse_newick};
 
 /// Test parsing gene-tree-only XML with <P> event tags
 #[test]
@@ -33,7 +33,7 @@ fn test_parse_gene_tree_only_with_p_tags() {
 </phylogeny>
 </recGeneTree>"#;
 
-    let result = RecTreeOwned::from_gene_tree_xml(gene_xml, species_tree);
+    let result = RecTree::from_gene_tree_xml(gene_xml, species_tree);
     assert!(result.is_ok(), "Failed to parse gene-tree-only XML: {:?}", result.err());
 
     let rec_tree = result.unwrap();
@@ -88,7 +88,7 @@ fn test_from_separate_files_simple() {
     fs::write(&gene_path, gene_xml).expect("Failed to write gene file");
 
     // Test from_separate_files
-    let result = RecTreeOwned::from_separate_files(
+    let result = RecTree::from_separate_files(
         species_path.to_str().unwrap(),
         gene_path.to_str().unwrap()
     );
@@ -144,7 +144,7 @@ fn test_gene_tree_only_with_ts_attribute() {
 </phylogeny>
 </recGeneTree>"#;
 
-    let result = RecTreeOwned::from_gene_tree_xml(gene_xml, species_tree);
+    let result = RecTree::from_gene_tree_xml(gene_xml, species_tree);
     assert!(result.is_ok(), "Should ignore ts attribute");
 
     let rec_tree = result.unwrap();
@@ -184,7 +184,7 @@ fn test_gene_tree_only_missing_species() {
 </phylogeny>
 </recGeneTree>"#;
 
-    let result = RecTreeOwned::from_gene_tree_xml(gene_xml, species_tree);
+    let result = RecTree::from_gene_tree_xml(gene_xml, species_tree);
     assert!(result.is_err(), "Should fail when species 'C' not found");
     assert!(result.unwrap_err().contains("Species 'C' not found"));
 }

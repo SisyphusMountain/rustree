@@ -1,68 +1,7 @@
 //! Conversion functions between recursive Node and flat FlatTree representations.
 
-use super::{Node, FlatNode, FlatTree, RecTreeOwned};
+use super::{Node, FlatNode, FlatTree, RecTree};
 use std::collections::HashMap;
-
-/// Converts an arborescent tree (a tree where each node owns its children)
-/// into a flat structure (a vector of FlatNodes).
-///
-/// # Arguments
-/// * `node` - The root node of the tree.
-/// * `flat_tree` - The vector to be filled with flat nodes.
-/// * `parent` - The parent index (if any).
-///
-/// # Returns
-/// The index of the node in the flat tree.
-pub fn node_to_flat(node: &Node, flat_tree: &mut Vec<FlatNode>, parent: Option<usize>) -> usize {
-    let index = flat_tree.len();
-    flat_tree.push(FlatNode {
-        name: node.name.clone(),
-        left_child: None,
-        right_child: None,
-        parent,
-        depth: node.depth,
-        length: node.length,
-        bd_event: None,
-    });
-
-    if let Some(left) = &node.left_child {
-        let left_index = node_to_flat(left, flat_tree, Some(index));
-        flat_tree[index].left_child = Some(left_index);
-    }
-
-    if let Some(right) = &node.right_child {
-        let right_index = node_to_flat(right, flat_tree, Some(index));
-        flat_tree[index].right_child = Some(right_index);
-    }
-
-    index
-}
-
-/// Converts a flat tree into a nested `Node` tree structure.
-///
-/// # Arguments
-/// * `flat_tree` - The vector representing the flat tree.
-/// * `index` - The index of the node in the flat tree.
-///
-/// # Returns
-/// The corresponding `Node` tree.
-pub fn flat_to_node(flat_tree: &[FlatNode], index: usize) -> Option<Node> {
-    let flat_node = &flat_tree[index];
-    let left_child = flat_node
-        .left_child
-        .and_then(|i| flat_to_node(flat_tree, i).map(Box::new));
-    let right_child = flat_node
-        .right_child
-        .and_then(|i| flat_to_node(flat_tree, i).map(Box::new));
-
-    Some(Node {
-        name: flat_node.name.clone(),
-        left_child,
-        right_child,
-        depth: flat_node.depth,
-        length: flat_node.length,
-    })
-}
 
 // Methods on Node for conversion
 impl Node {
@@ -147,130 +86,107 @@ impl FlatTree {
     }
 }
 
-/// Helper function to collect node indices in postorder traversal.
-fn collect_postorder_indices(tree: &FlatTree, index: usize, result: &mut Vec<usize>) {
-    let node = &tree.nodes[index];
-
-    // Visit left subtree
-    if let Some(left_idx) = node.left_child {
-        collect_postorder_indices(tree, left_idx, result);
-    }
-
-    // Visit right subtree
-    if let Some(right_idx) = node.right_child {
-        collect_postorder_indices(tree, right_idx, result);
-    }
-
-    // Visit current node (postorder: left, right, node)
-    result.push(index);
-}
-
-/// Obtain mapping between two trees with identical topology using postorder traversal.
+/// Map nodes between two trees with identical topology using postorder traversal.
 ///
-/// This function matches nodes between an original tree and a reconciled tree by comparing
-/// their positions in postorder traversal. Trees with the same topology will have corresponding
-/// nodes at the same positions in their postorder sequences.
+/// Given two trees with the same topology (same branching structure), this function
+/// builds a mapping from node indices in `target_tree` to the corresponding node
+/// indices in `source_tree`. The matching is based on postorder position: nodes at
+/// the same position in a postorder traversal of each tree are considered corresponding.
+///
+/// This is useful when you have two representations of the same tree that may have
+/// different internal node names or different index ordering (e.g., after re-parsing,
+/// or after a tool like ALERax re-indexes nodes).
 ///
 /// # Arguments
-/// * `original_tree` - The original tree with desired node names
-/// * `reconciled_tree` - The reconciled tree (e.g., from ALERax) to be mapped
+/// * `source_tree` - The tree whose indices will be the *values* in the mapping
+/// * `target_tree` - The tree whose indices will be the *keys* in the mapping
 ///
 /// # Returns
-/// A HashMap where keys are reconciled tree node indices and values are original tree node indices.
-/// This maps each node in the reconciled tree to its corresponding node in the original tree.
+/// A HashMap where keys are `target_tree` node indices and values are the
+/// corresponding `source_tree` node indices.
 ///
 /// # Errors
-/// Returns an error if the trees have different topologies (different number of nodes or structure).
+/// Returns an error if the trees have different topologies (different number of
+/// nodes or leaf/internal mismatch at any position).
 ///
 /// # Example
 /// ```rust
-/// let mapping = obtain_mapping(&original_tree, &reconciled_tree)?;
-/// // For each node in reconciled tree, mapping[idx] gives corresponding original tree node
+/// let mapping = map_by_topology(&tree_a, &tree_b)?;
+/// // mapping[b_idx] == a_idx for corresponding nodes
 /// ```
-pub fn obtain_mapping(
-    original_tree: &FlatTree,
-    reconciled_tree: &FlatTree,
+pub fn map_by_topology(
+    source_tree: &FlatTree,
+    target_tree: &FlatTree,
 ) -> Result<HashMap<usize, usize>, String> {
-    // Check if trees have the same number of nodes
-    if original_tree.nodes.len() != reconciled_tree.nodes.len() {
+    if source_tree.nodes.len() != target_tree.nodes.len() {
         return Err(format!(
-            "Trees have different number of nodes: original={}, reconciled={}",
-            original_tree.nodes.len(),
-            reconciled_tree.nodes.len()
+            "Trees have different number of nodes: source={}, target={}",
+            source_tree.nodes.len(),
+            target_tree.nodes.len()
         ));
     }
 
-    // Perform postorder traversal on both trees and collect node indices
-    let mut original_postorder = Vec::new();
-    collect_postorder_indices(original_tree, original_tree.root, &mut original_postorder);
+    let source_postorder = source_tree.postorder_indices();
+    let target_postorder = target_tree.postorder_indices();
 
-    let mut reconciled_postorder = Vec::new();
-    collect_postorder_indices(reconciled_tree, reconciled_tree.root, &mut reconciled_postorder);
-
-    // Verify both traversals have the same length
-    if original_postorder.len() != reconciled_postorder.len() {
+    if source_postorder.len() != target_postorder.len() {
         return Err("Trees have different structures (postorder lengths differ)".to_string());
     }
 
-    // Create mapping: reconciled_idx -> original_idx
     let mut mapping = HashMap::new();
-    for (pos, (&reconciled_idx, &original_idx)) in reconciled_postorder
+    for (pos, (&target_idx, &source_idx)) in target_postorder
         .iter()
-        .zip(original_postorder.iter())
+        .zip(source_postorder.iter())
         .enumerate()
     {
-        // Verify structural compatibility by checking if both are leaves or both are internal
-        let orig_is_leaf = original_tree.nodes[original_idx].left_child.is_none()
-            && original_tree.nodes[original_idx].right_child.is_none();
-        let recon_is_leaf = reconciled_tree.nodes[reconciled_idx].left_child.is_none()
-            && reconciled_tree.nodes[reconciled_idx].right_child.is_none();
+        let source_is_leaf = source_tree.nodes[source_idx].left_child.is_none()
+            && source_tree.nodes[source_idx].right_child.is_none();
+        let target_is_leaf = target_tree.nodes[target_idx].left_child.is_none()
+            && target_tree.nodes[target_idx].right_child.is_none();
 
-        if orig_is_leaf != recon_is_leaf {
+        if source_is_leaf != target_is_leaf {
             return Err(format!(
-                "Structural mismatch at position {}: original node {} and reconciled node {} differ in leaf/internal status",
-                pos, original_idx, reconciled_idx
+                "Structural mismatch at postorder position {}: source node {} and target node {} differ in leaf/internal status",
+                pos, source_idx, target_idx
             ));
         }
 
-        mapping.insert(reconciled_idx, original_idx);
+        mapping.insert(target_idx, source_idx);
     }
 
     Ok(mapping)
 }
 
-/// Rename a reconciled tree to match the original tree's node names.
+/// Rename gene tree nodes in a RecTree to match a reference tree.
 ///
-/// This function renames all nodes in a reconciled tree (e.g., from ALERax) to match the
-/// corresponding nodes in the original tree. It uses postorder traversal to match nodes
-/// with identical topology.
+/// Given a reference tree and a RecTree whose gene tree has the same topology,
+/// this function renames all gene tree nodes to match the corresponding node names
+/// in the reference tree. The matching is done via postorder topology mapping.
 ///
-/// The reconciliation data (node_mapping and event_mapping) are indexed by gene tree node
-/// indices, so they remain valid after renaming as only names change, not indices.
+/// The reconciliation data (node_mapping and event_mapping) are indexed by gene tree
+/// node indices, so they remain valid after renaming — only names change, not indices.
 ///
 /// # Arguments
-/// * `original_tree` - The original tree with desired node names
-/// * `reconciled_tree_owned` - Mutable reference to the reconciled tree to rename
+/// * `reference_tree` - The tree with desired node names
+/// * `rec_tree` - Mutable reference to the RecTree whose gene tree will be renamed
 ///
 /// # Returns
 /// Ok(()) on success, or an error if trees have incompatible topologies.
 ///
 /// # Example
 /// ```rust
-/// // After ALERax reconciliation
-/// rename_reconciled_tree(&original_tree, &mut reconciled_tree)?;
-/// // Now reconciled_tree.gene_tree has the same node names as original_tree
+/// rename_gene_tree(&original_tree, &mut rec_tree)?;
+/// // Now rec_tree.gene_tree has the same node names as original_tree
 /// ```
-pub fn rename_reconciled_tree(
-    original_tree: &FlatTree,
-    reconciled_tree_owned: &mut RecTreeOwned,
+pub fn rename_gene_tree(
+    reference_tree: &FlatTree,
+    rec_tree: &mut RecTree,
 ) -> Result<(), String> {
-    // Obtain mapping from reconciled to original tree
-    let mapping = obtain_mapping(original_tree, &reconciled_tree_owned.gene_tree)?;
+    let mapping = map_by_topology(reference_tree, &rec_tree.gene_tree)?;
 
-    // Rename nodes in the reconciled gene tree
-    for (reconciled_idx, &original_idx) in mapping.iter() {
-        let original_name = &original_tree.nodes[original_idx].name;
-        reconciled_tree_owned.gene_tree.nodes[*reconciled_idx].name = original_name.clone();
+    for (target_idx, &source_idx) in mapping.iter() {
+        rec_tree.gene_tree.nodes[*target_idx].name =
+            reference_tree.nodes[source_idx].name.clone();
     }
 
     Ok(())
@@ -325,8 +241,8 @@ mod mapping_tests {
 
         let tree2 = FlatTree { nodes, root: 2 };
 
-        // Obtain mapping
-        let mapping = obtain_mapping(&tree1, &tree2).unwrap();
+        // Obtain mapping (tree1 = source, tree2 = target)
+        let mapping = map_by_topology(&tree1, &tree2).unwrap();
 
         // Verify mapping
         assert_eq!(mapping.len(), 3);
@@ -375,7 +291,7 @@ mod mapping_tests {
         };
 
         // Should fail due to different number of nodes
-        let result = obtain_mapping(&tree1, &tree2);
+        let result = map_by_topology(&tree1, &tree2);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("different number of nodes"));
     }

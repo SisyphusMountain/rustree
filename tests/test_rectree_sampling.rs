@@ -1,5 +1,6 @@
-use rustree::{RecTreeOwned, Event, parse_newick};
+use rustree::{RecTree, Event, GeneForest, parse_newick};
 use rustree::sampling::{compute_lca, build_leaf_pair_lca_map, get_descendant_leaf_names};
+use std::sync::Arc;
 
 /// Helper to create a simple species tree for testing
 fn make_species_tree(newick: &str) -> rustree::FlatTree {
@@ -8,6 +9,20 @@ fn make_species_tree(newick: &str) -> rustree::FlatTree {
     root.zero_root_length();
     root.assign_depths(0.0);
     root.to_flat_tree()
+}
+
+/// Helper: build a single-tree GeneForest, sample, and return the sampled forest
+fn sample_via_forest(
+    species_tree: rustree::FlatTree,
+    gene_tree: rustree::FlatTree,
+    node_mapping: Vec<Option<usize>>,
+    event_mapping: Vec<Event>,
+    species_leaf_names: &[String],
+) -> Result<GeneForest, String> {
+    let species_arc = Arc::new(species_tree);
+    let rt = RecTree::new(Arc::clone(&species_arc), gene_tree, node_mapping, event_mapping);
+    let forest = GeneForest::from_rec_trees(species_arc, vec![rt]);
+    forest.sample_leaves(species_leaf_names)
 }
 
 #[test]
@@ -76,21 +91,12 @@ fn test_sample_species_leaves_simple() {
     let gene_tree = make_species_tree("((gA:1,gB:1):1,gC:2):0;");
 
     // Map gene nodes to species nodes
-    // After parsing, we need to map by structure since internal nodes may not have expected names
     let a_idx = species_tree.nodes.iter().position(|n| n.name == "A").unwrap();
     let b_idx = species_tree.nodes.iter().position(|n| n.name == "B").unwrap();
     let c_idx = species_tree.nodes.iter().position(|n| n.name == "C").unwrap();
 
     // Find the internal nodes by structure (parent of A and B)
     let ab_idx = species_tree.nodes[a_idx].parent.unwrap();
-
-    // Gene tree structure: root has 2 children - left subtree (gA, gB) and right leaf (gC)
-    // Map: root->AB parent, left_internal->AB, gA->A, gB->B, gC->C
-    let gene_leaves: Vec<(usize, &str)> = gene_tree.nodes.iter()
-        .enumerate()
-        .filter(|(_, n)| n.left_child.is_none() && n.right_child.is_none())
-        .map(|(i, n)| (i, n.name.as_str()))
-        .collect();
 
     // Simple mapping: map each gene directly to corresponding species
     let mut node_mapping: Vec<Option<usize>> = vec![Some(0); gene_tree.nodes.len()];
@@ -115,27 +121,22 @@ fn test_sample_species_leaves_simple() {
         }
     }
 
-    let rec_tree = RecTreeOwned::new(
-        species_tree,
-        gene_tree,
-        node_mapping,
-        event_mapping,
-    );
+    // Sample only species A and B via GeneForest
+    let sampled = sample_via_forest(
+        species_tree, gene_tree, node_mapping, event_mapping,
+        &["A".to_string(), "B".to_string()],
+    ).expect("Sampling should succeed");
 
-    // Sample only species A and B
-    let sampled = rec_tree.sample_species_leaves(&[
-        "A".to_string(),
-        "B".to_string(),
-    ]).expect("Sampling should succeed");
+    let sampled_rt = sampled.get(0).unwrap();
 
     // Should have 3 species nodes: A, B, AB
-    assert_eq!(sampled.species_tree.nodes.len(), 3, "Sampled species tree should have 3 nodes");
+    assert_eq!(sampled_rt.species_tree.nodes.len(), 3, "Sampled species tree should have 3 nodes");
 
     // Should have 3 gene nodes: gA, gB, g1
-    assert_eq!(sampled.gene_tree.nodes.len(), 3, "Sampled gene tree should have 3 nodes");
+    assert_eq!(sampled_rt.gene_tree.nodes.len(), 3, "Sampled gene tree should have 3 nodes");
 
     // Verify all gene leaves are present
-    let gene_leaves: Vec<String> = sampled.gene_tree.nodes.iter()
+    let gene_leaves: Vec<String> = sampled_rt.gene_tree.nodes.iter()
         .filter(|n| n.left_child.is_none() && n.right_child.is_none())
         .map(|n| n.name.clone())
         .collect();
@@ -159,23 +160,20 @@ fn test_sample_species_leaves_single_species() {
     let node_mapping = vec![Some(root_idx), Some(ab_idx), Some(a_idx), Some(b_idx), Some(c_idx)];
     let event_mapping = vec![Event::Speciation, Event::Speciation, Event::Leaf, Event::Leaf, Event::Leaf];
 
-    let rec_tree = RecTreeOwned::new(
-        species_tree,
-        gene_tree,
-        node_mapping,
-        event_mapping,
-    );
-
     // Sample only species A
-    let sampled = rec_tree.sample_species_leaves(&["A".to_string()])
-        .expect("Sampling single species should succeed");
+    let sampled = sample_via_forest(
+        species_tree, gene_tree, node_mapping, event_mapping,
+        &["A".to_string()],
+    ).expect("Sampling single species should succeed");
+
+    let sampled_rt = sampled.get(0).unwrap();
 
     // Should have 1 species node
-    assert_eq!(sampled.species_tree.nodes.len(), 1);
+    assert_eq!(sampled_rt.species_tree.nodes.len(), 1);
 
     // Should have 1 gene node (gA)
-    assert_eq!(sampled.gene_tree.nodes.len(), 1);
-    assert_eq!(sampled.gene_tree.nodes[0].name, "gA");
+    assert_eq!(sampled_rt.gene_tree.nodes.len(), 1);
+    assert_eq!(sampled_rt.gene_tree.nodes[0].name, "gA");
 }
 
 #[test]
@@ -189,26 +187,23 @@ fn test_sample_species_leaves_all_species() {
     let ab_idx = species_tree.nodes.iter().position(|n| n.name == "AB").unwrap();
     let root_idx = species_tree.root;
 
+    let original_species_len = species_tree.nodes.len();
+    let original_gene_len = gene_tree.nodes.len();
+
     let node_mapping = vec![Some(root_idx), Some(ab_idx), Some(a_idx), Some(b_idx), Some(c_idx)];
     let event_mapping = vec![Event::Speciation, Event::Speciation, Event::Leaf, Event::Leaf, Event::Leaf];
 
-    let rec_tree = RecTreeOwned::new(
-        species_tree,
-        gene_tree,
-        node_mapping,
-        event_mapping,
-    );
-
     // Sample all species
-    let sampled = rec_tree.sample_species_leaves(&[
-        "A".to_string(),
-        "B".to_string(),
-        "C".to_string(),
-    ]).expect("Sampling all species should succeed");
+    let sampled = sample_via_forest(
+        species_tree, gene_tree, node_mapping, event_mapping,
+        &["A".to_string(), "B".to_string(), "C".to_string()],
+    ).expect("Sampling all species should succeed");
+
+    let sampled_rt = sampled.get(0).unwrap();
 
     // Should have same number of nodes as original
-    assert_eq!(sampled.species_tree.nodes.len(), rec_tree.species_tree.nodes.len());
-    assert_eq!(sampled.gene_tree.nodes.len(), rec_tree.gene_tree.nodes.len());
+    assert_eq!(sampled_rt.species_tree.nodes.len(), original_species_len);
+    assert_eq!(sampled_rt.gene_tree.nodes.len(), original_gene_len);
 }
 
 #[test]
@@ -238,7 +233,6 @@ fn test_sample_species_leaves_with_duplication() {
             }
         } else {
             // Internal nodes - find which one is the duplication
-            // The duplication node is the parent of gA1 and gA2
             let left_child_idx = node.left_child.unwrap();
             let right_child_idx = node.right_child.unwrap();
             let left_name = &gene_tree.nodes[left_child_idx].name;
@@ -249,33 +243,29 @@ fn test_sample_species_leaves_with_duplication() {
                 node_mapping[idx] = Some(a_idx);
                 event_mapping[idx] = Event::Duplication;
             } else {
-                // Root speciation node - map to A for this test
-                // (in reality would map to species root, but for sampling test we keep it simple)
+                // Root speciation node
                 node_mapping[idx] = Some(a_idx);
                 event_mapping[idx] = Event::Speciation;
             }
         }
     }
 
-    let rec_tree = RecTreeOwned::new(
-        species_tree,
-        gene_tree,
-        node_mapping,
-        event_mapping,
-    );
-
     // Sample both species A and B to avoid root node issues
-    let sampled = rec_tree.sample_species_leaves(&["A".to_string(), "B".to_string()])
-        .expect("Sampling should succeed");
+    let sampled = sample_via_forest(
+        species_tree, gene_tree, node_mapping, event_mapping,
+        &["A".to_string(), "B".to_string()],
+    ).expect("Sampling should succeed");
+
+    let sampled_rt = sampled.get(0).unwrap();
 
     // Should have 3 species nodes: A, B, and their parent
-    assert_eq!(sampled.species_tree.nodes.len(), 3);
+    assert_eq!(sampled_rt.species_tree.nodes.len(), 3);
 
     // Should have all 5 gene nodes since we're keeping both A and B
-    assert_eq!(sampled.gene_tree.nodes.len(), 5);
+    assert_eq!(sampled_rt.gene_tree.nodes.len(), 5);
 
     // Check that duplication event is preserved
-    let dup_count = sampled.event_mapping.iter()
+    let dup_count = sampled_rt.event_mapping.iter()
         .filter(|e| **e == Event::Duplication)
         .count();
     assert_eq!(dup_count, 1, "Duplication event should be preserved");
@@ -293,15 +283,11 @@ fn test_sample_species_leaves_no_matching_genes() {
     let node_mapping = vec![Some(ab_idx), Some(a_idx), Some(b_idx)];
     let event_mapping = vec![Event::Speciation, Event::Leaf, Event::Leaf];
 
-    let rec_tree = RecTreeOwned::new(
-        species_tree,
-        gene_tree,
-        node_mapping,
-        event_mapping,
-    );
-
     // Try to sample species C (which has no genes)
-    let result = rec_tree.sample_species_leaves(&["C".to_string()]);
+    let result = sample_via_forest(
+        species_tree, gene_tree, node_mapping, event_mapping,
+        &["C".to_string()],
+    );
 
     assert!(result.is_err(), "Should fail when no genes map to sampled species");
     assert!(result.unwrap_err().contains("No gene tree leaves"));
@@ -319,15 +305,11 @@ fn test_sample_species_leaves_invalid_species() {
     let node_mapping = vec![Some(root_idx), Some(a_idx), Some(b_idx)];
     let event_mapping = vec![Event::Speciation, Event::Leaf, Event::Leaf];
 
-    let rec_tree = RecTreeOwned::new(
-        species_tree,
-        gene_tree,
-        node_mapping,
-        event_mapping,
-    );
-
     // Try to sample non-existent species
-    let result = rec_tree.sample_species_leaves(&["NonExistent".to_string()]);
+    let result = sample_via_forest(
+        species_tree, gene_tree, node_mapping, event_mapping,
+        &["NonExistent".to_string()],
+    );
 
     assert!(result.is_err(), "Should fail when species doesn't exist");
     assert!(result.unwrap_err().contains("Failed to sample species tree"));
@@ -368,30 +350,25 @@ fn test_sample_preserves_event_types() {
                 node_mapping[idx] = Some(a_idx);
                 event_mapping[idx] = Event::Duplication;
             } else {
-                // Root speciation node - map to A to keep it simple
+                // Root speciation node
                 node_mapping[idx] = Some(a_idx);
                 event_mapping[idx] = Event::Speciation;
             }
         }
     }
 
-    let rec_tree = RecTreeOwned::new(
-        species_tree,
-        gene_tree,
-        node_mapping,
-        event_mapping,
-    );
-
     // Sample both species
-    let sampled = rec_tree.sample_species_leaves(&[
-        "A".to_string(),
-        "B".to_string(),
-    ]).expect("Sampling should succeed");
+    let sampled = sample_via_forest(
+        species_tree, gene_tree, node_mapping, event_mapping,
+        &["A".to_string(), "B".to_string()],
+    ).expect("Sampling should succeed");
+
+    let sampled_rt = sampled.get(0).unwrap();
 
     // Check event preservation
-    let spec_count = sampled.event_mapping.iter().filter(|e| **e == Event::Speciation).count();
-    let dup_count = sampled.event_mapping.iter().filter(|e| **e == Event::Duplication).count();
-    let leaf_count = sampled.event_mapping.iter().filter(|e| **e == Event::Leaf).count();
+    let spec_count = sampled_rt.event_mapping.iter().filter(|e| **e == Event::Speciation).count();
+    let dup_count = sampled_rt.event_mapping.iter().filter(|e| **e == Event::Duplication).count();
+    let leaf_count = sampled_rt.event_mapping.iter().filter(|e| **e == Event::Leaf).count();
 
     // Should have at least the expected events
     assert!(spec_count >= 1, "Should have at least 1 speciation");

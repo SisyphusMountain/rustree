@@ -1,13 +1,13 @@
-//! XML serialization and parsing for reconciled trees (RecTree/RecTreeOwned).
+//! XML serialization and parsing for reconciled trees (RecTree).
 
-use crate::node::{FlatTree, RecTree, RecTreeOwned};
+use crate::node::{FlatTree, RecTree};
 use crate::node::rectree::Event;
 
 // ============================================================================
 // RecTree XML serialization
 // ============================================================================
 
-impl<'a> RecTree<'a> {
+impl RecTree {
     /// Exports the reconciled tree to RecPhyloXML format with branch lengths.
     pub fn to_xml(&self) -> String {
         let estimated_size = self.gene_tree.nodes.len() * 200 + 1000;
@@ -197,95 +197,45 @@ impl<'a> RecTree<'a> {
             Box::leak(Box::new("\t".repeat(indent)))
         }
     }
-}
 
-// ============================================================================
-// RecTreeOwned XML serialization + parsing constructors
-// ============================================================================
+    // ========================================================================
+    // Parsing constructors
+    // ========================================================================
 
-impl RecTreeOwned {
-    /// Exports the reconciled tree to RecPhyloXML format with branch lengths.
-    pub fn to_xml(&self) -> String {
-        self.as_rectree().to_xml()
-    }
-
-    /// Parse a RecPhyloXML string and create a RecTreeOwned.
-    ///
-    /// # Arguments
-    /// * `xml_content` - The XML content as a string
-    ///
-    /// # Returns
-    /// A Result containing the RecTreeOwned or an error message
+    /// Parse a RecPhyloXML string and create a RecTree.
     pub fn from_xml(xml_content: &str) -> Result<Self, String> {
         use super::recphyloxml::parse_recphyloxml;
 
         let (species_tree, gene_tree, node_mapping, event_mapping) =
             parse_recphyloxml(xml_content).map_err(|e| e.to_string())?;
 
-        Ok(RecTreeOwned::new(
-            species_tree,
-            gene_tree,
-            node_mapping,
-            event_mapping,
-        ))
+        Ok(RecTree::new_owned(species_tree, gene_tree, node_mapping, event_mapping))
     }
 
-    /// Parse a RecPhyloXML file and create a RecTreeOwned.
-    ///
-    /// # Arguments
-    /// * `filepath` - Path to the RecPhyloXML file
-    ///
-    /// # Returns
-    /// A Result containing the RecTreeOwned or an error message
+    /// Parse a RecPhyloXML file and create a RecTree.
     pub fn from_xml_file(filepath: &str) -> Result<Self, String> {
         use super::recphyloxml::parse_recphyloxml_file;
 
         let (species_tree, gene_tree, node_mapping, event_mapping) =
             parse_recphyloxml_file(filepath).map_err(|e| e.to_string())?;
 
-        Ok(RecTreeOwned::new(
-            species_tree,
-            gene_tree,
-            node_mapping,
-            event_mapping,
-        ))
+        Ok(RecTree::new_owned(species_tree, gene_tree, node_mapping, event_mapping))
     }
 
     /// Parse gene-tree-only RecPhyloXML with a separate species tree.
     ///
     /// This is useful when the species tree is provided separately (e.g., from a Newick file)
     /// and the XML only contains the reconciled gene tree (no `<spTree>` section).
-    ///
-    /// # Arguments
-    /// * `xml_content` - XML string containing only `<recGeneTree>` section
-    /// * `species_tree` - Pre-parsed species tree as FlatTree
-    ///
-    /// # Returns
-    /// A Result containing the RecTreeOwned or an error message
     pub fn from_gene_tree_xml(xml_content: &str, species_tree: FlatTree) -> Result<Self, String> {
         use super::recphyloxml::parse_gene_tree_only;
 
         let (gene_tree, node_mapping, event_mapping) =
             parse_gene_tree_only(xml_content, &species_tree).map_err(|e| e.to_string())?;
 
-        Ok(RecTreeOwned::new(
-            species_tree,
-            gene_tree,
-            node_mapping,
-            event_mapping,
-        ))
+        Ok(RecTree::new_owned(species_tree, gene_tree, node_mapping, event_mapping))
     }
 
     /// Parse gene-tree-only RecPhyloXML file with a separate species tree.
-    ///
-    /// File-based version of `from_gene_tree_xml`.
-    ///
-    /// # Arguments
-    /// * `xml_filepath` - Path to XML file containing only `<recGeneTree>` section
-    /// * `species_tree` - Pre-parsed species tree as FlatTree
-    ///
-    /// # Returns
-    /// A Result containing the RecTreeOwned or an error message
     pub fn from_gene_tree_xml_file(
         xml_filepath: &str,
         species_tree: FlatTree,
@@ -295,31 +245,16 @@ impl RecTreeOwned {
         let (gene_tree, node_mapping, event_mapping) =
             parse_gene_tree_only_file(xml_filepath, &species_tree).map_err(|e| e.to_string())?;
 
-        Ok(RecTreeOwned::new(
-            species_tree,
-            gene_tree,
-            node_mapping,
-            event_mapping,
-        ))
+        Ok(RecTree::new_owned(species_tree, gene_tree, node_mapping, event_mapping))
     }
 
     /// Parse reconciled tree from separate files: Newick species tree + gene tree XML.
     ///
-    /// Convenience function that combines parsing a species tree from Newick format
-    /// and a gene tree from RecPhyloXML format (without `<spTree>` section).
-    ///
-    /// # Arguments
-    /// * `species_newick_path` - Path to Newick file containing species tree
-    /// * `gene_xml_path` - Path to XML file containing only `<recGeneTree>` section
-    ///
-    /// # Returns
-    /// A Result containing the RecTreeOwned or an error message
-    ///
     /// # Example
     /// ```no_run
-    /// use rustree::RecTreeOwned;
+    /// use rustree::RecTree;
     ///
-    /// let rec_tree = RecTreeOwned::from_separate_files(
+    /// let rec_tree = RecTree::from_separate_files(
     ///     "species_tree.nwk",
     ///     "gene_tree_rec.xml"
     /// )?;
@@ -332,7 +267,6 @@ impl RecTreeOwned {
         use crate::newick::newick::parse_newick;
         use std::fs;
 
-        // Parse species tree from Newick file
         let species_newick = fs::read_to_string(species_newick_path)
             .map_err(|e| format!("Failed to read species tree file: {}", e))?;
 
@@ -346,7 +280,6 @@ impl RecTreeOwned {
         let mut species_tree = species_root.to_flat_tree();
         species_tree.assign_depths();
 
-        // Parse gene tree from XML file
         Self::from_gene_tree_xml_file(gene_xml_path, species_tree)
     }
 }

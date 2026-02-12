@@ -4,8 +4,9 @@
 // and how the affected gene copy is selected.
 
 use crate::bd::{BDEvent, TreeEvent};
-use crate::node::{FlatTree, Event, RecTreeOwned};
+use crate::node::{FlatTree, Event, RecTree};
 use rand::Rng;
+use std::sync::Arc;
 
 use super::event::DTLEvent;
 use super::state::SimulationState;
@@ -37,7 +38,7 @@ pub(crate) enum DTLMode {
 /// We can have auxillary functions to flexibly handle the different generalizations without loss of performance.
 pub(crate) fn simulate_dtl_gillespie<R: Rng>(
     mode: DTLMode,
-    species_tree: &FlatTree,
+    species_tree: &Arc<FlatTree>,
     species_events: &[TreeEvent],
     depths: &[f64],
     contemporaneity: &[Vec<usize>],
@@ -49,7 +50,7 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
     transfer_alpha: Option<f64>,
     replacement_transfer: Option<f64>,
     rng: &mut R,
-) -> Result<(RecTreeOwned, Vec<DTLEvent>), String> {
+) -> Result<(RecTree, Vec<DTLEvent>), String> {
 
     let total_dtl_rate = lambda_d + lambda_t + lambda_l;
     let dup_threshold = if total_dtl_rate > 0.0 { lambda_d / total_dtl_rate } else { 0.0 };

@@ -1,7 +1,8 @@
 // Utility functions for DTL simulation
 
 use crate::bd::BDEvent;
-use crate::node::{FlatTree, FlatNode, Event, RecTreeOwned};
+use crate::node::{FlatTree, FlatNode, Event, RecTree};
+use std::sync::Arc;
 use rand::Rng;
 
 /// Validate that all DTL rates are non-negative and finite
@@ -198,13 +199,13 @@ pub(crate) fn find_time_index(depths: &[f64], time: f64) -> usize {
 
 /// Finalizes simulation by finding the root and handling edge cases.
 pub(crate) fn finalize_simulation(
-    species_tree: FlatTree,
+    species_tree: Arc<FlatTree>,
     gene_nodes: Vec<FlatNode>,
     node_mapping: Vec<Option<usize>>,
     mut event_mapping: Vec<Event>,
     origin_species: usize,
     origin_depth: f64,
-) -> RecTreeOwned {
+) -> RecTree {
     let mut final_gene_nodes = gene_nodes;
     let mut final_node_mapping = node_mapping;
 
@@ -234,7 +235,7 @@ pub(crate) fn finalize_simulation(
         root: root_idx,
     };
 
-    RecTreeOwned::new(species_tree, gene_tree, final_node_mapping, event_mapping)
+    RecTree::new(species_tree, gene_tree, final_node_mapping, event_mapping)
 }
 
 /// Counts the number of extant genes (gene leaves mapped to extant species leaves).
@@ -246,7 +247,7 @@ pub(crate) fn finalize_simulation(
 ///    - If bd_event is None (e.g., tree from Newick): falls back to checking if species node is a leaf (no children)
 ///
 /// This excludes gene leaves that are mapped to extinct species (extinction events).
-pub fn count_extant_genes(rec_tree: &RecTreeOwned) -> usize {
+pub fn count_extant_genes(rec_tree: &RecTree) -> usize {
     rec_tree
         .gene_tree
         .nodes
@@ -279,8 +280,8 @@ pub fn count_extant_genes(rec_tree: &RecTreeOwned) -> usize {
         .count()
 }
 
-/// Counts events by type in a RecTreeOwned
-pub fn count_events(rec_tree: &RecTreeOwned) -> (usize, usize, usize, usize, usize) {
+/// Counts events by type in a RecTree
+pub fn count_events(rec_tree: &RecTree) -> (usize, usize, usize, usize, usize) {
     let mut speciations = 0;
     let mut duplications = 0;
     let mut transfers = 0;

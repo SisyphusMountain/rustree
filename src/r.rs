@@ -15,7 +15,7 @@ use std::process::Command;
 
 use crate::bd::{simulate_bd_tree_bwd, generate_events_from_tree, TreeEvent, BDEvent};
 use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch};
-use crate::node::{FlatTree, FlatNode, Event, RecTreeOwned};
+use crate::node::{FlatTree, FlatNode, Event, RecTree, GeneForest};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names};
 
 /// Simulate a birth-death species tree.
@@ -447,8 +447,7 @@ fn gene_tree_to_newick_r(gene_tree_list: List) -> Result<String> {
 fn gene_tree_to_xml_r(gene_tree_list: List) -> Result<String> {
     let (gene_tree, species_tree, node_mapping, event_mapping) = rlist_to_genetree(&gene_tree_list)?;
 
-    use crate::node::RecTreeOwned;
-    let rec_tree = RecTreeOwned::new(species_tree, gene_tree, node_mapping, event_mapping);
+    let rec_tree = RecTree::new_owned(species_tree, gene_tree, node_mapping, event_mapping);
     Ok(rec_tree.to_xml())
 }
 
@@ -497,7 +496,7 @@ fn save_xml_r(gene_tree_list: List, filepath: &str) -> Result<()> {
 #[extendr]
 fn save_csv_r(gene_tree_list: List, filepath: &str) -> Result<()> {
     let (species_tree, gene_tree, node_mapping, event_mapping) = rlist_to_genetree(&gene_tree_list)?;
-    let rec_tree = RecTreeOwned::new(species_tree, gene_tree, node_mapping, event_mapping);
+    let rec_tree = RecTree::new_owned(species_tree, gene_tree, node_mapping, event_mapping);
     rec_tree.save_csv(filepath)
         .map_err(|e| extendr_api::Error::Other(format!("Failed to write CSV: {}", e)))?;
     Ok(())
@@ -661,7 +660,7 @@ fn sample_extant_r(gene_tree_list: List) -> Result<List> {
     rectree_to_rlist(&species_tree, &sampled_tree, &new_node_mapping, &new_event_mapping)
 }
 
-/// Sample species tree leaves and filter gene tree accordingly.
+/// Sample leaves and filter all trees accordingly.
 ///
 /// This function samples a subset of species from the species tree and automatically
 /// filters the gene tree to keep only genes that map to the sampled species. The
@@ -672,9 +671,7 @@ fn sample_extant_r(gene_tree_list: List) -> Result<List> {
 /// @return A new gene tree with sampled species and gene trees
 /// @export
 #[extendr]
-fn sample_species_leaves_r(gene_tree_list: List, species_leaf_names: Robj) -> Result<List> {
-    use crate::node::RecTreeOwned;
-
+fn sample_leaves_r(gene_tree_list: List, species_leaf_names: Robj) -> Result<List> {
     // Convert species_leaf_names to Vec<String>
     let species_names: Vec<String> = if species_leaf_names.is_string() {
         species_leaf_names.as_str_vector()
@@ -689,25 +686,19 @@ fn sample_species_leaves_r(gene_tree_list: List, species_leaf_names: Robj) -> Re
     // Parse gene tree list
     let (gene_tree, species_tree, node_mapping, event_mapping) = rlist_to_genetree(&gene_tree_list)?;
 
-    // Build RecTreeOwned
-    let rec_tree_owned = RecTreeOwned::new(
-        species_tree,
-        gene_tree,
-        node_mapping,
-        event_mapping,
-    );
-
-    // Sample using the RecTreeOwned method
-    let sampled_rec_tree = rec_tree_owned
-        .sample_species_leaves(&species_names)
-        .map_err(|e| format!("Failed to sample species leaves: {}", e))?;
+    // Build a single-tree GeneForest and sample
+    let forest = GeneForest::with_gene_trees(species_tree, vec![(gene_tree, node_mapping, event_mapping)]);
+    let sampled_forest = forest.sample_leaves(&species_names)
+        .map_err(|e| format!("Failed to sample leaves: {}", e))?;
+    let sampled = sampled_forest.get(0)
+        .ok_or("No gene trees in sampled result")?;
 
     // Convert back to R list
     rectree_to_rlist(
-        &sampled_rec_tree.species_tree,
-        &sampled_rec_tree.gene_tree,
-        &sampled_rec_tree.node_mapping,
-        &sampled_rec_tree.event_mapping,
+        &sampled.species_tree,
+        &sampled.gene_tree,
+        &sampled.node_mapping,
+        &sampled.event_mapping,
     )
 }
 
@@ -1121,17 +1112,15 @@ fn save_pairwise_distances_csv_r(tree_list: List, filepath: &str, distance_type:
 /// @export
 #[extendr]
 fn parse_recphyloxml_r(filepath: &str) -> Result<List> {
-    use crate::node::RecTreeOwned;
-
-    let rec_tree_owned = RecTreeOwned::from_xml_file(filepath)
+    let rec_tree = RecTree::from_xml_file(filepath)
         .map_err(|e| format!("Failed to parse RecPhyloXML: {}", e))?;
 
     // Convert to R list using the rectree_to_rlist function
     rectree_to_rlist(
-        &rec_tree_owned.species_tree,
-        &rec_tree_owned.gene_tree,
-        &rec_tree_owned.node_mapping,
-        &rec_tree_owned.event_mapping,
+        &rec_tree.species_tree,
+        &rec_tree.gene_tree,
+        &rec_tree.node_mapping,
+        &rec_tree.event_mapping,
     )
 }
 
@@ -1156,7 +1145,7 @@ extendr_module! {
     fn save_bd_events_csv_r;
     fn gene_tree_to_svg_r;
     fn sample_extant_r;
-    fn sample_species_leaves_r;
+    fn sample_leaves_r;
     fn extract_induced_subtree_by_names_r;
     fn pairwise_distances_r;
     fn save_pairwise_distances_csv_r;

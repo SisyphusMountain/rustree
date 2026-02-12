@@ -1,4 +1,4 @@
-use rustree::{RecTreeOwned, Event};
+use rustree::{RecTree, Event};
 
 /// Test parsing a simple RecPhyloXML with minimal structure
 #[test]
@@ -50,7 +50,7 @@ fn test_parse_simple_recphyloxml() {
 </recGeneTree>
 </recPhylo>"#;
 
-    let result = RecTreeOwned::from_xml(xml);
+    let result = RecTree::from_xml(xml);
     assert!(result.is_ok(), "Failed to parse simple XML: {:?}", result.err());
 
     let rec_tree = result.unwrap();
@@ -112,7 +112,7 @@ fn test_parse_missing_branch_lengths() {
 </recGeneTree>
 </recPhylo>"#;
 
-    let result = RecTreeOwned::from_xml(xml);
+    let result = RecTree::from_xml(xml);
     assert!(result.is_ok(), "Failed to parse XML without branch lengths");
 
     let rec_tree = result.unwrap();
@@ -190,7 +190,7 @@ fn test_parse_all_event_types() {
 </recGeneTree>
 </recPhylo>"#;
 
-    let result = RecTreeOwned::from_xml(xml);
+    let result = RecTree::from_xml(xml);
     assert!(result.is_ok(), "Failed to parse XML with all event types");
 
     let rec_tree = result.unwrap();
@@ -257,9 +257,9 @@ fn test_round_trip() {
 </recGeneTree>
 </recPhylo>"#;
 
-    let rec_tree1 = RecTreeOwned::from_xml(xml).expect("Failed to parse first time");
+    let rec_tree1 = RecTree::from_xml(xml).expect("Failed to parse first time");
     let xml2 = rec_tree1.to_xml();
-    let rec_tree2 = RecTreeOwned::from_xml(&xml2).expect("Failed to parse second time");
+    let rec_tree2 = RecTree::from_xml(&xml2).expect("Failed to parse second time");
 
     // Check that structure is preserved
     assert_eq!(rec_tree1.species_tree.nodes.len(), rec_tree2.species_tree.nodes.len());
@@ -268,7 +268,7 @@ fn test_round_trip() {
     assert_eq!(rec_tree1.event_mapping.len(), rec_tree2.event_mapping.len());
 }
 
-/// Test RecTreeOwned methods
+/// Test RecTree methods
 #[test]
 fn test_rectree_owned_methods() {
     let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -310,7 +310,7 @@ fn test_rectree_owned_methods() {
 </recGeneTree>
 </recPhylo>"#;
 
-    let rec_tree = RecTreeOwned::from_xml(xml).expect("Failed to parse XML");
+    let rec_tree = RecTree::from_xml(xml).expect("Failed to parse XML");
 
     // Test species_node_for
     let root_species_idx = rec_tree.species_node_for(rec_tree.gene_tree.root);
@@ -326,7 +326,4 @@ fn test_rectree_owned_methods() {
     assert_eq!(rec_tree.species_tree.nodes[species_idx.unwrap()].name, "Root");
     assert_eq!(*event, Event::Speciation);
 
-    // Test as_rectree conversion
-    let rec_tree_borrowed = rec_tree.as_rectree();
-    assert_eq!(rec_tree_borrowed.gene_tree.nodes.len(), rec_tree.gene_tree.nodes.len());
 }

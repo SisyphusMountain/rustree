@@ -1,5 +1,5 @@
 // Example: Parse reconciled tree from separate files (Newick species tree + XML gene tree)
-use rustree::{RecTreeOwned, Event};
+use rustree::{RecTree, Event};
 use std::env;
 
 fn main() {
@@ -18,7 +18,7 @@ fn main() {
     println!("  Species tree: {}", species_path);
     println!("  Gene tree: {}", gene_path);
 
-    match RecTreeOwned::from_separate_files(species_path, gene_path) {
+    match RecTree::from_separate_files(species_path, gene_path) {
         Ok(rec_tree) => {
             println!("\n✓ Successfully parsed!");
 

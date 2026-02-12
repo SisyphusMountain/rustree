@@ -5,9 +5,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use crate::node::{FlatTree, RecTreeOwned};
+use std::process::{Command, Stdio};
+use std::sync::Arc;
+use crate::node::{FlatTree, RecTree, map_by_topology};
+use crate::node::gene_forest::GeneForest;
 
 /// Configuration for ALERax reconciliation
 pub struct AleRaxConfig {
@@ -38,6 +41,7 @@ impl ModelType {
 }
 
 /// Gene family definition
+#[derive(Clone)]
 pub struct GeneFamily {
     pub name: String,
     pub gene_tree_path: PathBuf,
@@ -71,12 +75,54 @@ pub struct EventCounts {
 /// Result of ALERax reconciliation for one family
 pub struct AleRaxFamilyResult {
     pub family_name: String,
-    pub reconciled_trees: Vec<RecTreeOwned>,
+    pub reconciled_trees: Vec<RecTree>,
     pub duplication_rate: f64,
     pub loss_rate: f64,
     pub transfer_rate: f64,
     pub likelihood: f64,
     pub statistics: ReconciliationStatistics,
+}
+
+/// A row from ALERax's meanSpeciesEventCounts.txt or totalSpeciesEventCounts.txt.
+///
+/// Represents the mean event counts for one species node across all
+/// reconciliation samples.
+#[derive(Clone, Debug)]
+pub struct SpeciesEventRow {
+    pub species_label: String,
+    pub speciations: f64,
+    pub duplications: f64,
+    pub losses: f64,
+    pub transfers: f64,
+    pub presence: f64,
+    pub origination: f64,
+    pub copies: f64,
+    pub singletons: f64,
+    pub transfers_to: f64,
+}
+
+/// A transfer row from ALERax's totalTransfers.txt or meanTransfers.txt.
+#[derive(Clone, Debug)]
+pub struct TransferRow {
+    pub source: String,
+    pub destination: String,
+    pub count: f64,
+}
+
+/// Full result of reconciling a GeneForest with ALERax.
+///
+/// Contains per-family results plus aggregate statistics across all families.
+pub struct AleRaxForestResult {
+    /// Per-family results (family_name -> result)
+    pub family_results: HashMap<String, AleRaxFamilyResult>,
+    /// Per-family mean species event counts (family_name -> Vec<SpeciesEventRow>)
+    pub mean_species_event_counts: HashMap<String, Vec<SpeciesEventRow>>,
+    /// Aggregate species event counts across all families
+    pub total_species_event_counts: Vec<SpeciesEventRow>,
+    /// Aggregate transfers across all families
+    pub total_transfers: Vec<TransferRow>,
+    /// The output directory (if keep_output=true)
+    pub output_dir: Option<PathBuf>,
 }
 
 /// Check if ALERax is installed and accessible
@@ -329,7 +375,7 @@ fn parse_transfers_file(path: &Path) -> Result<HashMap<String, HashMap<String, f
 }
 
 /// Compute events per species from a reconciled tree
-fn compute_events_per_species(rec_tree: &RecTreeOwned) -> HashMap<String, EventCounts> {
+fn compute_events_per_species(rec_tree: &RecTree) -> HashMap<String, EventCounts> {
     use crate::node::Event;
 
     let mut species_events: HashMap<String, EventCounts> = HashMap::new();
@@ -365,7 +411,7 @@ fn aggregate_statistics(
     output_dir: &Path,
     family_name: &str,
     num_samples: usize,
-    reconciled_trees: &[RecTreeOwned],
+    reconciled_trees: &[RecTree],
 ) -> Result<ReconciliationStatistics, String> {
     let reconciliation_dir = output_dir.join("reconciliations").join("all");
 
@@ -501,8 +547,8 @@ fn parse_alerax_results(
                 continue;
             }
 
-            // Use existing RecTreeOwned::from_xml_file to parse
-            let rec_tree = RecTreeOwned::from_xml_file(xml_path.to_str().unwrap())
+            // Use existing RecTree::from_xml_file to parse
+            let rec_tree = RecTree::from_xml_file(xml_path.to_str().unwrap())
                 .map_err(|e| format!("Failed to parse RecPhyloXML for family '{}' sample {}: {}",
                     family.name, sample_idx, e))?;
             reconciled_trees.push(rec_tree);
@@ -580,6 +626,399 @@ pub fn run_alerax(
         ))
 }
 
+/// Parse ALERax meanSpeciesEventCounts.txt or totalSpeciesEventCounts.txt.
+///
+/// Format: CSV with header
+/// `species_label, speciations, duplications, losses, transfers, presence, origination, copies, singletons, transfers_to`
+fn parse_species_event_counts_file(path: &Path) -> Result<Vec<SpeciesEventRow>, String> {
+    let content = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read species event counts file '{}': {}", path.display(), e))?;
+
+    let mut rows = Vec::new();
+    let mut lines = content.lines();
+
+    // Skip header line
+    let _header = lines.next()
+        .ok_or_else(|| format!("Empty species event counts file: {}", path.display()))?;
+
+    for line in lines {
+        let line = line.trim();
+        if line.is_empty() { continue; }
+
+        let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        if parts.len() < 10 {
+            return Err(format!(
+                "Expected 10 columns in species event counts, got {}: {}",
+                parts.len(), line
+            ));
+        }
+
+        rows.push(SpeciesEventRow {
+            species_label: parts[0].to_string(),
+            speciations: parts[1].parse().map_err(|_| format!("Bad speciations value: '{}'", parts[1]))?,
+            duplications: parts[2].parse().map_err(|_| format!("Bad duplications value: '{}'", parts[2]))?,
+            losses: parts[3].parse().map_err(|_| format!("Bad losses value: '{}'", parts[3]))?,
+            transfers: parts[4].parse().map_err(|_| format!("Bad transfers value: '{}'", parts[4]))?,
+            presence: parts[5].parse().map_err(|_| format!("Bad presence value: '{}'", parts[5]))?,
+            origination: parts[6].parse().map_err(|_| format!("Bad origination value: '{}'", parts[6]))?,
+            copies: parts[7].parse().map_err(|_| format!("Bad copies value: '{}'", parts[7]))?,
+            singletons: parts[8].parse().map_err(|_| format!("Bad singletons value: '{}'", parts[8]))?,
+            transfers_to: parts[9].parse().map_err(|_| format!("Bad transfers_to value: '{}'", parts[9]))?,
+        });
+    }
+
+    Ok(rows)
+}
+
+/// Parse ALERax totalTransfers.txt or meanTransfers.txt.
+///
+/// Format: space-separated `source destination count`
+fn parse_transfer_rows_file(path: &Path) -> Result<Vec<TransferRow>, String> {
+    let content = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read transfers file '{}': {}", path.display(), e))?;
+
+    let mut rows = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() { continue; }
+
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() != 3 { continue; }
+
+        rows.push(TransferRow {
+            source: parts[0].to_string(),
+            destination: parts[1].to_string(),
+            count: parts[2].parse()
+                .map_err(|_| format!("Bad transfer count '{}' in file {}", parts[2], path.display()))?,
+        });
+    }
+
+    Ok(rows)
+}
+
+/// Run ALERax with streaming stderr output.
+///
+/// Streams ALERax stderr to the terminal in real-time so the user can see progress.
+/// Captures both stdout and stderr for error reporting.
+fn run_alerax_streaming(config: &AleRaxConfig, species_tree_newick: &str) -> Result<(), String> {
+    check_alerax_installed(&config.alerax_path)?;
+    prepare_alerax_input(config, species_tree_newick)?;
+
+    let mut cmd = build_alerax_command(config);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let cmd_str = format!("{:?}", cmd);
+    eprintln!("Running ALERax: {}", cmd_str);
+
+    let mut child = cmd.spawn()
+        .map_err(|e| format!("Failed to spawn ALERax: {}", e))?;
+
+    // Read stderr in a thread — print each line in real-time AND capture
+    let stderr = child.stderr.take()
+        .ok_or_else(|| "Failed to capture ALERax stderr".to_string())?;
+    let stderr_handle = std::thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        let mut captured = String::new();
+        for line in reader.lines() {
+            match line {
+                Ok(line) => {
+                    eprintln!("{}", line);
+                    captured.push_str(&line);
+                    captured.push('\n');
+                }
+                Err(_) => break,
+            }
+        }
+        captured
+    });
+
+    // Read stdout in a thread — capture silently
+    let stdout = child.stdout.take()
+        .ok_or_else(|| "Failed to capture ALERax stdout".to_string())?;
+    let stdout_handle = std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        let mut captured = String::new();
+        for line in reader.lines() {
+            match line {
+                Ok(line) => {
+                    captured.push_str(&line);
+                    captured.push('\n');
+                }
+                Err(_) => break,
+            }
+        }
+        captured
+    });
+
+    let status = child.wait()
+        .map_err(|e| format!("Failed to wait for ALERax: {}", e))?;
+
+    let stderr_output = stderr_handle.join()
+        .map_err(|_| "Failed to join stderr reader thread".to_string())?;
+    let stdout_output = stdout_handle.join()
+        .map_err(|_| "Failed to join stdout reader thread".to_string())?;
+
+    if !status.success() {
+        return Err(format!(
+            "ALERax failed with exit code {:?}:\nStderr:\n{}\nStdout:\n{}",
+            status.code(), stderr_output, stdout_output
+        ));
+    }
+
+    if !config.output_dir.exists() {
+        return Err(format!(
+            "ALERax completed but output directory does not exist: {}\nStdout:\n{}\nStderr:\n{}",
+            config.output_dir.display(), stdout_output, stderr_output
+        ));
+    }
+
+    Ok(())
+}
+
+/// Rename species labels in SpeciesEventRow vectors using a name mapping.
+fn rename_species_event_rows(
+    rows: &mut [SpeciesEventRow],
+    mapping: &HashMap<String, String>,
+) {
+    for row in rows {
+        if let Some(orig) = mapping.get(&row.species_label) {
+            row.species_label = orig.clone();
+        }
+    }
+}
+
+/// Rename source/destination in TransferRow vectors using a name mapping.
+fn rename_transfer_rows(
+    rows: &mut [TransferRow],
+    mapping: &HashMap<String, String>,
+) {
+    for row in rows {
+        if let Some(orig) = mapping.get(&row.source) {
+            row.source = orig.clone();
+        }
+        if let Some(orig) = mapping.get(&row.destination) {
+            row.destination = orig.clone();
+        }
+    }
+}
+
+/// Reconcile a GeneForest with ALERax.
+///
+/// This function:
+/// 1. Creates a temp directory (or uses provided `output_dir`)
+/// 2. Writes species tree and gene trees as Newick files
+/// 3. Creates families.txt for ALERax
+/// 4. Runs ALERax with streaming console output
+/// 5. Parses all results (RecPhyloXML, rates, likelihoods, summary stats)
+/// 6. Auto-renames species tree nodes and gene tree leaf names back to original names
+/// 7. Returns a comprehensive result object
+pub fn reconcile_forest(
+    forest: &GeneForest,
+    output_dir: Option<PathBuf>,
+    num_samples: usize,
+    model: ModelType,
+    seed: Option<u64>,
+    alerax_path: &str,
+    keep_output: bool,
+) -> Result<AleRaxForestResult, String> {
+    if forest.is_empty() {
+        return Err("GeneForest has no gene trees to reconcile".to_string());
+    }
+
+    let original_species_tree = forest.species_tree();
+    let species_newick = original_species_tree.to_newick()
+        .map_err(|e| format!("Failed to serialize species tree: {}", e))?;
+
+    // Create output directory
+    let (output_path, _temp_dir) = match output_dir {
+        Some(dir) => {
+            fs::create_dir_all(&dir)
+                .map_err(|e| format!("Failed to create output directory: {}", e))?;
+            (dir, None)
+        }
+        None => {
+            let temp_dir = tempfile::TempDir::new()
+                .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+            let path = temp_dir.path().to_path_buf();
+            (path, Some(temp_dir))
+        }
+    };
+
+    let input_dir = output_path.join("input");
+    fs::create_dir_all(&input_dir)
+        .map_err(|e| format!("Failed to create input directory: {}", e))?;
+
+    let species_tree_path = input_dir.join("species_tree.newick");
+    let families_file_path = input_dir.join("families.txt");
+
+    // Build gene families
+    let mut families = Vec::new();
+    for (idx, rec_tree) in forest.iter().enumerate() {
+        let family_name = format!("family_{}", idx);
+        let gene_newick = rec_tree.gene_tree.to_newick()
+            .map_err(|e| format!("Failed to serialize gene tree {}: {}", idx, e))?;
+        let gene_tree_path = input_dir.join(format!("{}.newick", family_name));
+
+        families.push(GeneFamily {
+            name: family_name,
+            gene_tree_path,
+            gene_tree_newick: gene_newick,
+        });
+    }
+
+    let alerax_output_dir = output_path.join("alerax_output");
+
+    let config = AleRaxConfig {
+        species_tree_path,
+        families: families.clone(),
+        families_file_path,
+        output_dir: alerax_output_dir.clone(),
+        num_samples,
+        model_parametrization: model,
+        seed,
+        alerax_path: alerax_path.to_string(),
+    };
+
+    // Run ALERax with streaming output
+    run_alerax_streaming(&config, &species_newick)?;
+
+    // Parse per-family results (existing logic)
+    let mut family_results = parse_alerax_results(&alerax_output_dir, &families, num_samples)?;
+
+    // Parse summary statistics files
+    let summaries_dir = alerax_output_dir.join("reconciliations").join("summaries");
+    let mut mean_species_event_counts: HashMap<String, Vec<SpeciesEventRow>> = HashMap::new();
+
+    for family in &families {
+        let path = summaries_dir.join(format!("{}_meanSpeciesEventCounts.txt", family.name));
+        if path.exists() {
+            let rows = parse_species_event_counts_file(&path)?;
+            mean_species_event_counts.insert(family.name.clone(), rows);
+        }
+    }
+
+    let total_event_counts_path = alerax_output_dir
+        .join("reconciliations")
+        .join("totalSpeciesEventCounts.txt");
+    let mut total_species_event_counts = if total_event_counts_path.exists() {
+        parse_species_event_counts_file(&total_event_counts_path)?
+    } else {
+        Vec::new()
+    };
+
+    let total_transfers_path = alerax_output_dir
+        .join("reconciliations")
+        .join("totalTransfers.txt");
+    let mut total_transfers = if total_transfers_path.exists() {
+        parse_transfer_rows_file(&total_transfers_path)?
+    } else {
+        Vec::new()
+    };
+
+    // Auto-rename: map ALERax species names back to original names
+    // Get ALERax species tree from the first parsed RecTree
+    let first_family_name = &families[0].name;
+    let first_family_result = family_results.get(first_family_name)
+        .ok_or_else(|| "No results for first family".to_string())?;
+    let alerax_species_tree = &first_family_result.reconciled_trees[0].species_tree;
+
+    // Build topology mapping: alerax_idx -> original_idx
+    let topo_mapping = map_by_topology(original_species_tree, alerax_species_tree)
+        .map_err(|e| format!("Failed to build topology mapping for auto-rename: {}", e))?;
+
+    // Build name mapping: alerax_name -> original_name
+    let mut alerax_to_original: HashMap<String, String> = HashMap::new();
+    for (alerax_idx, original_idx) in &topo_mapping {
+        let alerax_name = &alerax_species_tree.nodes[*alerax_idx].name;
+        let original_name = &original_species_tree.nodes[*original_idx].name;
+        alerax_to_original.insert(alerax_name.clone(), original_name.clone());
+    }
+
+    // Build a single renamed species tree and share it
+    let renamed_species = {
+        let mut tree = (**alerax_species_tree).clone();
+        for node in &mut tree.nodes {
+            if let Some(orig) = alerax_to_original.get(&node.name) {
+                node.name = orig.clone();
+            }
+        }
+        Arc::new(tree)
+    };
+
+    // Rename in all family results
+    for result in family_results.values_mut() {
+        for rec_tree in &mut result.reconciled_trees {
+            // Replace species tree Arc
+            rec_tree.species_tree = Arc::clone(&renamed_species);
+            // Rename gene tree leaf names
+            for node in &mut rec_tree.gene_tree.nodes {
+                if node.left_child.is_none() && node.right_child.is_none() {
+                    if let Some(pos) = node.name.rfind('_') {
+                        let alerax_species = &node.name[..pos];
+                        let suffix = &node.name[pos..];
+                        if let Some(original_species) = alerax_to_original.get(alerax_species) {
+                            node.name = format!("{}{}", original_species, suffix);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Rename species keys in ReconciliationStatistics
+        let old_eps = std::mem::take(&mut result.statistics.events_per_species);
+        for (species_name, counts) in old_eps {
+            let renamed = alerax_to_original.get(&species_name)
+                .cloned()
+                .unwrap_or(species_name);
+            result.statistics.events_per_species.insert(renamed, counts);
+        }
+
+        let old_mt = std::mem::take(&mut result.statistics.mean_transfers);
+        for (source, dests) in old_mt {
+            let renamed_source = alerax_to_original.get(&source)
+                .cloned()
+                .unwrap_or(source);
+            let mut renamed_dests = HashMap::new();
+            for (dest, count) in dests {
+                let renamed_dest = alerax_to_original.get(&dest)
+                    .cloned()
+                    .unwrap_or(dest);
+                renamed_dests.insert(renamed_dest, count);
+            }
+            result.statistics.mean_transfers.insert(renamed_source, renamed_dests);
+        }
+    }
+
+    // Rename in summary statistics
+    for rows in mean_species_event_counts.values_mut() {
+        rename_species_event_rows(rows, &alerax_to_original);
+    }
+    rename_species_event_rows(&mut total_species_event_counts, &alerax_to_original);
+    rename_transfer_rows(&mut total_transfers, &alerax_to_original);
+
+    // Handle output directory retention
+    let kept_output_dir = if keep_output {
+        if let Some(td) = _temp_dir {
+            let path = td.path().to_path_buf();
+            let _ = td.keep(); // prevents cleanup
+            Some(path)
+        } else {
+            Some(output_path)
+        }
+    } else {
+        None
+    };
+
+    Ok(AleRaxForestResult {
+        family_results,
+        mean_species_event_counts,
+        total_species_event_counts,
+        total_transfers,
+        output_dir: kept_output_dir,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -618,5 +1057,92 @@ mod tests {
     fn test_model_type_as_str() {
         assert_eq!(ModelType::PerFamily.as_str(), "PER-FAMILY");
         assert_eq!(ModelType::Global.as_str(), "GLOBAL");
+    }
+
+    #[test]
+    fn test_parse_species_event_counts_file() {
+        let path = Path::new("test_data_3/output_alerax/reconciliations/summaries/family_1_meanSpeciesEventCounts.txt");
+        if !path.exists() {
+            return; // Skip if test data not available
+        }
+        let rows = parse_species_event_counts_file(path).unwrap();
+        assert!(!rows.is_empty(), "Should have parsed species event count rows");
+
+        // Check that Root row exists
+        let root_row = rows.iter().find(|r| r.species_label == "Root");
+        assert!(root_row.is_some(), "Should have a Root row");
+        let root = root_row.unwrap();
+        assert!(root.speciations >= 0.0);
+        assert!(root.copies >= 0.0);
+    }
+
+    #[test]
+    fn test_parse_total_species_event_counts() {
+        let path = Path::new("test_data_3/output_alerax/reconciliations/totalSpeciesEventCounts.txt");
+        if !path.exists() {
+            return;
+        }
+        let rows = parse_species_event_counts_file(path).unwrap();
+        assert!(!rows.is_empty());
+
+        // Total should have same species labels as per-family
+        let labels: Vec<&str> = rows.iter().map(|r| r.species_label.as_str()).collect();
+        assert!(labels.contains(&"Root"));
+    }
+
+    #[test]
+    fn test_parse_transfer_rows_file() {
+        let path = Path::new("test_data_3/output_alerax/reconciliations/totalTransfers.txt");
+        if !path.exists() {
+            return;
+        }
+        let rows = parse_transfer_rows_file(path).unwrap();
+        assert!(!rows.is_empty(), "Should have parsed transfer rows");
+
+        // Check structure
+        for row in &rows {
+            assert!(!row.source.is_empty());
+            assert!(!row.destination.is_empty());
+            assert!(row.count >= 0.0);
+        }
+    }
+
+    #[test]
+    fn test_rename_species_event_rows() {
+        let mut rows = vec![
+            SpeciesEventRow {
+                species_label: "n1".to_string(),
+                speciations: 1.0, duplications: 0.0, losses: 0.0, transfers: 0.0,
+                presence: 1.0, origination: 0.0, copies: 1.0, singletons: 1.0, transfers_to: 0.0,
+            },
+            SpeciesEventRow {
+                species_label: "n2".to_string(),
+                speciations: 2.0, duplications: 0.0, losses: 0.0, transfers: 0.0,
+                presence: 1.0, origination: 0.0, copies: 2.0, singletons: 0.0, transfers_to: 0.0,
+            },
+        ];
+
+        let mut mapping = HashMap::new();
+        mapping.insert("n1".to_string(), "SpeciesA".to_string());
+        mapping.insert("n2".to_string(), "SpeciesB".to_string());
+
+        rename_species_event_rows(&mut rows, &mapping);
+        assert_eq!(rows[0].species_label, "SpeciesA");
+        assert_eq!(rows[1].species_label, "SpeciesB");
+    }
+
+    #[test]
+    fn test_rename_transfer_rows() {
+        let mut rows = vec![
+            TransferRow { source: "n1".to_string(), destination: "n2".to_string(), count: 1.0 },
+        ];
+
+        let mut mapping = HashMap::new();
+        mapping.insert("n1".to_string(), "SpeciesA".to_string());
+        mapping.insert("n2".to_string(), "SpeciesB".to_string());
+
+        rename_transfer_rows(&mut rows, &mapping);
+        assert_eq!(rows[0].source, "SpeciesA");
+        assert_eq!(rows[0].destination, "SpeciesB");
     }
 }

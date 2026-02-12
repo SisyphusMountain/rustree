@@ -1,6 +1,6 @@
-//! CSV export for reconciled trees (RecTree/RecTreeOwned/RecTreeColumns).
+//! CSV export for reconciled trees (RecTree/RecTreeColumns).
 
-use crate::node::{RecTree, RecTreeOwned};
+use crate::node::RecTree;
 use crate::node::rectree::Event;
 use std::io::{self, Write, BufWriter};
 use std::fs::File;
@@ -79,7 +79,7 @@ impl RecTreeColumns {
 // RecTree CSV methods
 // ============================================================================
 
-impl<'a> RecTree<'a> {
+impl RecTree {
     /// Extract structured column data for CSV export and DataFrame creation.
     pub fn to_columns(&self) -> RecTreeColumns {
         let n = self.gene_tree.nodes.len();
@@ -150,23 +150,3 @@ impl<'a> RecTree<'a> {
     }
 }
 
-// ============================================================================
-// RecTreeOwned CSV methods (delegates to RecTree)
-// ============================================================================
-
-impl RecTreeOwned {
-    /// Extract structured column data for CSV export and DataFrame creation.
-    pub fn to_columns(&self) -> RecTreeColumns {
-        self.as_rectree().to_columns()
-    }
-
-    /// Export reconciled tree to CSV string (header + rows).
-    pub fn to_csv_string(&self) -> String {
-        self.as_rectree().to_csv_string()
-    }
-
-    /// Save reconciled tree to a CSV file.
-    pub fn save_csv(&self, filepath: &str) -> io::Result<()> {
-        self.as_rectree().save_csv(filepath)
-    }
-}

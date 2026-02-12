@@ -11,18 +11,20 @@ mod iter;
 mod traits;
 mod conversion;
 pub mod rectree;
+pub mod gene_forest;
 
 // Re-export iterator types
-pub use iter::{NodeIter, FlatTreeIter};
+pub use iter::{NodeIter, FlatTreeIter, FlatTreeIndexIter};
 
 // Re-export traits
 pub use traits::HasName;
 
 // Re-export conversion functions
-pub use conversion::{node_to_flat, flat_to_node, obtain_mapping, rename_reconciled_tree};
+pub use conversion::{map_by_topology, rename_gene_tree};
 
 // Re-export reconciliation types
-pub use rectree::{Event, RecTree, RecTreeOwned};
+pub use rectree::{Event, RecTree};
+pub use gene_forest::GeneForest;
 pub use crate::io::rectree_csv::RecTreeColumns;
 
 // Re-export XML parsing functions (now in io module)

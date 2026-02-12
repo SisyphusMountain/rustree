@@ -5,8 +5,9 @@
 // Uses the shared Gillespie loop with PerSpecies mode.
 
 use crate::bd::{TreeEvent, generate_events_from_tree};
-use crate::node::{FlatTree, RecTreeOwned};
+use crate::node::{FlatTree, RecTree};
 use rand::Rng;
+use std::sync::Arc;
 
 use super::event::DTLEvent;
 use super::gillespie::{DTLMode, simulate_dtl_gillespie};
@@ -29,9 +30,10 @@ pub fn simulate_dtl_per_species<R: Rng>(
     replacement_transfer: Option<f64>,
     require_extant: bool,
     rng: &mut R,
-) -> Result<(RecTreeOwned, Vec<DTLEvent>), String> {
+) -> Result<(RecTree, Vec<DTLEvent>), String> {
     validate_rates(lambda_d, lambda_t, lambda_l)?;
 
+    let species_arc = Arc::new(species_tree.clone());
     let species_events = generate_events_from_tree(species_tree)?;
     let depths = species_tree.make_subdivision();
     let contemporaneity = species_tree.find_contemporaneity(&depths);
@@ -39,7 +41,7 @@ pub fn simulate_dtl_per_species<R: Rng>(
 
     loop {
         let (rec_tree, events) = simulate_dtl_per_species_internal(
-            species_tree,
+            &species_arc,
             &species_events,
             &depths,
             &contemporaneity,
@@ -72,9 +74,10 @@ pub fn simulate_dtl_per_species_batch<R: Rng>(
     n_simulations: usize,
     require_extant: bool,
     rng: &mut R,
-) -> Result<(Vec<RecTreeOwned>, Vec<Vec<DTLEvent>>), String> {
+) -> Result<(Vec<RecTree>, Vec<Vec<DTLEvent>>), String> {
     validate_rates(lambda_d, lambda_t, lambda_l)?;
 
+    let species_arc = Arc::new(species_tree.clone());
     let species_events = generate_events_from_tree(species_tree)?;
     let depths = species_tree.make_subdivision();
     let contemporaneity = species_tree.find_contemporaneity(&depths);
@@ -85,7 +88,7 @@ pub fn simulate_dtl_per_species_batch<R: Rng>(
 
     while rec_trees.len() < n_simulations {
         let (rec_tree, events) = simulate_dtl_per_species_internal(
-            species_tree,
+            &species_arc,
             &species_events,
             &depths,
             &contemporaneity,
@@ -111,7 +114,7 @@ pub fn simulate_dtl_per_species_batch<R: Rng>(
 
 /// Internal implementation of per-species DTL simulation
 pub fn simulate_dtl_per_species_internal<R: Rng>(
-    species_tree: &FlatTree,
+    species_tree: &Arc<FlatTree>,
     species_events: &[TreeEvent],
     depths: &[f64],
     contemporaneity: &[Vec<usize>],
@@ -123,7 +126,7 @@ pub fn simulate_dtl_per_species_internal<R: Rng>(
     replacement_transfer: Option<f64>,
     lca_depths: Option<&Vec<Vec<f64>>>,
     rng: &mut R,
-) -> Result<(RecTreeOwned, Vec<DTLEvent>), String> {
+) -> Result<(RecTree, Vec<DTLEvent>), String> {
     simulate_dtl_gillespie(
         DTLMode::PerSpecies,
         species_tree,

@@ -504,20 +504,12 @@ impl PySpeciesTree {
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
-        let (rec_tree, _events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
+        let (mut rec_tree, _events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
             .map_err(|e| PyValueError::new_err(e))?;
 
-        // Extract owned data from RecTree
-        let gene_tree = rec_tree.gene_tree;
-        let node_mapping = rec_tree.node_mapping;
-        let event_mapping = rec_tree.event_mapping;
-
-        Ok(PyGeneTree {
-            gene_tree,
-            species_tree: Arc::clone(&self.tree),
-            node_mapping,
-            event_mapping,
-        })
+        // Share the PySpeciesTree's Arc instead of the simulation's internal clone
+        rec_tree.species_tree = Arc::clone(&self.tree);
+        Ok(PyGeneTree { rec_tree })
     }
 
     /// Simulate multiple gene trees efficiently with shared pre-computed data.
@@ -558,11 +550,9 @@ impl PySpeciesTree {
 
         let gene_trees: Vec<PyGeneTree> = rec_trees
             .into_iter()
-            .map(|rec_tree| PyGeneTree {
-                gene_tree: rec_tree.gene_tree,
-                species_tree: Arc::clone(&self.tree),
-                node_mapping: rec_tree.node_mapping,
-                event_mapping: rec_tree.event_mapping,
+            .map(|mut rec_tree| {
+                rec_tree.species_tree = Arc::clone(&self.tree);
+                PyGeneTree { rec_tree }
             })
             .collect();
 
@@ -614,20 +604,11 @@ impl PySpeciesTree {
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
-        let (rec_tree, _events) = simulate_dtl_per_species(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
+        let (mut rec_tree, _events) = simulate_dtl_per_species(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
             .map_err(|e| PyValueError::new_err(e))?;
 
-        // Extract owned data from RecTree
-        let gene_tree = rec_tree.gene_tree;
-        let node_mapping = rec_tree.node_mapping;
-        let event_mapping = rec_tree.event_mapping;
-
-        Ok(PyGeneTree {
-            gene_tree,
-            species_tree: Arc::clone(&self.tree),
-            node_mapping,
-            event_mapping,
-        })
+        rec_tree.species_tree = Arc::clone(&self.tree);
+        Ok(PyGeneTree { rec_tree })
     }
 
     /// Simulate multiple gene trees using the Zombi-style per-species DTL model.
@@ -685,11 +666,9 @@ impl PySpeciesTree {
 
         let gene_trees: Vec<PyGeneTree> = rec_trees
             .into_iter()
-            .map(|rec_tree| PyGeneTree {
-                gene_tree: rec_tree.gene_tree,
-                species_tree: Arc::clone(&self.tree),
-                node_mapping: rec_tree.node_mapping,
-                event_mapping: rec_tree.event_mapping,
+            .map(|mut rec_tree| {
+                rec_tree.species_tree = Arc::clone(&self.tree);
+                PyGeneTree { rec_tree }
             })
             .collect();
 
@@ -804,17 +783,14 @@ impl PySpeciesTree {
 #[pyclass]
 #[derive(Clone)]
 pub struct PyGeneTree {
-    gene_tree: FlatTree,
-    species_tree: Arc<FlatTree>,
-    node_mapping: Vec<Option<usize>>,
-    event_mapping: Vec<Event>,
+    rec_tree: RecTree,
 }
 
 #[pymethods]
 impl PyGeneTree {
     /// Convert the gene tree to Newick format.
     fn to_newick(&self) -> PyResult<String> {
-        let nwk = self.gene_tree.to_newick()
+        let nwk = self.rec_tree.gene_tree.to_newick()
             .map_err(|e| PyValueError::new_err(e))?;
         Ok(nwk + ";")
     }
@@ -832,17 +808,17 @@ impl PyGeneTree {
 
     /// Get the number of nodes in the gene tree.
     fn num_nodes(&self) -> usize {
-        self.gene_tree.nodes.len()
+        self.rec_tree.gene_tree.nodes.len()
     }
 
     /// Get the number of extant genes (leaves that survived, not losses).
     fn num_extant(&self) -> usize {
-        self.gene_tree.nodes.iter()
+        self.rec_tree.gene_tree.nodes.iter()
             .enumerate()
             .filter(|(i, n)| {
                 n.left_child.is_none()
                 && n.right_child.is_none()
-                && self.event_mapping[*i] == Event::Leaf
+                && self.rec_tree.event_mapping[*i] == Event::Leaf
             })
             .count()
     }
@@ -855,7 +831,7 @@ impl PyGeneTree {
         let mut losses = 0;
         let mut leaves = 0;
 
-        for event in &self.event_mapping {
+        for event in &self.rec_tree.event_mapping {
             match event {
                 Event::Speciation => speciations += 1,
                 Event::Duplication => duplications += 1,
@@ -870,12 +846,12 @@ impl PyGeneTree {
 
     /// Get names of extant genes (genes that survived to present).
     fn extant_gene_names(&self) -> Vec<String> {
-        self.gene_tree.nodes.iter()
+        self.rec_tree.gene_tree.nodes.iter()
             .enumerate()
             .filter(|(i, n)| {
                 n.left_child.is_none()
                 && n.right_child.is_none()
-                && self.event_mapping[*i] == Event::Leaf
+                && self.rec_tree.event_mapping[*i] == Event::Leaf
             })
             .map(|(_, n)| n.name.clone())
             .collect()
@@ -887,12 +863,12 @@ impl PyGeneTree {
     /// If all genes are lost, returns None (represented as an error in Python).
     fn sample_extant(&self) -> PyResult<PyGeneTree> {
         // Find indices of extant genes (leaves with Event::Leaf)
-        let extant_indices: std::collections::HashSet<usize> = self.gene_tree.nodes.iter()
+        let extant_indices: std::collections::HashSet<usize> = self.rec_tree.gene_tree.nodes.iter()
             .enumerate()
             .filter(|(i, n)| {
                 n.left_child.is_none()
                 && n.right_child.is_none()
-                && self.event_mapping[*i] == Event::Leaf
+                && self.rec_tree.event_mapping[*i] == Event::Leaf
             })
             .map(|(i, _)| i)
             .collect();
@@ -902,7 +878,7 @@ impl PyGeneTree {
         }
 
         // Extract induced subtree with old→new index mapping
-        let (sampled_tree, old_to_new) = extract_induced_subtree(&self.gene_tree, &extant_indices)
+        let (sampled_tree, old_to_new) = extract_induced_subtree(&self.rec_tree.gene_tree, &extant_indices)
             .ok_or_else(|| PyValueError::new_err("Failed to extract induced subtree"))?;
 
         // Build new→old mapping by inverting old_to_new
@@ -918,7 +894,7 @@ impl PyGeneTree {
             .enumerate()
             .map(|(new_idx, old_idx_opt)| {
                 if let Some(old_idx) = old_idx_opt {
-                    self.event_mapping[*old_idx].clone()
+                    self.rec_tree.event_mapping[*old_idx].clone()
                 } else {
                     // Collapsed node — shouldn't happen since extract_induced_subtree
                     // only keeps nodes marked Keep
@@ -937,7 +913,7 @@ impl PyGeneTree {
                 if n.left_child.is_none() && n.right_child.is_none() {
                     if let Some(pos) = n.name.rfind('_') {
                         let species_name = &n.name[..pos];
-                        self.species_tree.nodes.iter()
+                        self.rec_tree.species_tree.nodes.iter()
                             .position(|sn| sn.name == species_name)
                     } else {
                         None
@@ -949,10 +925,12 @@ impl PyGeneTree {
             .collect();
 
         Ok(PyGeneTree {
-            gene_tree: sampled_tree,
-            species_tree: Arc::clone(&self.species_tree),
-            node_mapping: new_node_mapping,
-            event_mapping: new_event_mapping,
+            rec_tree: RecTree::new(
+                Arc::clone(&self.rec_tree.species_tree),
+                sampled_tree,
+                new_node_mapping,
+                new_event_mapping,
+            ),
         })
     }
 
@@ -964,13 +942,13 @@ impl PyGeneTree {
     /// # Returns
     /// A new gene tree containing only the induced subtree of the specified genes.
     fn sample_by_names(&self, names: Vec<String>) -> PyResult<PyGeneTree> {
-        let keep_indices = find_leaf_indices_by_names(&self.gene_tree, &names);
+        let keep_indices = find_leaf_indices_by_names(&self.rec_tree.gene_tree, &names);
 
         if keep_indices.is_empty() {
             return Err(PyValueError::new_err("No matching genes found"));
         }
 
-        let (sampled_tree, old_to_new) = extract_induced_subtree(&self.gene_tree, &keep_indices)
+        let (sampled_tree, old_to_new) = extract_induced_subtree(&self.rec_tree.gene_tree, &keep_indices)
             .ok_or_else(|| PyValueError::new_err("Failed to extract induced subtree"))?;
 
         // Build new→old mapping by inverting old_to_new
@@ -986,7 +964,7 @@ impl PyGeneTree {
             .enumerate()
             .map(|(new_idx, old_idx_opt)| {
                 if let Some(old_idx) = old_idx_opt {
-                    self.event_mapping[*old_idx].clone()
+                    self.rec_tree.event_mapping[*old_idx].clone()
                 } else {
                     if sampled_tree.nodes[new_idx].left_child.is_none() {
                         Event::Leaf
@@ -1003,7 +981,7 @@ impl PyGeneTree {
                 if n.left_child.is_none() && n.right_child.is_none() {
                     if let Some(pos) = n.name.rfind('_') {
                         let species_name = &n.name[..pos];
-                        self.species_tree.nodes.iter()
+                        self.rec_tree.species_tree.nodes.iter()
                             .position(|sn| sn.name == species_name)
                     } else {
                         None
@@ -1015,74 +993,18 @@ impl PyGeneTree {
             .collect();
 
         Ok(PyGeneTree {
-            gene_tree: sampled_tree,
-            species_tree: Arc::clone(&self.species_tree),
-            node_mapping: new_node_mapping,
-            event_mapping: new_event_mapping,
-        })
-    }
-
-    /// Sample species tree leaves and filter gene tree accordingly.
-    ///
-    /// This method samples a subset of species from the species tree and automatically
-    /// filters the gene tree to keep only genes that map to the sampled species. The
-    /// reconciliation mappings are preserved using an LCA-based approach.
-    ///
-    /// # Arguments
-    /// * `species_leaf_names` - List of species leaf names to keep
-    ///
-    /// # Returns
-    /// A new PyGeneTree with sampled species and gene trees, with preserved reconciliation mappings.
-    ///
-    /// # Example
-    /// ```python
-    /// import rustree
-    ///
-    /// # Load a reconciled tree
-    /// gt = rustree.parse_recphyloxml("reconciliation.xml")
-    ///
-    /// # Sample only species A, B, and C
-    /// sampled_gt = gt.sample_species_leaves(["species_A", "species_B", "species_C"])
-    ///
-    /// print(f"Original: {gt.num_nodes()} gene nodes, {len(gt.to_newick())} chars")
-    /// print(f"Sampled: {sampled_gt.num_nodes()} gene nodes, {len(sampled_gt.to_newick())} chars")
-    /// ```
-    fn sample_species_leaves(&self, species_leaf_names: Vec<String>) -> PyResult<PyGeneTree> {
-        use crate::node::RecTreeOwned;
-
-        // Build a RecTreeOwned from self (deep-clone species tree out of Arc for owned use)
-        let rec_tree_owned = RecTreeOwned::new(
-            (*self.species_tree).clone(),
-            self.gene_tree.clone(),
-            self.node_mapping.clone(),
-            self.event_mapping.clone(),
-        );
-
-        // Sample using the RecTreeOwned method
-        let sampled_rec_tree = rec_tree_owned
-            .sample_species_leaves(&species_leaf_names)
-            .map_err(|e| PyValueError::new_err(format!("Failed to sample species leaves: {}", e)))?;
-
-        // Convert back to PyGeneTree (wrap species tree in Arc for sharing)
-        Ok(PyGeneTree {
-            gene_tree: sampled_rec_tree.gene_tree,
-            species_tree: Arc::new(sampled_rec_tree.species_tree),
-            node_mapping: sampled_rec_tree.node_mapping,
-            event_mapping: sampled_rec_tree.event_mapping,
+            rec_tree: RecTree::new(
+                Arc::clone(&self.rec_tree.species_tree),
+                sampled_tree,
+                new_node_mapping,
+                new_event_mapping,
+            ),
         })
     }
 
     /// Export the reconciled tree to RecPhyloXML format as a string.
     fn to_xml(&self) -> String {
-        // Rebuild RecTree temporarily for XML export
-        use crate::node::RecTree;
-        let rec_tree = RecTree::new(
-            &*self.species_tree,
-            &self.gene_tree,
-            &self.node_mapping,
-            &self.event_mapping,
-        );
-        rec_tree.to_xml()
+        self.rec_tree.to_xml()
     }
 
     /// Save the reconciled tree to a RecPhyloXML file.
@@ -1180,13 +1102,7 @@ impl PyGeneTree {
     /// A pandas DataFrame with the gene tree data.
     #[pyo3(signature = (filepath=None))]
     fn to_csv(&self, py: Python, filepath: Option<&str>) -> PyResult<PyObject> {
-        let rec_tree = RecTree::new(
-            &self.species_tree,
-            &self.gene_tree,
-            &self.node_mapping,
-            &self.event_mapping,
-        );
-        let cols = rec_tree.to_columns();
+        let cols = self.rec_tree.to_columns();
 
         if let Some(path) = filepath {
             cols.save_csv(path)
@@ -1243,7 +1159,7 @@ impl PyGeneTree {
             ))),
         };
 
-        let distances = self.gene_tree.pairwise_distances(dist_type, leaves_only)
+        let distances = self.rec_tree.gene_tree.pairwise_distances(dist_type, leaves_only)
             .map_err(|e| PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e)))?;
 
         let node1: Vec<&str> = distances.iter().map(|d| d.node1).collect();
@@ -1301,7 +1217,7 @@ impl PyGeneTree {
         };
 
         // Compute pairwise distances
-        let distances = self.gene_tree.pairwise_distances(dist_type, leaves_only)
+        let distances = self.rec_tree.gene_tree.pairwise_distances(dist_type, leaves_only)
             .map_err(|e| PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e)))?;
 
         // Write to CSV
@@ -1407,17 +1323,10 @@ fn parse_species_tree(newick_str: &str) -> PyResult<PySpeciesTree> {
 /// and reconciled gene tree with event mappings.
 #[pyfunction]
 fn parse_recphyloxml(filepath: &str) -> PyResult<PyGeneTree> {
-    use crate::node::RecTreeOwned;
-
-    let rec_tree_owned = RecTreeOwned::from_xml_file(filepath)
+    let rec_tree = RecTree::from_xml_file(filepath)
         .map_err(|e| PyValueError::new_err(format!("Failed to parse RecPhyloXML: {}", e)))?;
 
-    Ok(PyGeneTree {
-        gene_tree: rec_tree_owned.gene_tree,
-        species_tree: Arc::new(rec_tree_owned.species_tree),
-        node_mapping: rec_tree_owned.node_mapping,
-        event_mapping: rec_tree_owned.event_mapping,
-    })
+    Ok(PyGeneTree { rec_tree })
 }
 
 /// Event counts from reconciliation analysis
@@ -1585,6 +1494,7 @@ impl PyReconciliationStatistics {
 /// Contains all reconciliation samples, estimated evolutionary rates,
 /// log-likelihood, and summary statistics.
 #[pyclass]
+#[derive(Clone)]
 pub struct PyAleRaxResult {
     /// All reconciliation samples (typically 100)
     #[pyo3(get)]
@@ -1825,33 +1735,23 @@ fn reconcile_with_alerax(
     // Convert to Python types
     let mut py_results = HashMap::new();
     for (family_name, result) in results {
-        // Wrap species tree in Arc so all gene trees in this family share the same allocation.
-        // Take the species tree from the first reconciled tree; all trees in a family share
-        // the same species tree.
+        // Share a single species tree Arc across all samples in this family.
+        // Take the Arc from the first reconciled tree.
         let mut rec_trees_iter = result.reconciled_trees.into_iter();
         let first_rec_tree = rec_trees_iter.next();
         let (shared_species_tree, first_py_gene_tree) = match first_rec_tree {
             Some(rt) => {
-                let arc_st = Arc::new(rt.species_tree);
-                let py_gt = PyGeneTree {
-                    gene_tree: rt.gene_tree,
-                    species_tree: Arc::clone(&arc_st),
-                    node_mapping: rt.node_mapping,
-                    event_mapping: rt.event_mapping,
-                };
-                (arc_st, Some(py_gt))
+                let shared = Arc::clone(&rt.species_tree);
+                (shared, Some(PyGeneTree { rec_tree: rt }))
             }
             None => {
-                // No reconciled trees — produce empty result
                 (Arc::new(species_tree_obj.tree.as_ref().clone()), None)
             }
         };
         let mut py_gene_trees: Vec<PyGeneTree> = first_py_gene_tree.into_iter().collect();
-        py_gene_trees.extend(rec_trees_iter.map(|rec_tree| PyGeneTree {
-            gene_tree: rec_tree.gene_tree,
-            species_tree: Arc::clone(&shared_species_tree),
-            node_mapping: rec_tree.node_mapping,
-            event_mapping: rec_tree.event_mapping,
+        py_gene_trees.extend(rec_trees_iter.map(|mut rec_tree| {
+            rec_tree.species_tree = Arc::clone(&shared_species_tree);
+            PyGeneTree { rec_tree }
         }));
 
         // Convert statistics
@@ -1906,6 +1806,334 @@ fn reconcile_with_alerax(
     Ok(py_results)
 }
 
+// ============================================================================
+// GeneForest
+// ============================================================================
+
+/// A collection of gene trees associated with a single species tree.
+///
+/// PyGeneForest wraps a GeneForest and provides methods for:
+/// - Pruning by species tree or species leaf names
+/// - Reconciliation with ALERax
+/// - Batch access to gene trees
+///
+/// # Example
+/// ```python
+/// import rustree
+///
+/// st = rustree.simulate_species_tree(n=20, lambda_=1.0, mu=0.5, seed=42)
+/// gts = st.simulate_dtl_batch(n=5, lambda_d=0.5, lambda_t=0.2, lambda_l=0.3, seed=123)
+/// forest = rustree.GeneForest(st, gts)
+/// print(forest)  # GeneForest(species_leaves=20, gene_trees=5)
+/// ```
+#[pyclass(name = "GeneForest")]
+#[derive(Clone)]
+pub struct PyGeneForest {
+    forest: crate::node::gene_forest::GeneForest,
+}
+
+#[pymethods]
+impl PyGeneForest {
+    /// Create a new GeneForest from a species tree and list of gene trees.
+    #[new]
+    fn new(species_tree: &PySpeciesTree, gene_trees: Vec<PyGeneTree>) -> PyResult<Self> {
+        let species_arc = Arc::clone(&species_tree.tree);
+        let rec_trees: Vec<RecTree> = gene_trees.into_iter()
+            .map(|gt| {
+                let mut rt = gt.rec_tree;
+                rt.species_tree = Arc::clone(&species_arc);
+                rt
+            })
+            .collect();
+
+        Ok(PyGeneForest {
+            forest: crate::node::gene_forest::GeneForest::from_rec_trees(species_arc, rec_trees),
+        })
+    }
+
+    /// Number of gene trees in the forest.
+    fn __len__(&self) -> usize {
+        self.forest.len()
+    }
+
+    /// Get a gene tree by index.
+    fn __getitem__(&self, idx: usize) -> PyResult<PyGeneTree> {
+        self.forest.get(idx)
+            .map(|rt| PyGeneTree { rec_tree: rt.clone() })
+            .ok_or_else(|| PyValueError::new_err(format!("Index {} out of range (len={})", idx, self.forest.len())))
+    }
+
+    /// Get the species tree.
+    #[getter]
+    fn species_tree(&self) -> PySpeciesTree {
+        PySpeciesTree {
+            tree: Arc::clone(&self.forest.species_tree),
+        }
+    }
+
+    /// Get all gene trees.
+    #[getter]
+    fn gene_trees(&self) -> Vec<PyGeneTree> {
+        self.forest.gene_trees.iter()
+            .map(|rt| PyGeneTree { rec_tree: rt.clone() })
+            .collect()
+    }
+
+    /// Prune the forest to match a target species tree.
+    ///
+    /// The target species tree's leaves must be a subset of this forest's
+    /// species tree leaves. Returns a new GeneForest with pruned trees.
+    fn prune_to_species_tree(&self, target: &PySpeciesTree) -> PyResult<PyGeneForest> {
+        let pruned = self.forest.prune_to_species_tree(&target.tree)
+            .map_err(|e| PyValueError::new_err(format!("Failed to prune: {}", e)))?;
+        Ok(PyGeneForest { forest: pruned })
+    }
+
+    /// Sample leaves and filter all trees accordingly.
+    ///
+    /// # Arguments
+    /// * `names` - List of species leaf names to keep
+    fn sample_leaves(&self, names: Vec<String>) -> PyResult<PyGeneForest> {
+        let sampled = self.forest.sample_leaves(&names)
+            .map_err(|e| PyValueError::new_err(format!("Failed to sample: {}", e)))?;
+        Ok(PyGeneForest { forest: sampled })
+    }
+
+    /// Reconcile the gene forest with ALERax.
+    ///
+    /// Runs ALERax on all gene trees, parses all results, and auto-renames
+    /// species tree nodes back to their original names.
+    ///
+    /// # Arguments
+    /// * `output_dir` - Optional output directory (default: temp directory)
+    /// * `num_samples` - Number of reconciliation samples per family (default: 100)
+    /// * `model` - Model parametrization: "PER-FAMILY" or "GLOBAL" (default: "PER-FAMILY")
+    /// * `seed` - Random seed for reproducibility (optional)
+    /// * `keep_output` - Whether to preserve ALERax output files (default: False)
+    /// * `alerax_path` - Path to alerax executable (default: "alerax")
+    ///
+    /// # Returns
+    /// An AleRaxForestResult containing all reconciliation data.
+    #[pyo3(signature = (output_dir=None, num_samples=100, model="PER-FAMILY".to_string(), seed=None, keep_output=false, alerax_path="alerax".to_string()))]
+    fn reconcile_with_alerax(
+        &self,
+        output_dir: Option<String>,
+        num_samples: usize,
+        model: String,
+        seed: Option<u64>,
+        keep_output: bool,
+        alerax_path: String,
+    ) -> PyResult<PyAleRaxForestResult> {
+        use crate::alerax::{reconcile_forest, ModelType};
+        use std::path::PathBuf;
+
+        let model_type = match model.to_uppercase().as_str() {
+            "PER-FAMILY" | "PER_FAMILY" => ModelType::PerFamily,
+            "GLOBAL" => ModelType::Global,
+            _ => return Err(PyValueError::new_err(format!(
+                "Invalid model type '{}'. Must be 'PER-FAMILY' or 'GLOBAL'", model
+            ))),
+        };
+
+        let output_path = output_dir.map(PathBuf::from);
+
+        let result = reconcile_forest(
+            &self.forest,
+            output_path,
+            num_samples,
+            model_type,
+            seed,
+            &alerax_path,
+            keep_output,
+        ).map_err(|e| PyValueError::new_err(format!("ALERax reconciliation failed: {}", e)))?;
+
+        Ok(PyAleRaxForestResult::from_rust(result))
+    }
+
+    fn __repr__(&self) -> String {
+        let species_leaves = self.forest.species_tree().nodes.iter()
+            .filter(|n| n.left_child.is_none() && n.right_child.is_none())
+            .count();
+        format!(
+            "GeneForest(species_leaves={}, gene_trees={})",
+            species_leaves,
+            self.forest.len()
+        )
+    }
+}
+
+// ============================================================================
+// ALERax Forest Result
+// ============================================================================
+
+/// Comprehensive result of reconciling a GeneForest with ALERax.
+///
+/// Contains per-family results (reconciled trees, rates, likelihoods)
+/// plus aggregate statistics across all families, accessible as DataFrames.
+#[pyclass(name = "AleRaxForestResult")]
+pub struct PyAleRaxForestResult {
+    #[pyo3(get)]
+    family_results: HashMap<String, PyAleRaxResult>,
+    mean_species_event_counts: HashMap<String, Vec<crate::alerax::SpeciesEventRow>>,
+    total_species_event_counts_data: Vec<crate::alerax::SpeciesEventRow>,
+    total_transfers_data: Vec<crate::alerax::TransferRow>,
+    #[pyo3(get)]
+    output_dir: Option<String>,
+}
+
+impl PyAleRaxForestResult {
+    fn from_rust(result: crate::alerax::AleRaxForestResult) -> Self {
+        let mut py_family_results = HashMap::new();
+        for (name, family_result) in result.family_results {
+            let py_gene_trees: Vec<PyGeneTree> = family_result.reconciled_trees
+                .into_iter()
+                .map(|rt| PyGeneTree { rec_tree: rt })
+                .collect();
+
+            let mean_event_counts = PyEventCounts {
+                speciations: family_result.statistics.mean_event_counts.speciations,
+                speciation_losses: family_result.statistics.mean_event_counts.speciation_losses,
+                duplications: family_result.statistics.mean_event_counts.duplications,
+                duplication_losses: family_result.statistics.mean_event_counts.duplication_losses,
+                transfers: family_result.statistics.mean_event_counts.transfers,
+                transfer_losses: family_result.statistics.mean_event_counts.transfer_losses,
+                losses: family_result.statistics.mean_event_counts.losses,
+                leaves: family_result.statistics.mean_event_counts.leaves,
+            };
+
+            let events_per_species: HashMap<String, PyEventCounts> = family_result.statistics.events_per_species
+                .into_iter()
+                .map(|(species, counts)| {
+                    (species, PyEventCounts {
+                        speciations: counts.speciations,
+                        speciation_losses: counts.speciation_losses,
+                        duplications: counts.duplications,
+                        duplication_losses: counts.duplication_losses,
+                        transfers: counts.transfers,
+                        transfer_losses: counts.transfer_losses,
+                        losses: counts.losses,
+                        leaves: counts.leaves,
+                    })
+                })
+                .collect();
+
+            let statistics = PyReconciliationStatistics {
+                mean_event_counts,
+                mean_transfers: family_result.statistics.mean_transfers,
+                events_per_species,
+            };
+
+            py_family_results.insert(name, PyAleRaxResult {
+                gene_trees: py_gene_trees,
+                duplication_rate: family_result.duplication_rate,
+                loss_rate: family_result.loss_rate,
+                transfer_rate: family_result.transfer_rate,
+                likelihood: family_result.likelihood,
+                statistics,
+            });
+        }
+
+        PyAleRaxForestResult {
+            family_results: py_family_results,
+            mean_species_event_counts: result.mean_species_event_counts,
+            total_species_event_counts_data: result.total_species_event_counts,
+            total_transfers_data: result.total_transfers,
+            output_dir: result.output_dir.map(|p| p.to_string_lossy().to_string()),
+        }
+    }
+}
+
+/// Helper: convert SpeciesEventRow slice to a pandas DataFrame.
+fn species_event_rows_to_df(
+    py: Python,
+    rows: &[crate::alerax::SpeciesEventRow],
+) -> PyResult<PyObject> {
+    let pandas = py.import("pandas")?;
+    let dict = pyo3::types::PyDict::new(py);
+
+    let labels: Vec<&str> = rows.iter().map(|r| r.species_label.as_str()).collect();
+    let speciations: Vec<f64> = rows.iter().map(|r| r.speciations).collect();
+    let duplications: Vec<f64> = rows.iter().map(|r| r.duplications).collect();
+    let losses: Vec<f64> = rows.iter().map(|r| r.losses).collect();
+    let transfers: Vec<f64> = rows.iter().map(|r| r.transfers).collect();
+    let presence: Vec<f64> = rows.iter().map(|r| r.presence).collect();
+    let origination: Vec<f64> = rows.iter().map(|r| r.origination).collect();
+    let copies: Vec<f64> = rows.iter().map(|r| r.copies).collect();
+    let singletons: Vec<f64> = rows.iter().map(|r| r.singletons).collect();
+    let transfers_to: Vec<f64> = rows.iter().map(|r| r.transfers_to).collect();
+
+    dict.set_item("species_label", labels)?;
+    dict.set_item("speciations", speciations)?;
+    dict.set_item("duplications", duplications)?;
+    dict.set_item("losses", losses)?;
+    dict.set_item("transfers", transfers)?;
+    dict.set_item("presence", presence)?;
+    dict.set_item("origination", origination)?;
+    dict.set_item("copies", copies)?;
+    dict.set_item("singletons", singletons)?;
+    dict.set_item("transfers_to", transfers_to)?;
+
+    let df = pandas.call_method1("DataFrame", (dict,))?;
+    Ok(df.into())
+}
+
+#[pymethods]
+impl PyAleRaxForestResult {
+    /// Get mean species event counts for a specific family as a pandas DataFrame.
+    ///
+    /// Columns: species_label, speciations, duplications, losses, transfers,
+    ///          presence, origination, copies, singletons, transfers_to
+    fn mean_species_event_counts(&self, py: Python, family_name: &str) -> PyResult<PyObject> {
+        let rows = self.mean_species_event_counts.get(family_name)
+            .ok_or_else(|| PyValueError::new_err(format!(
+                "No mean species event counts for family '{}'", family_name
+            )))?;
+        species_event_rows_to_df(py, rows)
+    }
+
+    /// Get total (aggregate) species event counts as a pandas DataFrame.
+    ///
+    /// Columns: species_label, speciations, duplications, losses, transfers,
+    ///          presence, origination, copies, singletons, transfers_to
+    #[getter]
+    fn total_species_event_counts(&self, py: Python) -> PyResult<PyObject> {
+        species_event_rows_to_df(py, &self.total_species_event_counts_data)
+    }
+
+    /// Get total (aggregate) transfers as a pandas DataFrame.
+    ///
+    /// Columns: source, destination, count
+    #[getter]
+    fn total_transfers(&self, py: Python) -> PyResult<PyObject> {
+        let pandas = py.import("pandas")?;
+        let dict = pyo3::types::PyDict::new(py);
+
+        let sources: Vec<&str> = self.total_transfers_data.iter().map(|r| r.source.as_str()).collect();
+        let dests: Vec<&str> = self.total_transfers_data.iter().map(|r| r.destination.as_str()).collect();
+        let counts: Vec<f64> = self.total_transfers_data.iter().map(|r| r.count).collect();
+
+        dict.set_item("source", sources)?;
+        dict.set_item("destination", dests)?;
+        dict.set_item("count", counts)?;
+
+        let df = pandas.call_method1("DataFrame", (dict,))?;
+        Ok(df.into())
+    }
+
+    /// List all family names.
+    fn family_names(&self) -> Vec<String> {
+        self.family_results.keys().cloned().collect()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "AleRaxForestResult(families={}, total_species={})",
+            self.family_results.len(),
+            self.total_species_event_counts_data.len()
+        )
+    }
+}
+
 /// Python module for rustree.
 #[pymodule]
 fn rustree(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -1918,5 +2146,7 @@ fn rustree(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyEventCounts>()?;
     m.add_class::<PyReconciliationStatistics>()?;
     m.add_class::<PyAleRaxResult>()?;
+    m.add_class::<PyGeneForest>()?;
+    m.add_class::<PyAleRaxForestResult>()?;
     Ok(())
 }

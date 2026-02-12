@@ -1,5 +1,5 @@
 // Example: Parse a RecPhyloXML file (e.g., from ALERax)
-use rustree::{RecTreeOwned, Event};
+use rustree::{RecTree, Event};
 use std::env;
 
 fn main() {
@@ -15,7 +15,7 @@ fn main() {
 
     println!("Parsing RecPhyloXML file: {}", filepath);
 
-    match RecTreeOwned::from_xml_file(filepath) {
+    match RecTree::from_xml_file(filepath) {
         Ok(rec_tree) => {
             println!("\n✓ Successfully parsed RecPhyloXML file!");
 

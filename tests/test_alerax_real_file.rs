@@ -1,11 +1,11 @@
-use rustree::{RecTreeOwned, Event};
+use rustree::{RecTree, Event};
 
 #[test]
 #[ignore] // Requires local data files at /home/enzo/... - run with: cargo test --test test_alerax_real_file -- --ignored
 fn test_parse_alerax_file() {
     let filepath = "/home/enzo/Documents/git/WP2/data/test_data/test_2/alerax_g.xml";
 
-    let result = RecTreeOwned::from_xml_file(filepath);
+    let result = RecTree::from_xml_file(filepath);
     assert!(result.is_ok(), "Failed to parse ALERax file: {:?}", result.err());
 
     let rec_tree = result.unwrap();
@@ -63,7 +63,7 @@ fn test_parse_alerax_file() {
     let xml_output = rec_tree.to_xml();
     println!("  - Generated XML length: {} bytes", xml_output.len());
 
-    let rec_tree2 = RecTreeOwned::from_xml(&xml_output).expect("Failed to parse exported XML");
+    let rec_tree2 = RecTree::from_xml(&xml_output).expect("Failed to parse exported XML");
     println!("  ✓ Successfully parsed exported XML!");
     println!("  - Species nodes: {}", rec_tree2.species_tree.nodes.len());
     println!("  - Gene nodes: {}", rec_tree2.gene_tree.nodes.len());
