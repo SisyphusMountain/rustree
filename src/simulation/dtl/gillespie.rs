@@ -18,6 +18,7 @@ use super::utils::{
 };
 
 /// Determines how DTL event rates scale with the simulation state.
+#[derive(Clone, Copy)]
 pub(crate) enum DTLMode {
     /// Rate proportional to number of gene copies (per-gene model)
     PerGene,

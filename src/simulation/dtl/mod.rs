@@ -4,16 +4,18 @@
 // Events: Speciation (S), Duplication (D), Transfer (T), Loss (L)
 
 mod event;
-mod gillespie;
+pub(crate) mod gillespie;
 mod per_gene;
 mod per_species;
 mod state;
+mod stream;
 mod utils;
 
 // Re-export main types and functions
 pub use event::DTLEvent;
-pub use per_gene::{simulate_dtl, simulate_dtl_batch};
-pub use per_species::{simulate_dtl_per_species, simulate_dtl_per_species_batch};
+pub use stream::DtlSimIter;
+pub use per_gene::{simulate_dtl, simulate_dtl_batch, simulate_dtl_iter};
+pub use per_species::{simulate_dtl_per_species, simulate_dtl_per_species_batch, simulate_dtl_per_species_iter};
 pub use utils::{count_extant_genes, count_events};
 
 // Re-export from io module for backward compatibility

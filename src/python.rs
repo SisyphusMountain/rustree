@@ -10,10 +10,11 @@ use pyo3::exceptions::PyValueError;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
-use crate::bd::simulate_bd_tree_bwd;
-use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch};
+use crate::bd::{simulate_bd_tree_bwd, generate_events_from_tree, TreeEvent};
+use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch, count_extant_genes};
 use crate::node::{FlatTree, Event, RecTree};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names, find_leaf_indices_by_names};
+use crate::simulation::dtl::gillespie::{DTLMode, simulate_dtl_gillespie};
 use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
@@ -675,6 +676,170 @@ impl PySpeciesTree {
         Ok(gene_trees)
     }
 
+    /// Create a lazy iterator that generates gene trees one at a time (per-gene-copy model).
+    ///
+    /// Each call to `next()` on the returned iterator runs one Gillespie simulation
+    /// and yields a PyGeneTree. Only one gene tree lives in memory at a time.
+    ///
+    /// The per-gene-copy model means the DTL event rate scales with the number
+    /// of gene copies (more copies = higher total rate).
+    ///
+    /// # Arguments
+    /// * `lambda_d` - Duplication rate per unit time
+    /// * `lambda_t` - Transfer rate per unit time
+    /// * `lambda_l` - Loss rate per unit time
+    /// * `transfer_alpha` - Distance decay for assortative transfers (optional, None = uniform)
+    /// * `replacement_transfer` - Probability of replacement transfer (optional, 0.0-1.0)
+    /// * `n` - Number of gene trees to generate (default 1)
+    /// * `require_extant` - If true, retry until a tree with extant genes is produced (default false)
+    /// * `seed` - Random seed for reproducibility (optional)
+    ///
+    /// # Returns
+    /// A PyDtlSimIter that implements the Python iterator protocol.
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    ///
+    /// species_tree = rustree.simulate_species_tree(n=20, lambda_=1.0, mu=0.5, seed=42)
+    ///
+    /// # Stream 1000 trees directly to XML files:
+    /// species_tree.simulate_dtl_iter(0.5, 0.2, 0.3, n=1000, seed=42).save_xml("output/")
+    ///
+    /// # Iterate one at a time:
+    /// for gene_tree in species_tree.simulate_dtl_iter(0.5, 0.2, 0.3, n=100, seed=42):
+    ///     print(gene_tree.num_extant())
+    ///
+    /// # Get a single tree:
+    /// gene_tree = species_tree.simulate_dtl_iter(0.5, 0.2, 0.3, seed=42).single()
+    /// ```
+    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, n=1, require_extant=false, seed=None))]
+    fn simulate_dtl_iter(
+        &self,
+        lambda_d: f64,
+        lambda_t: f64,
+        lambda_l: f64,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+        n: usize,
+        require_extant: bool,
+        seed: Option<u64>,
+    ) -> PyResult<PyDtlSimIter> {
+        validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
+        validate_replacement_transfer(replacement_transfer)?;
+
+        let species_arc = Arc::clone(&self.tree);
+        let species_events = generate_events_from_tree(&self.tree)
+            .map_err(|e| PyValueError::new_err(e))?;
+        let depths = self.tree.make_subdivision();
+        let contemporaneity = self.tree.find_contemporaneity(&depths);
+        let lca_depths = transfer_alpha.map(|_| {
+            self.tree.precompute_lca_depths()
+                .expect("Failed to precompute LCA depths")
+        });
+        let rng = init_rng(seed);
+        let origin_species = self.tree.root;
+
+        Ok(PyDtlSimIter {
+            species_arc,
+            species_events,
+            depths,
+            contemporaneity,
+            lca_depths,
+            origin_species,
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            transfer_alpha,
+            replacement_transfer,
+            n_simulations: n,
+            require_extant,
+            mode: DTLMode::PerGene,
+            rng,
+            completed: 0,
+        })
+    }
+
+    /// Create a lazy iterator that generates gene trees one at a time (per-species model).
+    ///
+    /// Each call to `next()` on the returned iterator runs one Gillespie simulation
+    /// and yields a PyGeneTree. Only one gene tree lives in memory at a time.
+    ///
+    /// In the per-species (Zombi-style) model, the DTL event rate scales with
+    /// the number of alive species, NOT the number of gene copies.
+    ///
+    /// # Arguments
+    /// * `lambda_d` - Duplication rate per species per unit time
+    /// * `lambda_t` - Transfer rate per species per unit time
+    /// * `lambda_l` - Loss rate per species per unit time
+    /// * `transfer_alpha` - Distance decay for assortative transfers (optional, None = uniform)
+    /// * `replacement_transfer` - Probability of replacement transfer (optional, 0.0-1.0)
+    /// * `n` - Number of gene trees to generate (default 1)
+    /// * `require_extant` - If true, retry until a tree with extant genes is produced (default false)
+    /// * `seed` - Random seed for reproducibility (optional)
+    ///
+    /// # Returns
+    /// A PyDtlSimIter that implements the Python iterator protocol.
+    ///
+    /// # Example
+    /// ```python
+    /// import rustree
+    ///
+    /// species_tree = rustree.simulate_species_tree(n=20, lambda_=1.0, mu=0.5, seed=42)
+    ///
+    /// # Stream 1000 trees directly to Newick files:
+    /// species_tree.simulate_dtl_per_species_iter(0.5, 0.2, 0.3, n=1000, seed=42).save_newick("output/")
+    ///
+    /// # Collect all into a list:
+    /// gene_trees = species_tree.simulate_dtl_per_species_iter(0.5, 0.2, 0.3, n=50, seed=42).collect_all()
+    /// ```
+    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, n=1, require_extant=false, seed=None))]
+    fn simulate_dtl_per_species_iter(
+        &self,
+        lambda_d: f64,
+        lambda_t: f64,
+        lambda_l: f64,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+        n: usize,
+        require_extant: bool,
+        seed: Option<u64>,
+    ) -> PyResult<PyDtlSimIter> {
+        validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
+        validate_replacement_transfer(replacement_transfer)?;
+
+        let species_arc = Arc::clone(&self.tree);
+        let species_events = generate_events_from_tree(&self.tree)
+            .map_err(|e| PyValueError::new_err(e))?;
+        let depths = self.tree.make_subdivision();
+        let contemporaneity = self.tree.find_contemporaneity(&depths);
+        let lca_depths = transfer_alpha.map(|_| {
+            self.tree.precompute_lca_depths()
+                .expect("Failed to precompute LCA depths")
+        });
+        let rng = init_rng(seed);
+        let origin_species = self.tree.root;
+
+        Ok(PyDtlSimIter {
+            species_arc,
+            species_events,
+            depths,
+            contemporaneity,
+            lca_depths,
+            origin_species,
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            transfer_alpha,
+            replacement_transfer,
+            n_simulations: n,
+            require_extant,
+            mode: DTLMode::PerSpecies,
+            rng,
+            completed: 0,
+        })
+    }
+
     /// Compute all pairwise distances between nodes in the species tree.
     ///
     /// # Arguments
@@ -778,6 +943,276 @@ impl PySpeciesTree {
         Ok(())
     }
 }
+
+// ============================================================================
+// Streaming DTL Simulation Iterator
+// ============================================================================
+
+/// Lazy iterator for DTL gene tree simulation.
+///
+/// Generates one gene tree per `next()` call using the Gillespie algorithm.
+/// Owns all its state (species tree, pre-computed data, RNG) so it can be
+/// used as a Python iterator without lifetime issues.
+///
+/// Created by `PySpeciesTree.simulate_dtl_iter()` or
+/// `PySpeciesTree.simulate_dtl_per_species_iter()`.
+///
+/// # Example
+/// ```python
+/// import rustree
+///
+/// species_tree = rustree.simulate_species_tree(n=20, lambda_=1.0, mu=0.5, seed=42)
+///
+/// # Create a lazy iterator for 1000 gene trees
+/// it = species_tree.simulate_dtl_iter(
+///     lambda_d=0.5, lambda_t=0.2, lambda_l=0.3, n=1000, seed=123
+/// )
+///
+/// # Iterate one at a time
+/// for gene_tree in it:
+///     print(gene_tree.num_extant())
+///
+/// # Or use convenience methods:
+/// it = species_tree.simulate_dtl_iter(lambda_d=0.5, lambda_t=0.2, lambda_l=0.3, n=100, seed=42)
+/// it.save_xml("output/")
+///
+/// it = species_tree.simulate_dtl_iter(lambda_d=0.5, lambda_t=0.2, lambda_l=0.3, n=1, seed=42)
+/// gene_tree = it.single()
+/// ```
+#[pyclass]
+pub struct PyDtlSimIter {
+    // Pre-computed state (owned)
+    species_arc: Arc<FlatTree>,
+    species_events: Vec<TreeEvent>,
+    depths: Vec<f64>,
+    contemporaneity: Vec<Vec<usize>>,
+    lca_depths: Option<Vec<Vec<f64>>>,
+    // Simulation parameters
+    origin_species: usize,
+    lambda_d: f64,
+    lambda_t: f64,
+    lambda_l: f64,
+    transfer_alpha: Option<f64>,
+    replacement_transfer: Option<f64>,
+    n_simulations: usize,
+    require_extant: bool,
+    mode: DTLMode,
+    // Mutable state
+    rng: StdRng,
+    completed: usize,
+}
+
+impl PyDtlSimIter {
+    /// Run one Gillespie simulation and return the result.
+    ///
+    /// Retries if `require_extant` is true and the tree has no extant genes.
+    /// Returns `None` when all requested simulations have been completed.
+    fn next_simulation(&mut self) -> Option<Result<RecTree, String>> {
+        if self.completed >= self.n_simulations {
+            return None;
+        }
+
+        loop {
+            let lca_ref = self.lca_depths.as_ref().map(|v| v.as_slice());
+            let result = simulate_dtl_gillespie(
+                self.mode,
+                &self.species_arc,
+                &self.species_events,
+                &self.depths,
+                &self.contemporaneity,
+                lca_ref,
+                self.origin_species,
+                self.lambda_d,
+                self.lambda_t,
+                self.lambda_l,
+                self.transfer_alpha,
+                self.replacement_transfer,
+                &mut self.rng,
+            );
+
+            match result {
+                Ok((rec_tree, _events)) => {
+                    if !self.require_extant || count_extant_genes(&rec_tree) > 0 {
+                        self.completed += 1;
+                        return Some(Ok(rec_tree));
+                    }
+                    // Retry: tree had no extant genes
+                }
+                Err(e) => return Some(Err(e)),
+            }
+        }
+    }
+}
+
+#[pymethods]
+impl PyDtlSimIter {
+    /// Python iterator protocol: return self.
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    /// Python iterator protocol: generate the next gene tree.
+    ///
+    /// Each call runs one Gillespie simulation. Returns a PyGeneTree or
+    /// raises StopIteration when all requested simulations are done.
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyGeneTree>> {
+        let species_arc = Arc::clone(&slf.species_arc);
+        match slf.next_simulation() {
+            None => Ok(None), // StopIteration
+            Some(Ok(mut rec_tree)) => {
+                rec_tree.species_tree = species_arc;
+                Ok(Some(PyGeneTree { rec_tree }))
+            }
+            Some(Err(e)) => Err(PyValueError::new_err(e)),
+        }
+    }
+
+    /// Number of simulations remaining.
+    #[getter]
+    fn remaining(&self) -> usize {
+        self.n_simulations.saturating_sub(self.completed)
+    }
+
+    /// Total number of simulations requested.
+    #[getter]
+    fn total(&self) -> usize {
+        self.n_simulations
+    }
+
+    /// Number of simulations completed so far.
+    #[getter]
+    fn completed(&self) -> usize {
+        self.completed
+    }
+
+    /// Run a single simulation and return the result directly.
+    ///
+    /// Convenience for the common case of generating one tree.
+    /// Equivalent to calling `next()` once.
+    ///
+    /// # Raises
+    /// ValueError if no simulations remain or the simulation fails.
+    fn single(&mut self) -> PyResult<PyGeneTree> {
+        let species_arc = Arc::clone(&self.species_arc);
+        match self.next_simulation() {
+            None => Err(PyValueError::new_err("No simulations remaining")),
+            Some(Ok(mut rec_tree)) => {
+                rec_tree.species_tree = species_arc;
+                Ok(PyGeneTree { rec_tree })
+            }
+            Some(Err(e)) => Err(PyValueError::new_err(e)),
+        }
+    }
+
+    /// Collect all remaining simulations into a list of PyGeneTree objects.
+    ///
+    /// Warning: this loads all trees into memory at once.
+    ///
+    /// # Returns
+    /// A list of PyGeneTree objects.
+    fn collect_all(&mut self) -> PyResult<Vec<PyGeneTree>> {
+        let mut trees = Vec::with_capacity(self.n_simulations.saturating_sub(self.completed));
+        loop {
+            let species_arc = Arc::clone(&self.species_arc);
+            match self.next_simulation() {
+                None => break,
+                Some(Ok(mut rec_tree)) => {
+                    rec_tree.species_tree = species_arc;
+                    trees.push(PyGeneTree { rec_tree });
+                }
+                Some(Err(e)) => return Err(PyValueError::new_err(e)),
+            }
+        }
+        Ok(trees)
+    }
+
+    /// Save each remaining gene tree as RecPhyloXML to the given directory.
+    ///
+    /// Files are named `gene_0000.xml`, `gene_0001.xml`, etc.
+    /// Creates the directory if it does not exist.
+    ///
+    /// # Arguments
+    /// * `dir` - Directory path to save the XML files
+    fn save_xml(&mut self, dir: &str) -> PyResult<()> {
+        fs::create_dir_all(dir)
+            .map_err(|e| PyValueError::new_err(format!("Failed to create directory: {}", e)))?;
+        let width = digit_width(self.n_simulations);
+        let mut idx = self.completed;
+        loop {
+            let species_arc = Arc::clone(&self.species_arc);
+            match self.next_simulation() {
+                None => break,
+                Some(Ok(mut rec_tree)) => {
+                    rec_tree.species_tree = species_arc;
+                    let xml = rec_tree.to_xml();
+                    let path = format!("{}/gene_{:0>width$}.xml", dir, idx, width = width);
+                    fs::write(&path, &xml)
+                        .map_err(|e| PyValueError::new_err(format!("Failed to write {}: {}", path, e)))?;
+                    idx += 1;
+                }
+                Some(Err(e)) => return Err(PyValueError::new_err(e)),
+            }
+        }
+        Ok(())
+    }
+
+    /// Save each remaining gene tree as Newick to the given directory.
+    ///
+    /// Files are named `gene_0000.nwk`, `gene_0001.nwk`, etc.
+    /// Creates the directory if it does not exist.
+    ///
+    /// Note: Newick format does not preserve reconciliation information
+    /// (species mapping, events). Use `save_xml` for full reconciled trees.
+    ///
+    /// # Arguments
+    /// * `dir` - Directory path to save the Newick files
+    fn save_newick(&mut self, dir: &str) -> PyResult<()> {
+        fs::create_dir_all(dir)
+            .map_err(|e| PyValueError::new_err(format!("Failed to create directory: {}", e)))?;
+        let width = digit_width(self.n_simulations);
+        let mut idx = self.completed;
+        loop {
+            let species_arc = Arc::clone(&self.species_arc);
+            match self.next_simulation() {
+                None => break,
+                Some(Ok(mut rec_tree)) => {
+                    rec_tree.species_tree = species_arc;
+                    let newick = rec_tree.gene_tree.to_newick()
+                        .map_err(|e| PyValueError::new_err(e))?;
+                    let path = format!("{}/gene_{:0>width$}.nwk", dir, idx, width = width);
+                    fs::write(&path, format!("{};", newick))
+                        .map_err(|e| PyValueError::new_err(format!("Failed to write {}: {}", path, e)))?;
+                    idx += 1;
+                }
+                Some(Err(e)) => return Err(PyValueError::new_err(e)),
+            }
+        }
+        Ok(())
+    }
+
+    fn __repr__(&self) -> String {
+        let mode_str = match self.mode {
+            DTLMode::PerGene => "per_gene",
+            DTLMode::PerSpecies => "per_species",
+        };
+        format!(
+            "PyDtlSimIter(mode={}, completed={}/{}, D={}, T={}, L={})",
+            mode_str, self.completed, self.n_simulations,
+            self.lambda_d, self.lambda_t, self.lambda_l
+        )
+    }
+
+    fn __len__(&self) -> usize {
+        self.n_simulations.saturating_sub(self.completed)
+    }
+}
+
+/// Compute the number of digits needed to represent n (for zero-padded filenames).
+fn digit_width(n: usize) -> usize {
+    if n == 0 { 1 } else { ((n as f64).log10().floor() as usize) + 1 }
+}
+
+// ============================================================================
 
 /// A gene tree simulated under the DTL model.
 #[pyclass]
@@ -2143,6 +2578,7 @@ fn rustree(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(reconcile_with_alerax, m)?)?;
     m.add_class::<PySpeciesTree>()?;
     m.add_class::<PyGeneTree>()?;
+    m.add_class::<PyDtlSimIter>()?;
     m.add_class::<PyEventCounts>()?;
     m.add_class::<PyReconciliationStatistics>()?;
     m.add_class::<PyAleRaxResult>()?;
