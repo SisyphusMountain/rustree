@@ -214,6 +214,84 @@ pub fn extract_induced_subtree_by_names(tree: &FlatTree, leaf_names: &[String]) 
     extract_induced_subtree(tree, &keep_indices)
 }
 
+/// Finds indices of extant leaves in a tree from birth-death simulation.
+///
+/// Extant leaves are those with `bd_event == Some(BDEvent::Leaf)`.
+/// This only works on trees from birth-death simulations - trees parsed
+/// from Newick files will have `bd_event == None` for all nodes.
+///
+/// # Arguments
+/// * `tree` - The tree to search
+///
+/// # Returns
+/// A HashSet of indices of extant leaves.
+pub fn find_extant_leaf_indices(tree: &FlatTree) -> HashSet<usize> {
+    use crate::bd::BDEvent;
+
+    tree.nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| {
+            // Must be a leaf node
+            node.left_child.is_none()
+                && node.right_child.is_none()
+                // AND marked as extant (not extinct)
+                && node.bd_event == Some(BDEvent::Leaf)
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// Extracts the induced subtree keeping only extant species.
+///
+/// Returns a new tree containing only leaves marked as extant
+/// (`bd_event == Some(BDEvent::Leaf)`). Extinct lineages
+/// (`bd_event == Some(BDEvent::Extinction)`) are removed.
+///
+/// This is a convenience wrapper around `extract_induced_subtree`
+/// for birth-death simulated trees.
+///
+/// **Note:** This only works on trees from birth-death simulations.
+/// Trees parsed from Newick files have `bd_event == None` and will
+/// return `None` (no extant leaves found).
+///
+/// # Arguments
+/// * `tree` - The tree (typically from birth-death simulation)
+///
+/// # Returns
+/// A new `FlatTree` containing only extant species, or `None` if no extant leaves found.
+/// Also returns mapping `Vec<Option<usize>>` from old to new node indices.
+///
+/// # Example
+/// ```rust
+/// use rustree::sampling::extract_extant_subtree;
+/// use rustree::bd::simulate_bd_tree_bwd;
+/// use rand::rngs::StdRng;
+/// use rand::SeedableRng;
+///
+/// // Simulate tree with 20 extant species
+/// let mut rng = StdRng::seed_from_u64(42);
+/// let (tree, _) = simulate_bd_tree_bwd(20, 1.0, 0.5, &mut rng);
+///
+/// // Extract only extant species (removes extinct lineages)
+/// let (extant_tree, mapping) = extract_extant_subtree(&tree)
+///     .expect("Should have extant species");
+///
+/// // extant_tree has exactly 20 leaves (all extant)
+/// assert_eq!(extant_tree.nodes.iter()
+///     .filter(|n| n.left_child.is_none() && n.right_child.is_none())
+///     .count(), 20);
+/// ```
+pub fn extract_extant_subtree(tree: &FlatTree) -> Option<(FlatTree, Vec<Option<usize>>)> {
+    let extant_indices = find_extant_leaf_indices(tree);
+    let (mut extant_tree, mapping) = extract_induced_subtree(tree, &extant_indices)?;
+
+    // Assign depths to the extracted tree (required for DTL simulation)
+    extant_tree.assign_depths();
+
+    Some((extant_tree, mapping))
+}
+
 /// Computes the Lowest Common Ancestor (LCA) of two nodes in a tree.
 ///
 /// # Arguments
@@ -426,5 +504,86 @@ mod tests {
         let keep: HashSet<usize> = HashSet::new();
 
         assert!(extract_induced_subtree(&tree, &keep).is_none());
+    }
+
+    #[test]
+    fn test_find_extant_leaf_indices() {
+        use crate::bd::{simulate_bd_tree_bwd, BDEvent};
+        use rand::rngs::StdRng;
+        use rand::SeedableRng;
+
+        // Simulate with high extinction rate
+        let mut rng = StdRng::seed_from_u64(42);
+        let (tree, _) = simulate_bd_tree_bwd(20, 1.0, 0.7, &mut rng);
+
+        let extant_indices = find_extant_leaf_indices(&tree);
+
+        // Should find exactly 20 extant species
+        assert_eq!(extant_indices.len(), 20);
+
+        // All found indices should be leaves with BDEvent::Leaf
+        for idx in &extant_indices {
+            let node = &tree.nodes[*idx];
+            assert!(node.left_child.is_none());
+            assert!(node.right_child.is_none());
+            assert_eq!(node.bd_event, Some(BDEvent::Leaf));
+        }
+    }
+
+    #[test]
+    fn test_extract_extant_subtree() {
+        use crate::bd::{simulate_bd_tree_bwd, BDEvent};
+        use rand::rngs::StdRng;
+        use rand::SeedableRng;
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let (tree, _) = simulate_bd_tree_bwd(20, 1.0, 0.5, &mut rng);
+
+        // Extract extant subtree
+        let (extant_tree, mapping) = extract_extant_subtree(&tree)
+            .expect("Should have extant species");
+
+        // Count leaves in extant tree
+        let extant_leaf_count = extant_tree.nodes.iter()
+            .filter(|n| n.left_child.is_none() && n.right_child.is_none())
+            .count();
+
+        // Should have exactly 20 leaves (all extant)
+        assert_eq!(extant_leaf_count, 20);
+
+        // All leaves should be marked as extant
+        for node in &extant_tree.nodes {
+            if node.left_child.is_none() && node.right_child.is_none() {
+                assert_eq!(node.bd_event, Some(BDEvent::Leaf));
+            }
+        }
+
+        // Mapping should preserve indices
+        assert_eq!(mapping.len(), tree.nodes.len());
+    }
+
+    #[test]
+    fn test_extract_extant_no_extinctions() {
+        use crate::bd::{simulate_bd_tree_bwd};
+        use rand::rngs::StdRng;
+        use rand::SeedableRng;
+
+        // Simulate with NO extinction (mu = 0)
+        let mut rng = StdRng::seed_from_u64(123);
+        let (tree, _) = simulate_bd_tree_bwd(15, 1.0, 0.0, &mut rng);
+
+        let (extant_tree, _) = extract_extant_subtree(&tree)
+            .expect("Should have extant species");
+
+        // With mu=0, no extinctions → all leaves are extant
+        let original_leaves = tree.nodes.iter()
+            .filter(|n| n.left_child.is_none() && n.right_child.is_none())
+            .count();
+        let extant_leaves = extant_tree.nodes.iter()
+            .filter(|n| n.left_child.is_none() && n.right_child.is_none())
+            .count();
+
+        assert_eq!(original_leaves, 15);
+        assert_eq!(extant_leaves, 15);
     }
 }

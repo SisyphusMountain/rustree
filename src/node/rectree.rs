@@ -2,6 +2,7 @@
 
 use super::{FlatNode, FlatTree};
 use std::sync::Arc;
+use crate::dtl::DTLEvent;
 
 /// Events that can occur during DTL reconciliation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,6 +38,9 @@ pub struct RecTree {
     pub node_mapping: Vec<Option<usize>>,
     /// Maps each gene tree node index to its evolutionary event
     pub event_mapping: Vec<Event>,
+    /// Detailed DTL events from simulation (if available).
+    /// `None` for trees parsed from files or after sampling operations.
+    pub dtl_events: Option<Vec<DTLEvent>>,
 }
 
 impl RecTree {
@@ -66,6 +70,38 @@ impl RecTree {
             gene_tree,
             node_mapping,
             event_mapping,
+            dtl_events: None,
+        }
+    }
+
+    /// Creates a new RecTree with DTL events.
+    ///
+    /// # Panics
+    /// Panics if the mappings don't match the gene tree size.
+    pub fn with_dtl_events(
+        species_tree: Arc<FlatTree>,
+        gene_tree: FlatTree,
+        node_mapping: Vec<Option<usize>>,
+        event_mapping: Vec<Event>,
+        dtl_events: Vec<DTLEvent>,
+    ) -> Self {
+        assert_eq!(
+            gene_tree.nodes.len(),
+            node_mapping.len(),
+            "node_mapping must have same length as gene_tree nodes"
+        );
+        assert_eq!(
+            gene_tree.nodes.len(),
+            event_mapping.len(),
+            "event_mapping must have same length as gene_tree nodes"
+        );
+
+        RecTree {
+            species_tree,
+            gene_tree,
+            node_mapping,
+            event_mapping,
+            dtl_events: Some(dtl_events),
         }
     }
 
@@ -79,6 +115,17 @@ impl RecTree {
         event_mapping: Vec<Event>,
     ) -> Self {
         Self::new(Arc::new(species_tree), gene_tree, node_mapping, event_mapping)
+    }
+
+    /// Creates a new RecTree with DTL events, wrapping the species tree in an Arc.
+    pub fn new_owned_with_events(
+        species_tree: FlatTree,
+        gene_tree: FlatTree,
+        node_mapping: Vec<Option<usize>>,
+        event_mapping: Vec<Event>,
+        dtl_events: Vec<DTLEvent>,
+    ) -> Self {
+        Self::with_dtl_events(Arc::new(species_tree), gene_tree, node_mapping, event_mapping, dtl_events)
     }
 
     /// Gets the species tree node index for a given gene tree node.

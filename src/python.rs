@@ -13,7 +13,7 @@ use rand::SeedableRng;
 use crate::bd::{simulate_bd_tree_bwd, generate_events_from_tree, TreeEvent};
 use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch, count_extant_genes};
 use crate::node::{FlatTree, Event, RecTree};
-use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names, find_leaf_indices_by_names};
+use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names, find_leaf_indices_by_names, extract_extant_subtree};
 use crate::simulation::dtl::gillespie::{DTLMode, simulate_dtl_gillespie};
 use std::collections::HashMap;
 use std::fs;
@@ -151,6 +151,53 @@ impl PySpeciesTree {
 
         Ok(PySpeciesTree {
             tree: Arc::new(induced_tree),
+        })
+    }
+
+    /// Extract only extant species from the tree (remove extinct lineages).
+    ///
+    /// Returns a new species tree containing only leaves marked as extant
+    /// (`bd_event == Some(BDEvent::Leaf)`). Extinct lineages
+    /// (`bd_event == Some(BDEvent::Extinction)`) are removed.
+    ///
+    /// This method only works on trees from `simulate_species_tree()`.
+    /// Trees parsed from Newick files have `bd_event == None` and cannot
+    /// be filtered this way.
+    ///
+    /// Returns
+    /// -------
+    /// PySpeciesTree
+    ///     A new species tree with only extant species.
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///     If no extant species are found (all lineages went extinct or
+    ///     the tree lacks bd_event annotations).
+    ///
+    /// Examples
+    /// --------
+    /// >>> import rustree
+    /// >>> # Simulate tree with 20 extant species (may include extinct lineages)
+    /// >>> tree = rustree.simulate_species_tree(n=20, lambda_=1.0, mu=0.5, seed=42)
+    /// >>> print(f"Original: {tree.num_leaves()} leaves")
+    /// Original: 61 leaves
+    /// >>> # Extract only extant species
+    /// >>> extant_only = tree.sample_extant()
+    /// >>> print(f"Extant: {extant_only.num_leaves()} leaves")
+    /// Extant: 20 leaves
+    fn sample_extant(&self) -> PyResult<PySpeciesTree> {
+        // Call Rust function
+        let (extant_tree, _) = extract_extant_subtree(&self.tree)
+            .ok_or_else(|| PyValueError::new_err(
+                "No extant species found in tree. Either all lineages went extinct, \
+                 or the tree lacks bd_event annotations (trees from parse_species_tree \
+                 cannot be filtered by extinction status)."
+            ))?;
+
+        // Return new PySpeciesTree
+        Ok(PySpeciesTree {
+            tree: Arc::new(extant_tree),
         })
     }
 
@@ -505,11 +552,12 @@ impl PySpeciesTree {
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
-        let (mut rec_tree, _events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
+        let (mut rec_tree, events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
             .map_err(|e| PyValueError::new_err(e))?;
 
         // Share the PySpeciesTree's Arc instead of the simulation's internal clone
         rec_tree.species_tree = Arc::clone(&self.tree);
+        rec_tree.dtl_events = Some(events);
         Ok(PyGeneTree { rec_tree })
     }
 
@@ -536,7 +584,7 @@ impl PySpeciesTree {
         let mut rng = init_rng(seed);
 
         let origin_species = self.tree.root;
-        let (rec_trees, _all_events) = simulate_dtl_batch(
+        let (rec_trees, all_events) = simulate_dtl_batch(
             &self.tree,
             origin_species,
             lambda_d,
@@ -551,8 +599,10 @@ impl PySpeciesTree {
 
         let gene_trees: Vec<PyGeneTree> = rec_trees
             .into_iter()
-            .map(|mut rec_tree| {
+            .zip(all_events.into_iter())
+            .map(|(mut rec_tree, events)| {
                 rec_tree.species_tree = Arc::clone(&self.tree);
+                rec_tree.dtl_events = Some(events);
                 PyGeneTree { rec_tree }
             })
             .collect();
@@ -605,10 +655,11 @@ impl PySpeciesTree {
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
-        let (mut rec_tree, _events) = simulate_dtl_per_species(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
+        let (mut rec_tree, events) = simulate_dtl_per_species(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
             .map_err(|e| PyValueError::new_err(e))?;
 
         rec_tree.species_tree = Arc::clone(&self.tree);
+        rec_tree.dtl_events = Some(events);
         Ok(PyGeneTree { rec_tree })
     }
 
@@ -652,7 +703,7 @@ impl PySpeciesTree {
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
-        let (rec_trees, _all_events) = simulate_dtl_per_species_batch(
+        let (rec_trees, all_events) = simulate_dtl_per_species_batch(
             &self.tree,
             origin_species,
             lambda_d,
@@ -667,8 +718,10 @@ impl PySpeciesTree {
 
         let gene_trees: Vec<PyGeneTree> = rec_trees
             .into_iter()
-            .map(|mut rec_tree| {
+            .zip(all_events.into_iter())
+            .map(|(mut rec_tree, events)| {
                 rec_tree.species_tree = Arc::clone(&self.tree);
+                rec_tree.dtl_events = Some(events);
                 PyGeneTree { rec_tree }
             })
             .collect();
@@ -1031,9 +1084,10 @@ impl PyDtlSimIter {
             );
 
             match result {
-                Ok((rec_tree, _events)) => {
+                Ok((mut rec_tree, events)) => {
                     if !self.require_extant || count_extant_genes(&rec_tree) > 0 {
                         self.completed += 1;
+                        rec_tree.dtl_events = Some(events);
                         return Some(Ok(rec_tree));
                     }
                     // Retry: tree had no extant genes
@@ -1667,6 +1721,153 @@ impl PyGeneTree {
             .map_err(|e| PyValueError::new_err(format!("Failed to write CSV file: {}", e)))?;
 
         Ok(())
+    }
+
+    /// Compute induced transfers by projecting transfers onto a sampled species tree.
+    ///
+    /// Given a complete species tree (the one this gene tree was simulated on),
+    /// a sampled species tree (induced subtree with subset of leaves), and the leaf
+    /// names to keep, this projects each transfer's donor and recipient species onto
+    /// the nearest branches in the sampled tree.
+    ///
+    /// # Arguments
+    /// * `sampled_species_tree` - The sampled (pruned) species tree
+    /// * `sampled_leaf_names` - Names of leaves kept in the sampled tree
+    ///
+    /// # Returns
+    /// A list of PyInducedTransfer objects, one per transfer event in the gene tree.
+    ///
+    /// # Example
+    /// ```python
+    /// # Simulate complete species tree and gene tree
+    /// species_tree = rustree.simulate_species_tree(n=100, lambda_=1.0, mu=0.5, seed=42)
+    /// gene_tree = species_tree.simulate_dtl(0.5, 0.2, 0.3, seed=123)
+    ///
+    /// # Sample a subset of species
+    /// sampled_leaf_names = species_tree.leaf_names()[:20]  # Keep first 20 species
+    /// sampled_species_tree = species_tree.extract_induced_subtree_by_names(sampled_leaf_names)
+    ///
+    /// # Compute induced transfers
+    /// induced = gene_tree.compute_induced_transfers(sampled_species_tree, sampled_leaf_names)
+    /// print(f"Found {len(induced)} transfers")
+    /// for transfer in induced:
+    ///     print(f"Time {transfer.time}: {transfer.from_species_complete} -> {transfer.to_species_complete}")
+    /// ```
+    fn compute_induced_transfers(&self, sampled_species_tree: &PySpeciesTree, sampled_leaf_names: Vec<String>) -> PyResult<Vec<PyInducedTransfer>> {
+        // Check if DTL events are available
+        let events = self.rec_tree.dtl_events.as_ref()
+            .ok_or_else(|| PyValueError::new_err(
+                "DTL events not available. Gene tree must be simulated (not parsed from file)."
+            ))?;
+
+        // Compute induced transfers
+        use crate::induced_transfers::induced_transfers;
+        let induced = induced_transfers(
+            &self.rec_tree.species_tree,
+            &sampled_species_tree.tree,
+            &sampled_leaf_names,
+            events,
+        );
+
+        // Convert to Python objects
+        Ok(induced.into_iter()
+            .map(|it| PyInducedTransfer {
+                time: it.time,
+                gene_id: it.gene_id,
+                from_species_complete: it.from_species_complete,
+                to_species_complete: it.to_species_complete,
+                from_species_sampled: it.from_species_sampled,
+                to_species_sampled: it.to_species_sampled,
+            })
+            .collect())
+    }
+
+    /// Compute ghost branch lengths for a sampled species tree.
+    ///
+    /// The ghost length of a sampled-tree branch is the sum of branch lengths of all
+    /// non-sampled nodes in the complete tree that project onto that branch.
+    ///
+    /// # Arguments
+    /// * `sampled_species_tree` - The sampled (pruned) species tree
+    /// * `sampled_leaf_names` - Names of leaves kept in the sampled tree
+    ///
+    /// # Returns
+    /// A list of ghost lengths indexed by sampled tree node index.
+    ///
+    /// # Example
+    /// ```python
+    /// # Simulate complete species tree
+    /// species_tree = rustree.simulate_species_tree(n=100, lambda_=1.0, mu=0.5, seed=42)
+    /// gene_tree = species_tree.simulate_dtl(0.5, 0.2, 0.3, seed=123)
+    ///
+    /// # Sample a subset
+    /// sampled_leaf_names = species_tree.leaf_names()[:20]
+    /// sampled_species_tree = species_tree.extract_induced_subtree_by_names(sampled_leaf_names)
+    ///
+    /// # Compute ghost lengths
+    /// ghost_lengths = gene_tree.compute_ghost_lengths(sampled_species_tree, sampled_leaf_names)
+    /// print(f"Ghost lengths: {ghost_lengths}")
+    /// ```
+    fn compute_ghost_lengths(&self, sampled_species_tree: &PySpeciesTree, sampled_leaf_names: Vec<String>) -> PyResult<Vec<f64>> {
+        use crate::induced_transfers::ghost_lengths;
+        let ghosts = ghost_lengths(
+            &self.rec_tree.species_tree,
+            &sampled_species_tree.tree,
+            &sampled_leaf_names,
+        );
+        Ok(ghosts)
+    }
+}
+
+/// An induced transfer: a transfer event projected onto a sampled species tree.
+///
+/// When a gene tree is simulated on a complete species tree and then analyzed
+/// with respect to a sampled (pruned) species tree, each transfer's donor and
+/// recipient species may not be present in the sampled tree. This struct records
+/// both the original transfer (in the complete tree) and its projection onto the
+/// nearest branches in the sampled tree.
+#[pyclass]
+#[derive(Clone)]
+pub struct PyInducedTransfer {
+    /// Time of the transfer event
+    #[pyo3(get)]
+    pub time: f64,
+
+    /// Gene tree node index
+    #[pyo3(get)]
+    pub gene_id: usize,
+
+    /// Donor species index in the complete tree
+    #[pyo3(get)]
+    pub from_species_complete: usize,
+
+    /// Recipient species index in the complete tree
+    #[pyo3(get)]
+    pub to_species_complete: usize,
+
+    /// Induced donor: index in the sampled tree (None if projection fails)
+    #[pyo3(get)]
+    pub from_species_sampled: Option<usize>,
+
+    /// Induced recipient: index in the sampled tree (None if projection fails)
+    #[pyo3(get)]
+    pub to_species_sampled: Option<usize>,
+}
+
+#[pymethods]
+impl PyInducedTransfer {
+    fn __repr__(&self) -> String {
+        let from_sampled = self.from_species_sampled
+            .map(|i| i.to_string())
+            .unwrap_or_else(|| "None".to_string());
+        let to_sampled = self.to_species_sampled
+            .map(|i| i.to_string())
+            .unwrap_or_else(|| "None".to_string());
+        format!(
+            "InducedTransfer(time={:.3}, gene_id={}, from_complete={}, to_complete={}, from_sampled={}, to_sampled={})",
+            self.time, self.gene_id, self.from_species_complete, self.to_species_complete,
+            from_sampled, to_sampled
+        )
     }
 }
 
