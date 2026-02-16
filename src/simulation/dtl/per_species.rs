@@ -60,7 +60,16 @@ pub fn simulate_dtl_per_species_iter<'a, R: Rng>(
 
     let species_arc = Arc::new(species_tree.clone());
     let species_events = generate_events_from_tree(species_tree)?;
-    let depths = species_tree.make_subdivision();
+
+    // Include origin start time in depths so the stem period is covered
+    // by contemporaneity (make_subdivision only has node depths, not branch starts).
+    let mut depths = species_tree.make_subdivision();
+    let origin_start = species_tree.nodes[origin_species].depth
+        .ok_or_else(|| format!("Origin species {} has no depth", origin_species))?
+        - species_tree.nodes[origin_species].length;
+    depths.push(origin_start);
+    depths.sort_by(|a, b| a.total_cmp(b));
+    depths.dedup();
     let contemporaneity = species_tree.find_contemporaneity(&depths);
     let lca_depths = precompute_lca(species_tree, transfer_alpha);
 

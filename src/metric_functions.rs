@@ -214,17 +214,20 @@ impl LcaTable {
 }
 
 /// Recursively sets the depth of nodes in a tree.
+/// Each node's depth includes its own stem length plus all ancestral stem lengths.
 ///
 /// # Arguments
 /// * `node` - The root node to set the depth for.
-/// * `depth` - The depth to assign to this node.
+/// * `depth` - The depth at the parent node (usually 0.0 at the root's parent).
 pub fn give_depth(node: &mut Node, depth: f64) {
-    node.depth = Some(depth);
+    // Include this node's stem length in its depth
+    let node_depth = depth + node.length;
+    node.depth = Some(node_depth);
     if let Some(left_child) = &mut node.left_child {
-        give_depth(left_child, depth + left_child.length);
+        give_depth(left_child, node_depth);
     }
     if let Some(right_child) = &mut node.right_child {
-        give_depth(right_child, depth + right_child.length);
+        give_depth(right_child, node_depth);
     }
 }
 
@@ -241,20 +244,21 @@ impl Node {
         self.length = 0.0;
     }
     /// Assigns depths to each node in the tree starting from the current node.
+    /// Each node's depth includes its own stem length plus all ancestral stem lengths.
     ///
     /// # Arguments
-    /// * `current_depth` - The depth at the current node (usually 0.0 at the root).
+    /// * `current_depth` - The depth at the parent node (usually 0.0 at the root's parent).
     pub fn assign_depths(&mut self, current_depth: f64) {
-        self.depth = Some(current_depth);
+        // Include this node's stem length in its depth
+        let node_depth = current_depth + self.length;
+        self.depth = Some(node_depth);
 
         if let Some(ref mut left_child) = self.left_child {
-            let left_depth = current_depth + left_child.length;
-            left_child.assign_depths(left_depth);
+            left_child.assign_depths(node_depth);
         }
 
         if let Some(ref mut right_child) = self.right_child {
-            let right_depth = current_depth + right_child.length;
-            right_child.assign_depths(right_depth);
+            right_child.assign_depths(node_depth);
         }
     }
     /// Updates the lengths of the nodes in a tree based on their depths.
@@ -287,9 +291,13 @@ impl FlatTree {
     pub fn zero_root_length(&mut self) {
         self.nodes[self.root].length = 0.0;
     }
+    /// Assigns depths to each node in the tree.
+    /// Each node's depth includes its own stem length plus all ancestral stem lengths.
     pub fn assign_depths(&mut self) {
         let root_index = self.root;
-        self.nodes[root_index].depth = Some(0.0);
+        // Root depth includes its own stem length
+        let root_length = self.nodes[root_index].length;
+        self.nodes[root_index].depth = Some(root_length);
 
         let mut stack = vec![root_index];
 

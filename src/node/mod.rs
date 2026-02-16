@@ -14,7 +14,7 @@ pub mod rectree;
 pub mod gene_forest;
 
 // Re-export iterator types
-pub use iter::{NodeIter, FlatTreeIter, FlatTreeIndexIter};
+pub use iter::{NodeIter, FlatTreeIter, FlatTreeIndexIter, advance_flat_tree, FlatTreeState};
 
 // Re-export traits
 pub use traits::HasName;

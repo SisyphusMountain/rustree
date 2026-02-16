@@ -82,7 +82,7 @@ pub struct FlatTreeIter<'a> {
     order: TraversalOrder,
 }
 
-enum FlatTreeState {
+pub enum FlatTreeState {
     Start(usize),
     Left(usize),
     Right(usize),
@@ -94,7 +94,7 @@ enum FlatTreeState {
 ///
 /// Shared by both `FlatTreeIter` (yields `&FlatNode`) and
 /// `FlatTreeIndexIter` (yields `usize`).
-fn advance_flat_tree(
+pub fn advance_flat_tree(
     tree: &FlatTree,
     stack: &mut Vec<FlatTreeState>,
     order: &TraversalOrder,

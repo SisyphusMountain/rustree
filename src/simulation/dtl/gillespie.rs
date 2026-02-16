@@ -89,6 +89,10 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
     );
     state.add_gene_to_species(origin_species, initial_gene_idx);
 
+    // Nudge past origin so the rate computation sees the stem interval
+    // (same half-open boundary issue as speciations).
+    current_time = current_time.next_up();
+
     // Main Gillespie loop
     loop {
         // We can enter here and have species_event_idx be out of bounds. In this case, next event time will be infinity.
@@ -165,6 +169,11 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
             }
 
             species_event_idx += 1;
+
+            // Nudge time past the event boundary so the next rate computation
+            // uses post-event contemporaneity (children instead of parent after
+            // speciations, excludes extinct/leaf species after those events).
+            current_time = current_time.next_up();
         } else {
             // === Process DTL event ===
             current_time = next_dtl_time;
@@ -199,7 +208,6 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
 
             // Determine event type
             let event_prob: f64 = rng.gen();
-
             if event_prob < dup_threshold {
                 // Duplication
                 state.handle_duplication(affected_gene, affected_species, current_time);

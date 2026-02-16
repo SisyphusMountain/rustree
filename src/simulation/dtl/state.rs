@@ -1,6 +1,6 @@
 // Unified simulation state for both per-gene and per-species DTL models
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use rand::Rng;
 use crate::node::{FlatNode, Event};
 use super::event::DTLEvent;
@@ -16,7 +16,8 @@ pub(crate) struct SimulationState {
     pub event_mapping: Vec<Event>,
     pub events: Vec<DTLEvent>,
     /// Maps species_idx -> Vec of gene node indices alive in that species.
-    pub genes_per_species: Option<HashMap<usize, Vec<usize>>>,
+    /// Uses BTreeMap for deterministic iteration order (ensures reproducibility with seeds).
+    pub genes_per_species: Option<BTreeMap<usize, Vec<usize>>>,
 }
 
 impl SimulationState {
@@ -27,7 +28,7 @@ impl SimulationState {
             node_mapping: Vec::with_capacity(capacity),
             event_mapping: Vec::with_capacity(capacity),
             events: Vec::with_capacity(capacity),
-            genes_per_species: Some(HashMap::new()),
+            genes_per_species: Some(BTreeMap::new()),
         }
     }
 
