@@ -1,1 +1,0 @@
-- I think the project of MCMC estimation of ghost groups should be doable. In order to do so, we need to replicate the functionality from the Julia code, create tests, and try to get as close to the real ghost tree as fast as possible. I can launch Claude to optimize towards this objective.

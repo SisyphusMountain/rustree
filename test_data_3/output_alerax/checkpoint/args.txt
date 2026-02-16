@@ -1,4 +1,0 @@
-mpiRanks:
-1
-command:
-alerax -s output_zombi/T/ExtantTree.nwk -f families.txt -p output_alerax --model-parametrization PER-FAMILY
