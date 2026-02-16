@@ -4,6 +4,5 @@
 - metric_functions.rs: didn't test the LCA stuff with euler tour. Need to look into it.
 - sampling.rs: need to test it thoroughly. Make sure we can sample a species tree and all associated gene trees, even if there is no reconciliation.
 - surgery.rs: make sure it works properly, and python bindings work pretty much like in ete3. For instance, we need to be able to: 1. Remove a clade from the species tree and all associated gene trees 2. reconcile with ALERax 3. Obtain summary statistics easily.
-
+- See with Damien for R bindings.
 - Relationship with ale-gpu: maybe integrate the components that allowed us to generate the necessary data structures, corresponding to ALERax.
-
