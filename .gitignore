@@ -16,6 +16,8 @@ tests.ipynb
 
 # Test data
 test_data_3/
+tests/RF_trees
+tests/python/__pycache__
 
 # External tools / submodules
 light_phylogeny
@@ -37,3 +39,4 @@ tests/python/*.md
 code_damien.R
 test_alerax_statistics.py
 TODO.md
+
