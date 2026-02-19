@@ -79,6 +79,32 @@ impl RecTreeColumns {
 // RecTree CSV methods
 // ============================================================================
 
+impl RecTreeColumns {
+    /// Filter to only keep rows matching the given event string.
+    pub fn filter_by_event(&self, event_name: &str) -> RecTreeColumns {
+        let indices: Vec<usize> = self.event.iter().enumerate()
+            .filter(|(_, e)| e.as_str() == event_name)
+            .map(|(i, _)| i)
+            .collect();
+
+        RecTreeColumns {
+            node_id: indices.iter().map(|&i| self.node_id[i]).collect(),
+            name: indices.iter().map(|&i| self.name[i].clone()).collect(),
+            parent: indices.iter().map(|&i| self.parent[i].clone()).collect(),
+            left_child: indices.iter().map(|&i| self.left_child[i].clone()).collect(),
+            left_child_name: indices.iter().map(|&i| self.left_child_name[i].clone()).collect(),
+            right_child: indices.iter().map(|&i| self.right_child[i].clone()).collect(),
+            right_child_name: indices.iter().map(|&i| self.right_child_name[i].clone()).collect(),
+            length: indices.iter().map(|&i| self.length[i]).collect(),
+            depth: indices.iter().map(|&i| self.depth[i].clone()).collect(),
+            species_node: indices.iter().map(|&i| self.species_node[i].clone()).collect(),
+            species_node_left: indices.iter().map(|&i| self.species_node_left[i].clone()).collect(),
+            species_node_right: indices.iter().map(|&i| self.species_node_right[i].clone()).collect(),
+            event: indices.iter().map(|&i| self.event[i].clone()).collect(),
+        }
+    }
+}
+
 impl RecTree {
     /// Extract structured column data for CSV export and DataFrame creation.
     pub fn to_columns(&self) -> RecTreeColumns {

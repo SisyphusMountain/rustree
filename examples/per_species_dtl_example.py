@@ -48,14 +48,14 @@ def example_single_gene_tree():
     )
 
     # Step 3: Print basic statistics
-    s, d, t, l, leaves = gene_tree.count_events()
+    events = gene_tree.count_events()
     print(f"Gene tree nodes:    {gene_tree.num_nodes()}")
     print(f"Extant gene copies: {gene_tree.num_extant()}")
-    print(f"Speciations:        {s}")
-    print(f"Duplications:       {d}")
-    print(f"Transfers:          {t}")
-    print(f"Losses:             {l}")
-    print(f"Leaves:             {leaves}")
+    print(f"Speciations:        {events['speciations']}")
+    print(f"Duplications:       {events['duplications']}")
+    print(f"Transfers:          {events['transfers']}")
+    print(f"Losses:             {events['losses']}")
+    print(f"Leaves:             {events['leaves']}")
     print()
 
     # Step 4: Show extant gene names
@@ -110,10 +110,10 @@ def example_compare_models(species_tree):
         for gt in trees:
             nodes_list.append(gt.num_nodes())
             extant_list.append(gt.num_extant())
-            s, d, t, l, lv = gt.count_events()
-            dup_list.append(d)
-            trans_list.append(t)
-            loss_list.append(l)
+            ev = gt.count_events()
+            dup_list.append(ev["duplications"])
+            trans_list.append(ev["transfers"])
+            loss_list.append(ev["losses"])
 
         avg = lambda xs: sum(xs) / len(xs) if xs else 0.0
         print(f"  {label}:")
@@ -212,11 +212,11 @@ def example_require_extant():
         seed=321
     )
 
-    s, d, t, l, lv = gene_tree.count_events()
+    ev = gene_tree.count_events()
     print(f"High loss rate (d=0.1, t=0.1, l=0.8) with require_extant=True:")
     print(f"  Nodes:        {gene_tree.num_nodes()}")
     print(f"  Extant genes: {gene_tree.num_extant()}")
-    print(f"  Events:       S={s} D={d} T={t} L={l}")
+    print(f"  Events:       S={ev['speciations']} D={ev['duplications']} T={ev['transfers']} L={ev['losses']}")
     print()
 
     # Also works with batch mode
@@ -228,9 +228,9 @@ def example_require_extant():
     )
     print(f"Batch of 5 trees (require_extant=True):")
     for i, gt in enumerate(trees):
-        s, d, t, l, lv = gt.count_events()
+        ev = gt.count_events()
         print(f"  Tree {i}: {gt.num_extant()} extant genes, "
-              f"events S={s} D={d} T={t} L={l}")
+              f"events S={ev['speciations']} D={ev['duplications']} T={ev['transfers']} L={ev['losses']}")
     print()
 
 

@@ -176,11 +176,11 @@ def test_sampled_tree_no_loss_events(simple_gene_tree):
     subset = all_names[:2]
     sampled = simple_gene_tree.sample_by_names(subset)
 
-    spec, dup, transfer, loss, leaf = sampled.count_events()
+    events = sampled.count_events()
 
     # Sampled tree should have no loss events
-    assert loss == 0, "Sampled tree should not contain loss events"
-    assert leaf == len(subset), "Should have exactly as many leaves as sampled"
+    assert events["losses"] == 0, "Sampled tree should not contain loss events"
+    assert events["leaves"] == len(subset), "Should have exactly as many leaves as sampled"
 
 
 def test_sampled_tree_valid_structure(simple_gene_tree):
@@ -456,12 +456,12 @@ def test_topology_single_leaf_has_no_structure():
 
     # Single leaf should have no internal nodes
     assert sampled.num_nodes() == 1
-    spec, dup, transfer, loss, leaf = sampled.count_events()
-    assert leaf == 1
-    assert spec == 0
-    assert dup == 0
-    assert transfer == 0
-    assert loss == 0
+    events = sampled.count_events()
+    assert events["leaves"] == 1
+    assert events["speciations"] == 0
+    assert events["duplications"] == 0
+    assert events["transfers"] == 0
+    assert events["losses"] == 0
 
 
 def test_topology_two_leaves_has_parent():

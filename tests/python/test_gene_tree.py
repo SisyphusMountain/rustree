@@ -219,65 +219,66 @@ def test_num_extant_with_require_extant():
 # Tests for GeneTree.count_events()
 # =============================================================================
 
-def test_count_events_returns_tuple():
-    """Test count_events returns a 5-element tuple."""
+def test_count_events_returns_dict():
+    """Test count_events returns a dictionary with expected keys."""
     gt = SP_TREE.simulate_dtl(0.5, 0.2, 0.3, seed=8000)
     events = gt.count_events()
-    assert isinstance(events, tuple), "count_events should return tuple"
-    assert len(events) == 5, "count_events should return 5-element tuple (spec, dup, transfer, loss, leaf)"
+    assert isinstance(events, dict), "count_events should return dict"
+    expected_keys = {"speciations", "duplications", "transfers", "losses", "leaves"}
+    assert set(events.keys()) == expected_keys, f"count_events keys should be {expected_keys}"
 
 
 def test_count_events_all_non_negative():
     """Test all event counts are non-negative."""
     gt = SP_TREE.simulate_dtl(0.5, 0.2, 0.3, seed=8100)
-    spec, dup, transfer, loss, leaf = gt.count_events()
-    assert spec >= 0, "Speciation count should be non-negative"
-    assert dup >= 0, "Duplication count should be non-negative"
-    assert transfer >= 0, "Transfer count should be non-negative"
-    assert loss >= 0, "Loss count should be non-negative"
-    assert leaf >= 0, "Leaf count should be non-negative"
+    events = gt.count_events()
+    assert events["speciations"] >= 0, "Speciation count should be non-negative"
+    assert events["duplications"] >= 0, "Duplication count should be non-negative"
+    assert events["transfers"] >= 0, "Transfer count should be non-negative"
+    assert events["losses"] >= 0, "Loss count should be non-negative"
+    assert events["leaves"] >= 0, "Leaf count should be non-negative"
 
 
 def test_count_events_sum_equals_nodes():
     """Test that sum of events equals number of nodes."""
     gt = SP_TREE.simulate_dtl(0.5, 0.2, 0.3, seed=8200)
-    spec, dup, transfer, loss, leaf = gt.count_events()
-    total_events = spec + dup + transfer + loss + leaf
+    events = gt.count_events()
+    total_events = sum(events.values())
     assert total_events == gt.num_nodes(), "Sum of events should equal number of nodes"
 
 
 def test_count_events_leaf_consistency():
     """Test leaf count matches extant + loss leaves."""
     gt = SP_TREE.simulate_dtl(0.5, 0.2, 0.3, seed=8300)
-    spec, dup, transfer, loss, leaf = gt.count_events()
+    events = gt.count_events()
     n_extant = gt.num_extant()
     # leaf events are extant genes, loss events are lost genes
-    assert leaf == n_extant, "Leaf count should equal num_extant"
+    assert events["leaves"] == n_extant, "Leaf count should equal num_extant"
 
 
 def test_count_events_zero_rates():
     """Test count_events with zero DTL rates."""
     gt = SP_TREE.simulate_dtl(0.0, 0.0, 0.0, seed=8400)
-    spec, dup, transfer, loss, leaf = gt.count_events()
-    assert dup == 0, "Zero duplication rate should produce 0 duplications"
-    assert transfer == 0, "Zero transfer rate should produce 0 transfers"
-    assert loss == 0, "Zero loss rate should produce 0 losses"
+    events = gt.count_events()
+    assert events["duplications"] == 0, "Zero duplication rate should produce 0 duplications"
+    assert events["transfers"] == 0, "Zero transfer rate should produce 0 transfers"
+    assert events["losses"] == 0, "Zero loss rate should produce 0 losses"
 
 
 def test_count_events_high_duplication():
     """Test that high duplication rate produces duplications."""
     gt = SP_TREE.simulate_dtl(3.0, 0.0, 0.1, seed=8500)
-    spec, dup, transfer, loss, leaf = gt.count_events()
+    events = gt.count_events()
     # High duplication rate should typically produce some duplications
-    assert dup >= 0, "Duplication count should be valid"
+    assert events["duplications"] >= 0, "Duplication count should be valid"
 
 
 def test_count_events_high_transfer():
     """Test that high transfer rate produces transfers."""
     gt = SP_TREE.simulate_dtl(0.0, 3.0, 0.1, seed=8600)
-    spec, dup, transfer, loss, leaf = gt.count_events()
+    events = gt.count_events()
     # High transfer rate should typically produce some transfers
-    assert transfer >= 0, "Transfer count should be valid"
+    assert events["transfers"] >= 0, "Transfer count should be valid"
 
 
 # =============================================================================
@@ -380,8 +381,8 @@ def test_sample_extant_only_extant_leaves():
     if gt.num_extant() > 0:
         sampled = gt.sample_extant()
         # All leaves in sampled tree should be extant (Leaf events)
-        spec, dup, transfer, loss, leaf = sampled.count_events()
-        assert loss == 0, "Sampled tree should have no loss events"
+        events = sampled.count_events()
+        assert events["losses"] == 0, "Sampled tree should have no loss events"
 
 
 def test_sample_extant_preserves_extant_count():
@@ -758,25 +759,25 @@ def test_species_tree_shared():
 def test_dtl_with_only_loss():
     """Test DTL with only loss rate."""
     gt = SP_TREE.simulate_dtl(0.0, 0.0, 0.5, seed=17000)
-    spec, dup, transfer, loss, leaf = gt.count_events()
-    assert dup == 0, "Should have no duplications"
-    assert transfer == 0, "Should have no transfers"
+    events = gt.count_events()
+    assert events["duplications"] == 0, "Should have no duplications"
+    assert events["transfers"] == 0, "Should have no transfers"
 
 
 def test_dtl_with_only_duplication():
     """Test DTL with only duplication rate."""
     gt = SP_TREE.simulate_dtl(0.5, 0.0, 0.0, seed=17100)
-    spec, dup, transfer, loss, leaf = gt.count_events()
-    assert transfer == 0, "Should have no transfers"
-    assert loss == 0, "Should have no losses"
+    events = gt.count_events()
+    assert events["transfers"] == 0, "Should have no transfers"
+    assert events["losses"] == 0, "Should have no losses"
 
 
 def test_dtl_with_only_transfer():
     """Test DTL with only transfer rate."""
     gt = SP_TREE.simulate_dtl(0.0, 0.5, 0.0, seed=17200)
-    spec, dup, transfer, loss, leaf = gt.count_events()
-    assert dup == 0, "Should have no duplications"
-    assert loss == 0, "Should have no losses"
+    events = gt.count_events()
+    assert events["duplications"] == 0, "Should have no duplications"
+    assert events["losses"] == 0, "Should have no losses"
 
 
 # =============================================================================
