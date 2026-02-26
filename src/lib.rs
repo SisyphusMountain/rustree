@@ -17,6 +17,7 @@ pub mod sampling;
 pub mod surgery;
 pub mod comparison;
 pub mod metric_functions;
+pub mod robinson_foulds;
 pub mod debug;
 
 // Analysis
@@ -47,3 +48,4 @@ pub use alerax::{
     run_alerax, reconcile_forest, AleRaxConfig, AleRaxFamilyResult, AleRaxForestResult,
     GeneFamily, ModelType, validate_inputs, SpeciesEventRow, TransferRow,
 };
+pub use robinson_foulds::unrooted_robinson_foulds;
