@@ -13,11 +13,6 @@ extendr-api = { version = "0.6", optional = true }
 pest = "2.7.4"
 pest_derive = "2.7.4"
 rand = "0.8.5"
-regex = "1.7"
-csv = "1.3.0"
-prettytable-rs = "0.10.0"
-lazy_static = "1.4"
-num_cpus = "1.16"
 quick-xml = "0.31"
 tempfile = "3.8"
 
@@ -25,10 +20,6 @@ tempfile = "3.8"
 default = ["python"]
 python = ["pyo3"]
 r = ["extendr-api"]
-
-[dev-dependencies]
-rand = "0.8"
-pest = "2.1"
 
 [profile.release]
 debug = true  # Include debug symbols for profiling

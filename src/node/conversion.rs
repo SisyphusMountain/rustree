@@ -84,6 +84,25 @@ impl FlatTree {
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
+
+    /// Returns all structural leaf nodes (nodes with no children).
+    pub fn get_leaves(&self) -> Vec<&FlatNode> {
+        self.nodes.iter()
+            .filter(|n| n.left_child.is_none() && n.right_child.is_none())
+            .collect()
+    }
+
+    /// Returns extant leaf nodes — leaves whose birth-death event is `BDEvent::Leaf`.
+    pub fn get_extant_leaves(&self) -> Vec<&FlatNode> {
+        use crate::bd::BDEvent;
+        self.nodes.iter()
+            .filter(|n| {
+                n.left_child.is_none()
+                    && n.right_child.is_none()
+                    && n.bd_event == Some(BDEvent::Leaf)
+            })
+            .collect()
+    }
 }
 
 /// Map nodes between two trees with identical topology using postorder traversal.

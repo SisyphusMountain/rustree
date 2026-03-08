@@ -13,7 +13,8 @@ use rand::SeedableRng;
 use crate::bd::{simulate_bd_tree_bwd, generate_events_from_tree, TreeEvent};
 use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch, count_extant_genes};
 use crate::node::{FlatTree, Event, RecTree};
-use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names, find_leaf_indices_by_names, extract_extant_subtree};
+use crate::io::rectree_csv::RecTreeColumns;
+use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names, find_leaf_indices_by_names, extract_extant_subtree, NodeMark, mark_nodes_postorder};
 use crate::simulation::dtl::gillespie::{DTLMode, simulate_dtl_gillespie};
 use std::collections::HashMap;
 use std::fs;
@@ -103,6 +104,149 @@ impl PySpeciesTree {
             .filter(|n| is_leaf(n))
             .map(|n| n.name.clone())
             .collect()
+    }
+
+    /// Get a node by its index.
+    fn get_node(&self, index: usize) -> PyResult<PySpeciesNode> {
+        if index >= self.tree.nodes.len() {
+            return Err(PyValueError::new_err(format!(
+                "Node index {} out of range (tree has {} nodes)", index, self.tree.nodes.len()
+            )));
+        }
+        let node = &self.tree.nodes[index];
+        Ok(PySpeciesNode {
+            name: node.name.clone(),
+            index,
+            depth: node.depth,
+            length: node.length,
+            left_child: node.left_child,
+            right_child: node.right_child,
+            parent: node.parent,
+            bd_event: node.bd_event,
+        })
+    }
+
+    /// Iterate over nodes in a given traversal order.
+    ///
+    /// # Arguments
+    /// * `order` - Traversal order: "preorder", "inorder", or "postorder" (default: "preorder")
+    ///
+    /// # Example
+    /// ```python
+    /// for node in species_tree.iter("postorder"):
+    ///     print(node.name, node.length)
+    /// ```
+    #[pyo3(signature = (order="preorder"))]
+    fn iter(&self, order: &str) -> PyResult<PySpeciesTreeIter> {
+        use crate::node::TraversalOrder;
+        let traversal = match order.to_lowercase().as_str() {
+            "preorder" | "pre" => TraversalOrder::PreOrder,
+            "inorder" | "in" => TraversalOrder::InOrder,
+            "postorder" | "post" => TraversalOrder::PostOrder,
+            _ => return Err(PyValueError::new_err(
+                "order must be 'preorder', 'inorder', or 'postorder'"
+            )),
+        };
+        let indices: Vec<usize> = self.tree.iter_indices(traversal).collect();
+        Ok(PySpeciesTreeIter {
+            tree: Arc::clone(&self.tree),
+            indices,
+            pos: 0,
+        })
+    }
+
+    /// Default iteration (preorder traversal).
+    ///
+    /// # Example
+    /// ```python
+    /// for node in species_tree:
+    ///     print(node.name, node.length)
+    /// total_length = sum(node.length for node in species_tree)
+    /// ```
+    fn __iter__(&self) -> PySpeciesTreeIter {
+        use crate::node::TraversalOrder;
+        let indices: Vec<usize> = self.tree.iter_indices(TraversalOrder::PreOrder).collect();
+        PySpeciesTreeIter {
+            tree: Arc::clone(&self.tree),
+            indices,
+            pos: 0,
+        }
+    }
+
+    /// Uniformly sample leaf names from extant species in the tree.
+    ///
+    /// Exactly one of `n` or `fraction` must be provided.
+    ///
+    /// # Arguments
+    /// * `n` - Number of leaf names to sample
+    /// * `fraction` - Fraction of leaves to sample (0.0–1.0)
+    /// * `seed` - Optional random seed for reproducibility
+    ///
+    /// # Returns
+    /// A list of sampled leaf names.
+    ///
+    /// # Example
+    /// ```python
+    /// species_tree = rustree.simulate_species_tree(n=100, lambda_=1.0, mu=0.5, seed=42)
+    /// names = species_tree.sample_leaf_names(n=20, seed=42)
+    /// names = species_tree.sample_leaf_names(fraction=0.5, seed=42)
+    /// ```
+    #[pyo3(signature = (n=None, fraction=None, seed=None))]
+    fn sample_leaf_names(&self, n: Option<usize>, fraction: Option<f64>, seed: Option<u64>) -> PyResult<Vec<String>> {
+        use rand::seq::SliceRandom;
+
+        let extant_leaves = self.tree.get_extant_leaves();
+        if extant_leaves.is_empty() {
+            // Fall back to structural leaves for trees without bd_event annotations
+            let all_leaves = self.tree.get_leaves();
+            if all_leaves.is_empty() {
+                return Err(PyValueError::new_err("Tree has no leaves"));
+            }
+            let count = match (n, fraction) {
+                (Some(n), None) => n,
+                (None, Some(f)) => {
+                    if !(0.0..=1.0).contains(&f) {
+                        return Err(PyValueError::new_err("fraction must be between 0.0 and 1.0"));
+                    }
+                    (all_leaves.len() as f64 * f).round() as usize
+                }
+                _ => return Err(PyValueError::new_err("Exactly one of 'n' or 'fraction' must be provided")),
+            };
+            if count == 0 || count > all_leaves.len() {
+                return Err(PyValueError::new_err(
+                    format!("Cannot sample {} leaves from {} available", count, all_leaves.len())
+                ));
+            }
+            let mut rng = init_rng(seed);
+            let names: Vec<String> = all_leaves
+                .choose_multiple(&mut rng, count)
+                .map(|n| n.name.clone())
+                .collect();
+            return Ok(names);
+        }
+
+        let count = match (n, fraction) {
+            (Some(n), None) => n,
+            (None, Some(f)) => {
+                if !(0.0..=1.0).contains(&f) {
+                    return Err(PyValueError::new_err("fraction must be between 0.0 and 1.0"));
+                }
+                (extant_leaves.len() as f64 * f).round() as usize
+            }
+            _ => return Err(PyValueError::new_err("Exactly one of 'n' or 'fraction' must be provided")),
+        };
+        if count == 0 || count > extant_leaves.len() {
+            return Err(PyValueError::new_err(
+                format!("Cannot sample {} leaves from {} extant leaves", count, extant_leaves.len())
+            ));
+        }
+
+        let mut rng = init_rng(seed);
+        let names: Vec<String> = extant_leaves
+            .choose_multiple(&mut rng, count)
+            .map(|n| n.name.clone())
+            .collect();
+        Ok(names)
     }
 
     /// Extract an induced subtree keeping only the specified leaf names.
@@ -220,32 +364,76 @@ impl PySpeciesTree {
     /// * `filepath` - Optional path to save the SVG file. If None, returns SVG as string.
     /// * `open_browser` - If True, opens the SVG in a web browser (default: False)
     /// * `internal_names` - If True, display internal node names (default: True)
+    /// * `color` - Color for the tree (e.g. "blue", "#4A38C4")
+    /// * `fontsize` - Font size for node labels
+    /// * `thickness` - Thickness of tree lines
+    /// * `symbol_size` - Size of event symbols (circles, etc.)
+    /// * `background` - Background color (e.g. "white", "black")
+    /// * `landscape` - If True, display in landscape orientation (default: False)
+    /// * `sampled_species_names` - Optional list of sampled species leaf names. When provided,
+    ///   node labels are colored by their NodeMark: Keep, HasDescendant, or Discard.
+    /// * `keep_color` - Color for Keep nodes (default: "green")
+    /// * `has_descendant_color` - Color for HasDescendant nodes (default: "orange")
+    /// * `discard_color` - Color for Discard nodes (default: "grey")
     ///
     /// # Returns
     /// The SVG content as a string.
-    #[pyo3(signature = (filepath=None, open_browser=false, internal_names=true))]
-    fn to_svg(&self, filepath: Option<&str>, open_browser: bool, internal_names: bool) -> PyResult<String> {
+    #[pyo3(signature = (
+        filepath=None, open_browser=false, internal_names=true,
+        color=None, fontsize=None, thickness=None,
+        symbol_size=None, background=None, landscape=false,
+        sampled_species_names=None,
+        keep_color="green", has_descendant_color="orange", discard_color="grey"
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn to_svg(
+        &self,
+        filepath: Option<&str>,
+        open_browser: bool,
+        internal_names: bool,
+        color: Option<&str>,
+        fontsize: Option<f64>,
+        thickness: Option<f64>,
+        symbol_size: Option<f64>,
+        background: Option<&str>,
+        landscape: bool,
+        sampled_species_names: Option<Vec<String>>,
+        keep_color: &str,
+        has_descendant_color: &str,
+        discard_color: &str,
+    ) -> PyResult<String> {
+        let marking_nodes = sampled_species_names.is_some();
+
         let temp_dir = std::env::temp_dir();
         let nwk_path = temp_dir.join("rustree_species_temp.nwk");
         let svg_path = temp_dir.join("rustree_species_temp.svg");
+        let conf_path = temp_dir.join("rustree_species_thirdkind.conf");
 
         // Write Newick to temp file
         let newick = self.to_newick()?;
         fs::write(&nwk_path, &newick)
             .map_err(|e| PyValueError::new_err(format!("Failed to write temp Newick: {}", e)))?;
 
+        // Build thirdkind config file
+        let mut conf_lines = Vec::new();
+        if let Some(c) = color { conf_lines.push(format!("single_gene_color:{}", c)); }
+        if let Some(s) = fontsize { conf_lines.push(format!("gene_police_size:{}", s)); }
+        fs::write(&conf_path, conf_lines.join("\n"))
+            .map_err(|e| PyValueError::new_err(format!("Failed to write config file: {}", e)))?;
+
         // Call thirdkind
         let mut cmd = Command::new("thirdkind");
         cmd.arg("--input-file").arg(&nwk_path)
-           .arg("-o").arg(&svg_path);
+           .arg("-o").arg(&svg_path)
+           .arg("-c").arg(&conf_path);
 
-        if internal_names {
-            cmd.arg("-i");
-        }
-
-        if open_browser {
-            cmd.arg("-b");
-        }
+        if internal_names || marking_nodes { cmd.arg("-i"); }
+        if open_browser { cmd.arg("-b"); }
+        if landscape { cmd.arg("-L"); }
+        if let Some(c) = color { cmd.arg("-C").arg(c); }
+        if let Some(t) = thickness { cmd.arg("-z").arg(t.to_string()); }
+        if let Some(s) = symbol_size { cmd.arg("-k").arg(s.to_string()); }
+        if let Some(c) = background { cmd.arg("-Q").arg(c); }
 
         let output = cmd.output()
             .map_err(|e| PyValueError::new_err(format!(
@@ -257,8 +445,39 @@ impl PySpeciesTree {
             return Err(PyValueError::new_err(format!("thirdkind failed: {}", stderr)));
         }
 
-        let svg = fs::read_to_string(&svg_path)
+        let mut svg = fs::read_to_string(&svg_path)
             .map_err(|e| PyValueError::new_err(format!("Failed to read SVG output: {}", e)))?;
+
+        // Post-process SVG to color node labels by NodeMark
+        // Thirdkind renders Newick trees with class="gene" for text elements:
+        //   <text class="gene" ...>\nNodeName\n</text>
+        if let Some(ref names) = sampled_species_names {
+            let keep_indices = find_leaf_indices_by_names(&self.tree, names);
+            let mut marks = vec![NodeMark::Discard; self.tree.nodes.len()];
+            mark_nodes_postorder(&self.tree, self.tree.root, &keep_indices, &mut marks);
+
+            for (idx, node) in self.tree.nodes.iter().enumerate() {
+                let node_color = match marks[idx] {
+                    NodeMark::Keep => keep_color,
+                    NodeMark::HasDescendant => has_descendant_color,
+                    NodeMark::Discard => discard_color,
+                };
+                let new_attr = format!("class=\"gene\" style=\"fill: {}\"", node_color);
+                let search = "class=\"gene\"";
+                let name_pattern = format!("\n{}\n</text>", node.name);
+                if let Some(pos) = svg.find(&name_pattern) {
+                    if let Some(class_start) = svg[..pos].rfind(search) {
+                        let class_end = class_start + search.len();
+                        svg = format!(
+                            "{}{}{}",
+                            &svg[..class_start],
+                            &new_attr,
+                            &svg[class_end..]
+                        );
+                    }
+                }
+            }
+        }
 
         if let Some(path) = filepath {
             fs::write(path, &svg)
@@ -267,6 +486,7 @@ impl PySpeciesTree {
 
         let _ = fs::remove_file(&nwk_path);
         let _ = fs::remove_file(&svg_path);
+        let _ = fs::remove_file(&conf_path);
 
         Ok(svg)
     }
@@ -274,12 +494,37 @@ impl PySpeciesTree {
     /// Display the species tree visualization in a Jupyter notebook.
     ///
     /// Requires thirdkind to be installed and IPython/Jupyter environment.
-    ///
-    /// # Arguments
-    /// * `internal_names` - If True, display internal node names (default: True)
-    #[pyo3(signature = (internal_names=true))]
-    fn display(&self, py: Python, internal_names: bool) -> PyResult<PyObject> {
-        let svg = self.to_svg(None, false, internal_names)?;
+    /// Accepts the same styling options as `to_svg()`.
+    #[pyo3(signature = (
+        internal_names=true,
+        color=None, fontsize=None, thickness=None,
+        symbol_size=None, background=None, landscape=false,
+        sampled_species_names=None,
+        keep_color="green", has_descendant_color="orange", discard_color="grey"
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn display(
+        &self,
+        py: Python,
+        internal_names: bool,
+        color: Option<&str>,
+        fontsize: Option<f64>,
+        thickness: Option<f64>,
+        symbol_size: Option<f64>,
+        background: Option<&str>,
+        landscape: bool,
+        sampled_species_names: Option<Vec<String>>,
+        keep_color: &str,
+        has_descendant_color: &str,
+        discard_color: &str,
+    ) -> PyResult<PyObject> {
+        let svg = self.to_svg(
+            None, false, internal_names,
+            color, fontsize, thickness,
+            symbol_size, background, landscape,
+            sampled_species_names,
+            keep_color, has_descendant_color, discard_color,
+        )?;
 
         let ipython_display = py.import("IPython.display")?;
         let svg_class = ipython_display.getattr("SVG")?;
@@ -578,7 +823,7 @@ impl PySpeciesTree {
     /// # Returns
     /// A list of PyGeneTree objects.
     #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
-    fn simulate_dtl_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, replacement_transfer: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<Vec<PyGeneTree>> {
+    fn simulate_dtl_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, replacement_transfer: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneForest> {
         validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
@@ -597,17 +842,21 @@ impl PySpeciesTree {
             &mut rng,
         ).map_err(|e| PyValueError::new_err(e))?;
 
-        let gene_trees: Vec<PyGeneTree> = rec_trees
+        let gene_trees: Vec<RecTree> = rec_trees
             .into_iter()
             .zip(all_events.into_iter())
             .map(|(mut rec_tree, events)| {
                 rec_tree.species_tree = Arc::clone(&self.tree);
                 rec_tree.dtl_events = Some(events);
-                PyGeneTree { rec_tree }
+                rec_tree
             })
             .collect();
 
-        Ok(gene_trees)
+        Ok(PyGeneForest {
+            forest: crate::node::gene_forest::GeneForest::from_rec_trees(
+                Arc::clone(&self.tree), gene_trees,
+            ),
+        })
     }
 
     /// Simulate a gene tree using the Zombi-style per-species DTL model.
@@ -698,7 +947,7 @@ impl PySpeciesTree {
     /// print(f"Generated {len(gene_trees)} gene trees")
     /// ```
     #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
-    fn simulate_dtl_per_species_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, replacement_transfer: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<Vec<PyGeneTree>> {
+    fn simulate_dtl_per_species_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, replacement_transfer: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneForest> {
         validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
@@ -716,17 +965,21 @@ impl PySpeciesTree {
             &mut rng,
         ).map_err(|e| PyValueError::new_err(e))?;
 
-        let gene_trees: Vec<PyGeneTree> = rec_trees
+        let gene_trees: Vec<RecTree> = rec_trees
             .into_iter()
             .zip(all_events.into_iter())
             .map(|(mut rec_tree, events)| {
                 rec_tree.species_tree = Arc::clone(&self.tree);
                 rec_tree.dtl_events = Some(events);
-                PyGeneTree { rec_tree }
+                rec_tree
             })
             .collect();
 
-        Ok(gene_trees)
+        Ok(PyGeneForest {
+            forest: crate::node::gene_forest::GeneForest::from_rec_trees(
+                Arc::clone(&self.tree), gene_trees,
+            ),
+        })
     }
 
     /// Create a lazy iterator that generates gene trees one at a time (per-gene-copy model).
@@ -995,6 +1248,122 @@ impl PySpeciesTree {
 
         Ok(())
     }
+
+    /// Compute ghost branch lengths for a sampled species tree.
+    ///
+    /// The ghost length of a sampled-tree branch is the sum of branch lengths of all
+    /// non-sampled nodes in the complete tree that project onto that branch.
+    ///
+    /// # Arguments
+    /// * `sampled_leaf_names` - Names of species leaves to keep
+    ///
+    /// # Returns
+    /// A pandas DataFrame with columns: node_index, node_name, ghost_length.
+    ///
+    /// # Example
+    /// ```python
+    /// species_tree = rustree.simulate_species_tree(n=100, lambda_=1.0, mu=0.5, seed=42)
+    ///
+    /// sampled_leaf_names = species_tree.sample_leaf_names(n=20, seed=42)
+    /// df = species_tree.compute_ghost_lengths(sampled_leaf_names)
+    /// print(df)
+    /// ```
+    fn compute_ghost_lengths(&self, py: Python, sampled_leaf_names: Vec<String>) -> PyResult<PyObject> {
+        use crate::induced_transfers::ghost_lengths;
+        let (sampled_tree, ghosts) = ghost_lengths(
+            &self.tree,
+            &sampled_leaf_names,
+        );
+
+        let node_index: Vec<usize> = (0..sampled_tree.nodes.len()).collect();
+        let node_name: Vec<&str> = sampled_tree.nodes.iter().map(|n| n.name.as_str()).collect();
+
+        let pandas = py.import("pandas")?;
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("node_index", node_index)?;
+        dict.set_item("node_name", node_name)?;
+        dict.set_item("ghost_length", ghosts)?;
+
+        let df = pandas.call_method1("DataFrame", (dict,))?;
+        Ok(df.into())
+    }
+}
+
+// ============================================================================
+// Species Tree Node and Iterator
+// ============================================================================
+
+/// A single node from a species tree, exposed to Python.
+#[pyclass]
+#[derive(Clone)]
+pub struct PySpeciesNode {
+    name: String,
+    index: usize,
+    depth: Option<f64>,
+    length: f64,
+    left_child: Option<usize>,
+    right_child: Option<usize>,
+    parent: Option<usize>,
+    bd_event: Option<crate::bd::BDEvent>,
+}
+
+#[pymethods]
+impl PySpeciesNode {
+    #[getter]
+    fn name(&self) -> &str { &self.name }
+    #[getter]
+    fn index(&self) -> usize { self.index }
+    #[getter]
+    fn depth(&self) -> Option<f64> { self.depth }
+    #[getter]
+    fn length(&self) -> f64 { self.length }
+    #[getter]
+    fn left_child(&self) -> Option<usize> { self.left_child }
+    #[getter]
+    fn right_child(&self) -> Option<usize> { self.right_child }
+    #[getter]
+    fn parent(&self) -> Option<usize> { self.parent }
+    #[getter]
+    fn bd_event(&self) -> Option<String> {
+        self.bd_event.map(|e| format!("{:?}", e))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("SpeciesNode(name='{}', index={}, depth={:?}, length={:.6})",
+            self.name, self.index, self.depth, self.length)
+    }
+}
+
+/// Iterator over species tree nodes in a given traversal order.
+#[pyclass]
+struct PySpeciesTreeIter {
+    tree: Arc<FlatTree>,
+    indices: Vec<usize>,
+    pos: usize,
+}
+
+#[pymethods]
+impl PySpeciesTreeIter {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+
+    fn __next__(&mut self) -> Option<PySpeciesNode> {
+        if self.pos >= self.indices.len() {
+            return None;
+        }
+        let idx = self.indices[self.pos];
+        self.pos += 1;
+        let node = &self.tree.nodes[idx];
+        Some(PySpeciesNode {
+            name: node.name.clone(),
+            index: idx,
+            depth: node.depth,
+            length: node.length,
+            left_child: node.left_child,
+            right_child: node.right_child,
+            parent: node.parent,
+            bd_event: node.bd_event,
+        })
+    }
 }
 
 // ============================================================================
@@ -1158,13 +1527,13 @@ impl PyDtlSimIter {
         }
     }
 
-    /// Collect all remaining simulations into a list of PyGeneTree objects.
+    /// Collect all remaining simulations into a GeneForest.
     ///
     /// Warning: this loads all trees into memory at once.
     ///
     /// # Returns
-    /// A list of PyGeneTree objects.
-    fn collect_all(&mut self) -> PyResult<Vec<PyGeneTree>> {
+    /// A GeneForest containing all remaining gene trees.
+    fn collect_all(&mut self) -> PyResult<PyGeneForest> {
         let mut trees = Vec::with_capacity(self.n_simulations.saturating_sub(self.completed));
         loop {
             let species_arc = Arc::clone(&self.species_arc);
@@ -1172,12 +1541,16 @@ impl PyDtlSimIter {
                 None => break,
                 Some(Ok(mut rec_tree)) => {
                     rec_tree.species_tree = species_arc;
-                    trees.push(PyGeneTree { rec_tree });
+                    trees.push(rec_tree);
                 }
                 Some(Err(e)) => return Err(PyValueError::new_err(e)),
             }
         }
-        Ok(trees)
+        Ok(PyGeneForest {
+            forest: crate::node::gene_forest::GeneForest::from_rec_trees(
+                Arc::clone(&self.species_arc), trees,
+            ),
+        })
     }
 
     /// Save each remaining gene tree as RecPhyloXML to the given directory.
@@ -1268,6 +1641,27 @@ fn digit_width(n: usize) -> usize {
 
 // ============================================================================
 
+/// Convert RecTreeColumns to a pandas DataFrame.
+fn columns_to_dataframe(py: Python, cols: &RecTreeColumns) -> PyResult<PyObject> {
+    let pandas = py.import("pandas")?;
+    let dict = pyo3::types::PyDict::new(py);
+    dict.set_item("node_id", &cols.node_id)?;
+    dict.set_item("name", &cols.name)?;
+    dict.set_item("parent", &cols.parent)?;
+    dict.set_item("left_child", &cols.left_child)?;
+    dict.set_item("left_child_name", &cols.left_child_name)?;
+    dict.set_item("right_child", &cols.right_child)?;
+    dict.set_item("right_child_name", &cols.right_child_name)?;
+    dict.set_item("length", &cols.length)?;
+    dict.set_item("depth", &cols.depth)?;
+    dict.set_item("species_node", &cols.species_node)?;
+    dict.set_item("species_node_left", &cols.species_node_left)?;
+    dict.set_item("species_node_right", &cols.species_node_right)?;
+    dict.set_item("event", &cols.event)?;
+    let df = pandas.call_method1("DataFrame", (dict,))?;
+    Ok(df.into())
+}
+
 /// A gene tree simulated under the DTL model.
 #[pyclass]
 #[derive(Clone)]
@@ -1312,25 +1706,26 @@ impl PyGeneTree {
             .count()
     }
 
-    /// Get the number of events by type: (speciations, duplications, transfers, losses, leaves).
-    fn count_events(&self) -> (usize, usize, usize, usize, usize) {
-        let mut speciations = 0;
-        let mut duplications = 0;
-        let mut transfers = 0;
-        let mut losses = 0;
-        let mut leaves = 0;
+    /// Get the number of events by type as a dictionary.
+    fn count_events(&self) -> std::collections::HashMap<String, usize> {
+        let mut counts = std::collections::HashMap::new();
+        counts.insert("speciations".to_string(), 0);
+        counts.insert("duplications".to_string(), 0);
+        counts.insert("transfers".to_string(), 0);
+        counts.insert("losses".to_string(), 0);
+        counts.insert("leaves".to_string(), 0);
 
         for event in &self.rec_tree.event_mapping {
             match event {
-                Event::Speciation => speciations += 1,
-                Event::Duplication => duplications += 1,
-                Event::Transfer => transfers += 1,
-                Event::Loss => losses += 1,
-                Event::Leaf => leaves += 1,
+                Event::Speciation => *counts.get_mut("speciations").unwrap() += 1,
+                Event::Duplication => *counts.get_mut("duplications").unwrap() += 1,
+                Event::Transfer => *counts.get_mut("transfers").unwrap() += 1,
+                Event::Loss => *counts.get_mut("losses").unwrap() += 1,
+                Event::Leaf => *counts.get_mut("leaves").unwrap() += 1,
             }
         }
 
-        (speciations, duplications, transfers, losses, leaves)
+        counts
     }
 
     /// Get names of extant genes (genes that survived to present).
@@ -1491,6 +1886,100 @@ impl PyGeneTree {
         })
     }
 
+    /// Sample the gene tree by keeping only genes from the specified species.
+    ///
+    /// Gene leaves are matched to species by the naming convention `speciesName_geneId`.
+    ///
+    /// # Arguments
+    /// * `species_names` - List of species names to keep
+    ///
+    /// # Returns
+    /// A new gene tree containing only genes from the specified species.
+    ///
+    /// # Example
+    /// ```python
+    /// species_tree = rustree.simulate_species_tree(n=100, lambda_=1.0, mu=0.5, seed=42)
+    /// gene_tree = species_tree.simulate_dtl(0.5, 0.2, 0.3, seed=123)
+    ///
+    /// sampled_names = species_tree.sample_leaf_names(n=20, seed=42)
+    /// pruned_gene_tree = gene_tree.sample_by_species_names(sampled_names)
+    /// ```
+    fn sample_by_species_names(&self, species_names: Vec<String>) -> PyResult<PyGeneTree> {
+        let species_set: std::collections::HashSet<&str> = species_names.iter().map(|s| s.as_str()).collect();
+
+        // Find gene leaves whose species is in the set
+        let keep_indices: std::collections::HashSet<usize> = self.rec_tree.gene_tree.nodes.iter()
+            .enumerate()
+            .filter(|(_, n)| {
+                if n.left_child.is_some() || n.right_child.is_some() {
+                    return false;
+                }
+                if let Some(pos) = n.name.rfind('_') {
+                    let species_name = &n.name[..pos];
+                    species_set.contains(species_name)
+                } else {
+                    false
+                }
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        if keep_indices.is_empty() {
+            return Err(PyValueError::new_err("No genes found for the specified species"));
+        }
+
+        let (sampled_tree, old_to_new) = extract_induced_subtree(&self.rec_tree.gene_tree, &keep_indices)
+            .ok_or_else(|| PyValueError::new_err("Failed to extract induced subtree"))?;
+
+        // Build new→old mapping
+        let mut new_to_old: Vec<Option<usize>> = vec![None; sampled_tree.nodes.len()];
+        for (old_idx, new_idx_opt) in old_to_new.iter().enumerate() {
+            if let Some(new_idx) = new_idx_opt {
+                new_to_old[*new_idx] = Some(old_idx);
+            }
+        }
+
+        let new_event_mapping: Vec<Event> = new_to_old.iter()
+            .enumerate()
+            .map(|(new_idx, old_idx_opt)| {
+                if let Some(old_idx) = old_idx_opt {
+                    self.rec_tree.event_mapping[*old_idx].clone()
+                } else {
+                    if sampled_tree.nodes[new_idx].left_child.is_none() {
+                        Event::Leaf
+                    } else {
+                        Event::Speciation
+                    }
+                }
+            })
+            .collect();
+
+        let new_node_mapping: Vec<Option<usize>> = sampled_tree.nodes.iter()
+            .map(|n| {
+                if n.left_child.is_none() && n.right_child.is_none() {
+                    if let Some(pos) = n.name.rfind('_') {
+                        let species_name = &n.name[..pos];
+                        self.rec_tree.species_tree.nodes.iter()
+                            .position(|sn| sn.name == species_name)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(PyGeneTree {
+            rec_tree: RecTree::new(
+                Arc::clone(&self.rec_tree.species_tree),
+                sampled_tree,
+                new_node_mapping,
+                new_event_mapping,
+            ),
+        })
+    }
+
     /// Export the reconciled tree to RecPhyloXML format as a string.
     fn to_xml(&self) -> String {
         self.rec_tree.to_xml()
@@ -1514,29 +2003,146 @@ impl PyGeneTree {
     /// # Arguments
     /// * `filepath` - Optional path to save the SVG file. If None, returns SVG as string.
     /// * `open_browser` - If True, opens the SVG in a web browser (default: False)
+    /// * `gene_colors` - Comma-separated colors for gene trees (e.g. "red,blue,#4A38C4")
+    /// * `species_color` - Color for the species tree (e.g. "grey", "#CCCCCC")
+    /// * `internal_gene_names` - If True, display internal gene node names (default: False)
+    /// * `internal_species_names` - If True, display internal species node names (default: False)
+    /// * `gene_fontsize` - Font size for gene tree labels
+    /// * `species_fontsize` - Font size for species tree labels
+    /// * `gene_thickness` - Thickness of gene tree lines
+    /// * `species_thickness` - Thickness of species tree lines
+    /// * `symbol_size` - Size of event symbols (circles, squares, etc.)
+    /// * `background` - Background color (e.g. "white", "black")
+    /// * `landscape` - If True, display in landscape orientation (default: False)
+    /// * `fill_species` - If True, fill the species tree (default: False)
+    /// * `sampled_species_names` - Optional list of sampled species leaf names. When provided,
+    ///   species node labels are colored by their NodeMark: Keep, HasDescendant, or Discard.
+    ///   Internal species names are automatically shown.
+    /// * `keep_color` - Color for Keep nodes (default: "green")
+    /// * `has_descendant_color` - Color for HasDescendant nodes (default: "orange")
+    /// * `discard_color` - Color for Discard nodes (default: "grey")
     ///
     /// # Returns
     /// The SVG content as a string.
-    #[pyo3(signature = (filepath=None, open_browser=false))]
-    fn to_svg(&self, filepath: Option<&str>, open_browser: bool) -> PyResult<String> {
-        // Create temp file for XML input
+    #[pyo3(signature = (
+        filepath=None, open_browser=false,
+        gene_colors=None, species_color=None,
+        internal_gene_names=false, internal_species_names=false,
+        gene_fontsize=None, species_fontsize=None,
+        gene_thickness=None, species_thickness=None,
+        symbol_size=None, background=None,
+        landscape=false, fill_species=false,
+        gene_only=false,
+        sampled_species_names=None,
+        keep_color="green", has_descendant_color="orange", discard_color="grey",
+        color_transfers_by=None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn to_svg(
+        &self,
+        filepath: Option<&str>,
+        open_browser: bool,
+        gene_colors: Option<&str>,
+        species_color: Option<&str>,
+        internal_gene_names: bool,
+        internal_species_names: bool,
+        gene_fontsize: Option<f64>,
+        species_fontsize: Option<f64>,
+        gene_thickness: Option<f64>,
+        species_thickness: Option<f64>,
+        symbol_size: Option<f64>,
+        background: Option<&str>,
+        landscape: bool,
+        fill_species: bool,
+        gene_only: bool,
+        sampled_species_names: Option<Vec<String>>,
+        keep_color: &str,
+        has_descendant_color: &str,
+        discard_color: &str,
+        color_transfers_by: Option<&str>,
+    ) -> PyResult<String> {
+        let marking_nodes = sampled_species_names.is_some();
+
+        // Create temp files
         let temp_dir = std::env::temp_dir();
-        let xml_path = temp_dir.join("rustree_temp.recphyloxml");
+        let input_path = if gene_only {
+            temp_dir.join("rustree_gene_temp.nwk")
+        } else {
+            temp_dir.join("rustree_temp.recphyloxml")
+        };
         let svg_path = temp_dir.join("rustree_temp.svg");
+        let conf_path = temp_dir.join("rustree_thirdkind.conf");
 
-        // Write XML to temp file
-        let xml = self.to_xml();
-        fs::write(&xml_path, &xml)
-            .map_err(|e| PyValueError::new_err(format!("Failed to write temp XML: {}", e)))?;
-
-        // Call thirdkind
-        let mut cmd = Command::new("thirdkind");
-        cmd.arg("-f").arg(&xml_path)
-           .arg("-o").arg(&svg_path);
-
-        if open_browser {
-            cmd.arg("-b");
+        // Write input file: Newick for gene_only, RecPhyloXML otherwise
+        if gene_only {
+            let nwk = self.to_newick()?;
+            fs::write(&input_path, &nwk)
+                .map_err(|e| PyValueError::new_err(format!("Failed to write temp Newick: {}", e)))?;
+        } else {
+            let xml = self.to_xml();
+            fs::write(&input_path, &xml)
+                .map_err(|e| PyValueError::new_err(format!("Failed to write temp XML: {}", e)))?;
         }
+
+        // Build thirdkind config file for styling options
+        let mut conf_lines = Vec::new();
+        if !gene_only {
+            if let Some(c) = species_color { conf_lines.push(format!("species_color:{}", c)); }
+        }
+        if let Some(c) = gene_colors {
+            // single_gene_color applies when one color is given
+            conf_lines.push(format!("single_gene_color:{}", c.split(',').next().unwrap_or(c)));
+        }
+        if let Some(s) = species_fontsize { conf_lines.push(format!("species_police_size:{}", s)); }
+        if let Some(s) = gene_fontsize { conf_lines.push(format!("gene_police_size:{}", s)); }
+
+        // Write transfer color config entries based on NodeMark
+        if let Some(ref names) = sampled_species_names {
+            if let Some(color_by) = color_transfers_by {
+                let species_tree = &self.rec_tree.species_tree;
+                let keep_indices = find_leaf_indices_by_names(species_tree, names);
+                let mut marks = vec![NodeMark::Discard; species_tree.nodes.len()];
+                mark_nodes_postorder(species_tree, species_tree.root, &keep_indices, &mut marks);
+
+                let config_key = match color_by {
+                    "donor" => "transfer_donor_color",
+                    _ => "transfer_color",  // "recipient" or any other value defaults to recipient
+                };
+                for (idx, node) in species_tree.nodes.iter().enumerate() {
+                    let color = match marks[idx] {
+                        NodeMark::Keep => keep_color,
+                        NodeMark::HasDescendant => has_descendant_color,
+                        NodeMark::Discard => discard_color,
+                    };
+                    conf_lines.push(format!("{}:{}:{}", config_key, node.name, color));
+                }
+            }
+        }
+
+        fs::write(&conf_path, conf_lines.join("\n"))
+            .map_err(|e| PyValueError::new_err(format!("Failed to write config file: {}", e)))?;
+
+        // Call thirdkind with config file + CLI-only flags
+        let mut cmd = Command::new("thirdkind");
+        cmd.arg("-f").arg(&input_path)
+           .arg("-o").arg(&svg_path)
+           .arg("-c").arg(&conf_path);
+
+        if open_browser { cmd.arg("-b"); }
+        if internal_gene_names { cmd.arg("-i"); }
+        if !gene_only {
+            if internal_species_names || marking_nodes { cmd.arg("-I"); }
+            if fill_species { cmd.arg("-P"); }
+        }
+        if landscape { cmd.arg("-L"); }
+        // -C supports comma-separated multi-color (config only handles single)
+        if let Some(c) = gene_colors { cmd.arg("-C").arg(c); }
+        if let Some(t) = gene_thickness { cmd.arg("-z").arg(t.to_string()); }
+        if !gene_only {
+            if let Some(t) = species_thickness { cmd.arg("-Z").arg(t.to_string()); }
+        }
+        if let Some(s) = symbol_size { cmd.arg("-k").arg(s.to_string()); }
+        if let Some(c) = background { cmd.arg("-Q").arg(c); }
 
         let output = cmd.output()
             .map_err(|e| PyValueError::new_err(format!(
@@ -1549,8 +2155,102 @@ impl PyGeneTree {
         }
 
         // Read SVG output
-        let svg = fs::read_to_string(&svg_path)
+        let mut svg = fs::read_to_string(&svg_path)
             .map_err(|e| PyValueError::new_err(format!("Failed to read SVG output: {}", e)))?;
+
+        // Post-process SVG to color species node labels by NodeMark
+        // Thirdkind generates species text as:
+        //   <text class="species" ...>\nNodeName\n</text>
+        // We match each species <text> element by the node name on the next line
+        // and add an inline style to override the CSS class fill color.
+        if let Some(ref names) = sampled_species_names {
+            let species_tree = &self.rec_tree.species_tree;
+            let keep_indices = find_leaf_indices_by_names(species_tree, names);
+            let mut marks = vec![NodeMark::Discard; species_tree.nodes.len()];
+            mark_nodes_postorder(species_tree, species_tree.root, &keep_indices, &mut marks);
+
+            for (idx, node) in species_tree.nodes.iter().enumerate() {
+                let color = match marks[idx] {
+                    NodeMark::Keep => keep_color,
+                    NodeMark::HasDescendant => has_descendant_color,
+                    NodeMark::Discard => discard_color,
+                };
+                // Match the multi-line pattern: class="species" ...>\nNodeName\n</text>
+                let new_attr = format!("class=\"species\" style=\"fill: {}\"", color);
+                let search = "class=\"species\"";
+                let name_pattern = format!("\n{}\n</text>", node.name);
+                // Find position of this specific text element
+                if let Some(pos) = svg.find(&name_pattern) {
+                    // Search backwards from the name to find the class="species" in this element
+                    if let Some(class_start) = svg[..pos].rfind(&search) {
+                        let class_end = class_start + search.len();
+                        svg = format!(
+                            "{}{}{}",
+                            &svg[..class_start],
+                            &new_attr,
+                            &svg[class_end..]
+                        );
+                    }
+                }
+            }
+
+            // Also color gene node labels by the NodeMark of their mapped species.
+            // Gene text elements have class="gene" (or "gene_0", "node_X").
+            // We match by gene name text content and override fill.
+            let species_tree = &self.rec_tree.species_tree;
+            let mut species_color_map: HashMap<String, &str> = HashMap::new();
+            for (idx, node) in species_tree.nodes.iter().enumerate() {
+                let c = match marks[idx] {
+                    NodeMark::Keep => keep_color,
+                    NodeMark::HasDescendant => has_descendant_color,
+                    NodeMark::Discard => discard_color,
+                };
+                species_color_map.insert(node.name.clone(), c);
+            }
+
+            for (gene_idx, gene_node) in self.rec_tree.gene_tree.nodes.iter().enumerate() {
+                if gene_node.name.is_empty() {
+                    continue;
+                }
+                // Get the species this gene node maps to
+                let species_name = match self.rec_tree.node_mapping[gene_idx] {
+                    Some(sp_idx) => &species_tree.nodes[sp_idx].name,
+                    None => continue,
+                };
+                let color = match species_color_map.get(species_name) {
+                    Some(c) => *c,
+                    None => continue,
+                };
+                // Find the gene text element by name, looking for class="gene..." pattern
+                let name_pattern = format!("\n{}\n</text>", gene_node.name);
+                if let Some(pos) = svg.find(&name_pattern) {
+                    // Search backwards for the class attribute in this <text> element
+                    if let Some(tag_start) = svg[..pos].rfind("<text") {
+                        // Find the closing > of the opening tag
+                        let tag_content = &svg[tag_start..pos];
+                        // Only modify gene text elements (class contains "gene" or "node_")
+                        if tag_content.contains("class=\"gene") || tag_content.contains("class=\"node_") {
+                            if let Some(class_rel) = tag_content.find("class=\"") {
+                                let class_abs = tag_start + class_rel;
+                                let class_val_start = class_abs + 7; // after class="
+                                if let Some(class_val_end) = svg[class_val_start..].find('"') {
+                                    let old_class = &svg[class_val_start..class_val_start + class_val_end];
+                                    let new_attr = format!("class=\"{}\" style=\"fill: {}\"", old_class, color);
+                                    let replace_start = class_abs;
+                                    let replace_end = class_val_start + class_val_end + 1; // include closing "
+                                    svg = format!(
+                                        "{}{}{}",
+                                        &svg[..replace_start],
+                                        &new_attr,
+                                        &svg[replace_end..]
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Save to user-specified path if provided
         if let Some(path) = filepath {
@@ -1559,8 +2259,9 @@ impl PyGeneTree {
         }
 
         // Cleanup temp files
-        let _ = fs::remove_file(&xml_path);
+        let _ = fs::remove_file(&input_path);
         let _ = fs::remove_file(&svg_path);
+        let _ = fs::remove_file(&conf_path);
 
         Ok(svg)
     }
@@ -1568,8 +2269,55 @@ impl PyGeneTree {
     /// Display the reconciled tree visualization in a Jupyter notebook.
     ///
     /// Requires thirdkind to be installed and IPython/Jupyter environment.
-    fn display(&self, py: Python) -> PyResult<PyObject> {
-        let svg = self.to_svg(None, false)?;
+    /// Accepts the same styling options as `to_svg()`.
+    #[pyo3(signature = (
+        gene_colors=None, species_color=None,
+        internal_gene_names=false, internal_species_names=false,
+        gene_fontsize=None, species_fontsize=None,
+        gene_thickness=None, species_thickness=None,
+        symbol_size=None, background=None,
+        landscape=false, fill_species=false,
+        gene_only=false,
+        sampled_species_names=None,
+        keep_color="green", has_descendant_color="orange", discard_color="grey",
+        color_transfers_by=None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn display(
+        &self,
+        py: Python,
+        gene_colors: Option<&str>,
+        species_color: Option<&str>,
+        internal_gene_names: bool,
+        internal_species_names: bool,
+        gene_fontsize: Option<f64>,
+        species_fontsize: Option<f64>,
+        gene_thickness: Option<f64>,
+        species_thickness: Option<f64>,
+        symbol_size: Option<f64>,
+        background: Option<&str>,
+        landscape: bool,
+        fill_species: bool,
+        gene_only: bool,
+        sampled_species_names: Option<Vec<String>>,
+        keep_color: &str,
+        has_descendant_color: &str,
+        discard_color: &str,
+        color_transfers_by: Option<&str>,
+    ) -> PyResult<PyObject> {
+        let svg = self.to_svg(
+            None, false,
+            gene_colors, species_color,
+            internal_gene_names, internal_species_names,
+            gene_fontsize, species_fontsize,
+            gene_thickness, species_thickness,
+            symbol_size, background,
+            landscape, fill_species,
+            gene_only,
+            sampled_species_names,
+            keep_color, has_descendant_color, discard_color,
+            color_transfers_by,
+        )?;
 
         let ipython_display = py.import("IPython.display")?;
         let svg_class = ipython_display.getattr("SVG")?;
@@ -1598,24 +2346,37 @@ impl PyGeneTree {
                 .map_err(|e| PyValueError::new_err(format!("Failed to write CSV: {}", e)))?;
         }
 
-        let pandas = py.import("pandas")?;
-        let dict = pyo3::types::PyDict::new(py);
-        dict.set_item("node_id", cols.node_id)?;
-        dict.set_item("name", cols.name)?;
-        dict.set_item("parent", cols.parent)?;
-        dict.set_item("left_child", cols.left_child)?;
-        dict.set_item("left_child_name", cols.left_child_name)?;
-        dict.set_item("right_child", cols.right_child)?;
-        dict.set_item("right_child_name", cols.right_child_name)?;
-        dict.set_item("length", cols.length)?;
-        dict.set_item("depth", cols.depth)?;
-        dict.set_item("species_node", cols.species_node)?;
-        dict.set_item("species_node_left", cols.species_node_left)?;
-        dict.set_item("species_node_right", cols.species_node_right)?;
-        dict.set_item("event", cols.event)?;
+        columns_to_dataframe(py, &cols)
+    }
 
-        let df = pandas.call_method1("DataFrame", (dict,))?;
-        Ok(df.into())
+    /// Return a DataFrame of transfer events (subset of `to_csv()` where event == "Transfer").
+    fn transfers(&self, py: Python) -> PyResult<PyObject> {
+        let cols = self.rec_tree.to_columns().filter_by_event("Transfer");
+        columns_to_dataframe(py, &cols)
+    }
+
+    /// Return a DataFrame of duplication events (subset of `to_csv()` where event == "Duplication").
+    fn duplications(&self, py: Python) -> PyResult<PyObject> {
+        let cols = self.rec_tree.to_columns().filter_by_event("Duplication");
+        columns_to_dataframe(py, &cols)
+    }
+
+    /// Return a DataFrame of loss events (subset of `to_csv()` where event == "Loss").
+    fn losses(&self, py: Python) -> PyResult<PyObject> {
+        let cols = self.rec_tree.to_columns().filter_by_event("Loss");
+        columns_to_dataframe(py, &cols)
+    }
+
+    /// Return a DataFrame of speciation events (subset of `to_csv()` where event == "Speciation").
+    fn speciations(&self, py: Python) -> PyResult<PyObject> {
+        let cols = self.rec_tree.to_columns().filter_by_event("Speciation");
+        columns_to_dataframe(py, &cols)
+    }
+
+    /// Return a DataFrame of leaf events (subset of `to_csv()` where event == "Leaf").
+    fn leaves(&self, py: Python) -> PyResult<PyObject> {
+        let cols = self.rec_tree.to_columns().filter_by_event("Leaf");
+        columns_to_dataframe(py, &cols)
     }
 
     /// Compute all pairwise distances between nodes in the gene tree.
@@ -1725,98 +2486,58 @@ impl PyGeneTree {
 
     /// Compute induced transfers by projecting transfers onto a sampled species tree.
     ///
-    /// Given a complete species tree (the one this gene tree was simulated on),
-    /// a sampled species tree (induced subtree with subset of leaves), and the leaf
-    /// names to keep, this projects each transfer's donor and recipient species onto
-    /// the nearest branches in the sampled tree.
+    /// Given leaf names to keep, this internally builds the sampled tree and projects
+    /// each transfer's donor and recipient species onto the nearest branches.
     ///
     /// # Arguments
-    /// * `sampled_species_tree` - The sampled (pruned) species tree
-    /// * `sampled_leaf_names` - Names of leaves kept in the sampled tree
+    /// * `sampled_leaf_names` - Names of species leaves to keep
     ///
     /// # Returns
-    /// A list of PyInducedTransfer objects, one per transfer event in the gene tree.
+    /// A pandas DataFrame with columns: time, gene_id, from_species_complete,
+    /// to_species_complete, from_species_sampled, to_species_sampled.
     ///
     /// # Example
     /// ```python
-    /// # Simulate complete species tree and gene tree
     /// species_tree = rustree.simulate_species_tree(n=100, lambda_=1.0, mu=0.5, seed=42)
     /// gene_tree = species_tree.simulate_dtl(0.5, 0.2, 0.3, seed=123)
     ///
-    /// # Sample a subset of species
-    /// sampled_leaf_names = species_tree.leaf_names()[:20]  # Keep first 20 species
-    /// sampled_species_tree = species_tree.extract_induced_subtree_by_names(sampled_leaf_names)
-    ///
-    /// # Compute induced transfers
-    /// induced = gene_tree.compute_induced_transfers(sampled_species_tree, sampled_leaf_names)
-    /// print(f"Found {len(induced)} transfers")
-    /// for transfer in induced:
-    ///     print(f"Time {transfer.time}: {transfer.from_species_complete} -> {transfer.to_species_complete}")
+    /// sampled_leaf_names = species_tree.sample_leaf_names(n=20, seed=42)
+    /// df = gene_tree.compute_induced_transfers(sampled_leaf_names)
+    /// print(df)
     /// ```
-    fn compute_induced_transfers(&self, sampled_species_tree: &PySpeciesTree, sampled_leaf_names: Vec<String>) -> PyResult<Vec<PyInducedTransfer>> {
-        // Check if DTL events are available
+    fn compute_induced_transfers(&self, py: Python, sampled_leaf_names: Vec<String>) -> PyResult<PyObject> {
         let events = self.rec_tree.dtl_events.as_ref()
             .ok_or_else(|| PyValueError::new_err(
                 "DTL events not available. Gene tree must be simulated (not parsed from file)."
             ))?;
 
-        // Compute induced transfers
         use crate::induced_transfers::induced_transfers;
         let induced = induced_transfers(
             &self.rec_tree.species_tree,
-            &sampled_species_tree.tree,
             &sampled_leaf_names,
             events,
         );
 
-        // Convert to Python objects
-        Ok(induced.into_iter()
-            .map(|it| PyInducedTransfer {
-                time: it.time,
-                gene_id: it.gene_id,
-                from_species_complete: it.from_species_complete,
-                to_species_complete: it.to_species_complete,
-                from_species_sampled: it.from_species_sampled,
-                to_species_sampled: it.to_species_sampled,
-            })
-            .collect())
+        let time: Vec<f64> = induced.iter().map(|t| t.time).collect();
+        let gene_id: Vec<usize> = induced.iter().map(|t| t.gene_id).collect();
+        let from_complete: Vec<usize> = induced.iter().map(|t| t.from_species_complete).collect();
+        let to_complete: Vec<usize> = induced.iter().map(|t| t.to_species_complete).collect();
+        let from_sampled: Vec<Option<usize>> = induced.iter().map(|t| t.from_species_sampled).collect();
+        let to_sampled: Vec<Option<usize>> = induced.iter().map(|t| t.to_species_sampled).collect();
+
+        let pandas = py.import("pandas")?;
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("time", time)?;
+        dict.set_item("gene_id", gene_id)?;
+        dict.set_item("from_species_complete", from_complete)?;
+        dict.set_item("to_species_complete", to_complete)?;
+        dict.set_item("from_species_sampled", from_sampled)?;
+        dict.set_item("to_species_sampled", to_sampled)?;
+
+        let df = pandas.call_method1("DataFrame", (dict,))?;
+        Ok(df.into())
     }
 
-    /// Compute ghost branch lengths for a sampled species tree.
-    ///
-    /// The ghost length of a sampled-tree branch is the sum of branch lengths of all
-    /// non-sampled nodes in the complete tree that project onto that branch.
-    ///
-    /// # Arguments
-    /// * `sampled_species_tree` - The sampled (pruned) species tree
-    /// * `sampled_leaf_names` - Names of leaves kept in the sampled tree
-    ///
-    /// # Returns
-    /// A list of ghost lengths indexed by sampled tree node index.
-    ///
-    /// # Example
-    /// ```python
-    /// # Simulate complete species tree
-    /// species_tree = rustree.simulate_species_tree(n=100, lambda_=1.0, mu=0.5, seed=42)
-    /// gene_tree = species_tree.simulate_dtl(0.5, 0.2, 0.3, seed=123)
-    ///
-    /// # Sample a subset
-    /// sampled_leaf_names = species_tree.leaf_names()[:20]
-    /// sampled_species_tree = species_tree.extract_induced_subtree_by_names(sampled_leaf_names)
-    ///
-    /// # Compute ghost lengths
-    /// ghost_lengths = gene_tree.compute_ghost_lengths(sampled_species_tree, sampled_leaf_names)
-    /// print(f"Ghost lengths: {ghost_lengths}")
-    /// ```
-    fn compute_ghost_lengths(&self, sampled_species_tree: &PySpeciesTree, sampled_leaf_names: Vec<String>) -> PyResult<Vec<f64>> {
-        use crate::induced_transfers::ghost_lengths;
-        let ghosts = ghost_lengths(
-            &self.rec_tree.species_tree,
-            &sampled_species_tree.tree,
-            &sampled_leaf_names,
-        );
-        Ok(ghosts)
-    }
 }
 
 /// An induced transfer: a transfer event projected onto a sampled species tree.
@@ -2515,6 +3236,16 @@ impl PyGeneForest {
             .collect()
     }
 
+    /// Return a new forest with each gene tree pruned to extant leaves only.
+    ///
+    /// Keeps only gene tree leaves whose event is Leaf (i.e., extant genes).
+    /// Gene trees with zero extant leaves are dropped.
+    fn sample_extant(&self) -> PyResult<PyGeneForest> {
+        let sampled = self.forest.sample_extant()
+            .map_err(|e| PyValueError::new_err(format!("Failed to sample extant: {}", e)))?;
+        Ok(PyGeneForest { forest: sampled })
+    }
+
     /// Prune the forest to match a target species tree.
     ///
     /// The target species tree's leaves must be a subset of this forest's
@@ -2586,6 +3317,13 @@ impl PyGeneForest {
         Ok(PyAleRaxForestResult::from_rust(result))
     }
 
+    fn __iter__(&self) -> PyGeneForestIter {
+        PyGeneForestIter {
+            forest: self.forest.clone(),
+            pos: 0,
+        }
+    }
+
     fn __repr__(&self) -> String {
         let species_leaves = self.forest.species_tree().nodes.iter()
             .filter(|n| n.left_child.is_none() && n.right_child.is_none())
@@ -2595,6 +3333,24 @@ impl PyGeneForest {
             species_leaves,
             self.forest.len()
         )
+    }
+}
+
+/// Iterator over gene trees in a GeneForest.
+#[pyclass]
+struct PyGeneForestIter {
+    forest: crate::node::gene_forest::GeneForest,
+    pos: usize,
+}
+
+#[pymethods]
+impl PyGeneForestIter {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+
+    fn __next__(&mut self) -> Option<PyGeneTree> {
+        let gt = self.forest.get(self.pos)?;
+        self.pos += 1;
+        Some(PyGeneTree { rec_tree: gt.clone() })
     }
 }
 
@@ -2778,6 +3534,8 @@ fn rustree(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_recphyloxml, m)?)?;
     m.add_function(wrap_pyfunction!(reconcile_with_alerax, m)?)?;
     m.add_class::<PySpeciesTree>()?;
+    m.add_class::<PySpeciesNode>()?;
+    m.add_class::<PySpeciesTreeIter>()?;
     m.add_class::<PyGeneTree>()?;
     m.add_class::<PyDtlSimIter>()?;
     m.add_class::<PyEventCounts>()?;

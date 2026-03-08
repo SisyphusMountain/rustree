@@ -39,13 +39,13 @@ impl RecTree {
         let node = &self.species_tree.nodes[node_idx];
         let indent_str = Self::get_indent(indent);
 
-        xml.push_str(indent_str);
+        xml.push_str(&indent_str);
         xml.push_str("<clade>\n");
-        xml.push_str(indent_str);
+        xml.push_str(&indent_str);
         xml.push_str("\t<name>");
         xml.push_str(&node.name);
         xml.push_str("</name>\n");
-        xml.push_str(indent_str);
+        xml.push_str(&indent_str);
         xml.push_str("\t<branchLength>");
         xml.push_str(&node.length.to_string());
         xml.push_str("</branchLength>\n");
@@ -57,7 +57,7 @@ impl RecTree {
             self.write_species_clade(xml, right_idx, indent + 1);
         }
 
-        xml.push_str(indent_str);
+        xml.push_str(&indent_str);
         xml.push_str("</clade>\n");
     }
 
@@ -69,11 +69,11 @@ impl RecTree {
         let event = &self.event_mapping[node_idx];
         let indent_str = Self::get_indent(indent);
 
-        xml.push_str(indent_str);
+        xml.push_str(&indent_str);
         xml.push_str("<clade>\n");
 
         // Node name
-        xml.push_str(indent_str);
+        xml.push_str(&indent_str);
         xml.push_str("\t<name>");
         match event {
             Event::Loss => xml.push_str("loss"),
@@ -82,13 +82,13 @@ impl RecTree {
         }
         xml.push_str("</name>\n");
 
-        xml.push_str(indent_str);
+        xml.push_str(&indent_str);
         xml.push_str("\t<branchLength>");
         xml.push_str(&node.length.to_string());
         xml.push_str("</branchLength>\n");
 
         // Events section
-        xml.push_str(indent_str);
+        xml.push_str(&indent_str);
         xml.push_str("\t<eventsRec>\n");
 
         // Check if this is a transfer recipient
@@ -106,7 +106,7 @@ impl RecTree {
 
         if is_transfer_recipient {
             if let Some(name) = species_name {
-                xml.push_str(indent_str);
+                xml.push_str(&indent_str);
                 xml.push_str("\t\t<transferBack destinationSpecies=\"");
                 xml.push_str(name);
                 xml.push_str("\"/>\n");
@@ -116,7 +116,7 @@ impl RecTree {
         // Write the appropriate event tags
         match event {
             Event::Speciation => {
-                xml.push_str(indent_str);
+                xml.push_str(&indent_str);
                 if let Some(name) = species_name {
                     xml.push_str("\t\t<speciation speciesLocation=\"");
                     xml.push_str(name);
@@ -126,7 +126,7 @@ impl RecTree {
                 }
             }
             Event::Duplication => {
-                xml.push_str(indent_str);
+                xml.push_str(&indent_str);
                 if let Some(name) = species_name {
                     xml.push_str("\t\t<duplication speciesLocation=\"");
                     xml.push_str(name);
@@ -137,7 +137,7 @@ impl RecTree {
             }
             Event::Transfer => {
                 if node.left_child.is_some() && node.right_child.is_some() {
-                    xml.push_str(indent_str);
+                    xml.push_str(&indent_str);
                     if let Some(name) = species_name {
                         xml.push_str("\t\t<branchingOut speciesLocation=\"");
                         xml.push_str(name);
@@ -148,7 +148,7 @@ impl RecTree {
                 }
             }
             Event::Loss => {
-                xml.push_str(indent_str);
+                xml.push_str(&indent_str);
                 if let Some(name) = species_name {
                     xml.push_str("\t\t<loss speciesLocation=\"");
                     xml.push_str(name);
@@ -158,7 +158,7 @@ impl RecTree {
                 }
             }
             Event::Leaf => {
-                xml.push_str(indent_str);
+                xml.push_str(&indent_str);
                 if let Some(name) = species_name {
                     xml.push_str("\t\t<leaf speciesLocation=\"");
                     xml.push_str(name);
@@ -169,7 +169,7 @@ impl RecTree {
             }
         }
 
-        xml.push_str(indent_str);
+        xml.push_str(&indent_str);
         xml.push_str("\t</eventsRec>\n");
 
         if let Some(left_idx) = node.left_child {
@@ -179,22 +179,20 @@ impl RecTree {
             self.write_gene_clade(xml, right_idx, indent + 1);
         }
 
-        xml.push_str(indent_str);
+        xml.push_str(&indent_str);
         xml.push_str("</clade>\n");
     }
 
     /// Get indent string for XML formatting.
-    fn get_indent(indent: usize) -> &'static str {
+    fn get_indent(indent: usize) -> String {
         const INDENTS: [&str; 10] = [
             "", "\t", "\t\t", "\t\t\t", "\t\t\t\t", "\t\t\t\t\t",
             "\t\t\t\t\t\t", "\t\t\t\t\t\t\t", "\t\t\t\t\t\t\t\t", "\t\t\t\t\t\t\t\t\t"
         ];
         if indent < INDENTS.len() {
-            INDENTS[indent]
+            INDENTS[indent].to_string()
         } else {
-            // For very deep trees, fall back to dynamic allocation
-            // This is a leak but only happens for indent >= 10
-            Box::leak(Box::new("\t".repeat(indent)))
+            "\t".repeat(indent)
         }
     }
 

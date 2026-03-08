@@ -156,6 +156,59 @@ impl GeneForest {
         self.sample_leaves(&leaf_names)
     }
 
+    /// Return a new forest with each gene tree pruned to extant leaves only.
+    ///
+    /// For each gene tree, keeps only leaf nodes whose event is `Event::Leaf`
+    /// (i.e., extant genes). Gene trees with zero extant leaves are dropped.
+    pub fn sample_extant(&self) -> Result<Self, String> {
+        let shared_species = Arc::clone(&self.species_tree);
+        let mut sampled_trees = Vec::with_capacity(self.gene_trees.len());
+
+        for rt in &self.gene_trees {
+            // Find extant leaf indices
+            let extant_indices: HashSet<usize> = rt.gene_tree.nodes.iter()
+                .enumerate()
+                .filter(|(i, n)| {
+                    n.left_child.is_none()
+                        && n.right_child.is_none()
+                        && rt.event_mapping[*i] == Event::Leaf
+                })
+                .map(|(i, _)| i)
+                .collect();
+
+            if extant_indices.is_empty() {
+                continue; // skip gene trees with no extant genes
+            }
+
+            let (sampled_gene_tree, gene_old_to_new) =
+                extract_induced_subtree(&rt.gene_tree, &extant_indices)
+                    .ok_or_else(|| "Failed to extract extant gene subtree".to_string())?;
+
+            // Identity species mapping (species tree is unchanged)
+            let identity: Vec<Option<usize>> = (0..self.species_tree.nodes.len())
+                .map(Some)
+                .collect();
+
+            let (new_node_mapping, new_event_mapping) = remap_gene_tree_indices(
+                &sampled_gene_tree, &gene_old_to_new,
+                &rt.node_mapping, &rt.event_mapping,
+                &identity,
+            )?;
+
+            sampled_trees.push(RecTree::new(
+                Arc::clone(&shared_species),
+                sampled_gene_tree,
+                new_node_mapping,
+                new_event_mapping,
+            ));
+        }
+
+        Ok(GeneForest {
+            species_tree: shared_species,
+            gene_trees: sampled_trees,
+        })
+    }
+
     /// Consume the forest and return the gene trees.
     pub fn into_gene_trees(self) -> Vec<RecTree> {
         self.gene_trees

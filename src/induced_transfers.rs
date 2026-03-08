@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use crate::node::FlatTree;
 use crate::dtl::DTLEvent;
-use crate::sampling::{NodeMark, mark_nodes_postorder, find_leaf_indices_by_names};
+use crate::sampling::{NodeMark, mark_nodes_postorder, find_leaf_indices_by_names, extract_induced_subtree_by_names};
 
 /// An induced transfer: a transfer event with both complete-tree and
 /// sampled-tree donor/recipient species.
@@ -95,17 +95,18 @@ pub(crate) fn compute_projection(
 ///
 /// # Arguments
 /// * `complete_tree` - The complete species tree
-/// * `sampled_tree` - The sampled (pruned) species tree with coherent node names
 /// * `sampled_leaf_names` - Names of leaves to keep
 ///
 /// # Returns
-/// A `Vec<f64>` indexed by sampled-tree node index, where each entry is the total
-/// ghost length projected onto that branch.
+/// A tuple of `(sampled_tree, ghost_lengths)` where `ghost_lengths` is a `Vec<f64>`
+/// indexed by sampled-tree node index.
 pub fn ghost_lengths(
     complete_tree: &FlatTree,
-    sampled_tree: &FlatTree,
     sampled_leaf_names: &[String],
-) -> Vec<f64> {
+) -> (FlatTree, Vec<f64>) {
+    let (sampled_tree, _) = extract_induced_subtree_by_names(complete_tree, sampled_leaf_names)
+        .expect("Failed to extract induced subtree from leaf names");
+
     let keep_indices = find_leaf_indices_by_names(complete_tree, sampled_leaf_names);
     let mut marks = vec![NodeMark::Discard; complete_tree.nodes.len()];
     mark_nodes_postorder(complete_tree, complete_tree.root, &keep_indices, &mut marks);
@@ -133,7 +134,7 @@ pub fn ghost_lengths(
         }
     }
 
-    ghost
+    (sampled_tree, ghost)
 }
 
 /// Computes induced transfers by projecting each transfer's donor and recipient
@@ -141,23 +142,20 @@ pub fn ghost_lengths(
 ///
 /// # Arguments
 /// * `complete_tree` - The complete species tree (must have depths assigned)
-/// * `sampled_tree` - The sampled (pruned) species tree with coherent node names
 /// * `sampled_leaf_names` - Names of leaves to keep (must be a subset of complete tree leaves)
 /// * `events` - DTL events from a gene tree simulation on the complete tree
 ///
 /// # Returns
 /// A vector of `InducedTransfer` — one per Transfer event in `events`.
-
-
-// TODO: WTF: why do we need both the sampled tree and the sampled leaf names? 
 pub fn induced_transfers(
     complete_tree: &FlatTree,
-    sampled_tree: &FlatTree,
     sampled_leaf_names: &[String],
     events: &[DTLEvent],
 ) -> Vec<InducedTransfer> {
+    let (sampled_tree, _) = extract_induced_subtree_by_names(complete_tree, sampled_leaf_names)
+        .expect("Failed to extract induced subtree from leaf names");
+
     // Step 1: Mark complete tree nodes
-    println!("Warning: weird API to fix: we need both the sampled tree and the sampled leaf names to compute the projection. Can we just pass the sampled tree and extract the leaf names from it?");
     let keep_indices = find_leaf_indices_by_names(complete_tree, sampled_leaf_names);
     let mut marks = vec![NodeMark::Discard; complete_tree.nodes.len()];
     mark_nodes_postorder(complete_tree, complete_tree.root, &keep_indices, &mut marks);
@@ -289,7 +287,6 @@ mod tests {
     fn test_induced_transfers_basic() {
         let complete_tree = make_tree("((A:1,B:1)AB:1,(C:1,D:1)CD:1)root:0;");
         let sampled_names: Vec<String> = vec!["A".into(), "C".into()];
-        let (sampled_tree, _) = extract_induced_subtree_by_names(&complete_tree, &sampled_names).unwrap();
 
         let idx = |name: &str| complete_tree.find_node_index(name).unwrap();
 
@@ -304,7 +301,7 @@ mod tests {
             recipient_child: 2,
         }];
 
-        let induced = induced_transfers(&complete_tree, &sampled_tree, &sampled_names, &events);
+        let induced = induced_transfers(&complete_tree, &sampled_names, &events);
         assert_eq!(induced.len(), 1);
 
         let t = &induced[0];
@@ -312,6 +309,7 @@ mod tests {
         assert_eq!(t.to_species_complete, idx("D"));
 
         // B projects to A in the complete tree, then A maps to sampled tree
+        let sampled_tree = extract_induced_subtree_by_names(&complete_tree, &sampled_names).unwrap().0;
         let sampled_a = sampled_tree.find_node_index("A").unwrap();
         let sampled_c = sampled_tree.find_node_index("C").unwrap();
         assert_eq!(t.from_species_sampled, Some(sampled_a));
@@ -332,9 +330,8 @@ mod tests {
         // Ghost lengths: A = 1 + 1 = 2, C = 1 + 1 = 2, root = 0
         let complete = make_tree("((A:1,B:1)AB:1,(C:1,D:1)CD:1)root:0;");
         let sampled_names: Vec<String> = vec!["A".into(), "C".into()];
-        let (sampled, _) = extract_induced_subtree_by_names(&complete, &sampled_names).unwrap();
 
-        let ghost = ghost_lengths(&complete, &sampled, &sampled_names);
+        let (sampled, ghost) = ghost_lengths(&complete, &sampled_names);
 
         let sampled_a = sampled.find_node_index("A").unwrap();
         let sampled_c = sampled.find_node_index("C").unwrap();
@@ -353,9 +350,8 @@ mod tests {
         // Ghost length of AB = 0 + 1 + 1 + 1 = 3
         let complete = make_tree("((A:1,B:1)AB:1,(C:1,D:1)CD:1)root:0;");
         let sampled_names: Vec<String> = vec!["A".into(), "B".into()];
-        let (sampled, _) = extract_induced_subtree_by_names(&complete, &sampled_names).unwrap();
 
-        let ghost = ghost_lengths(&complete, &sampled, &sampled_names);
+        let (sampled, ghost) = ghost_lengths(&complete, &sampled_names);
 
         let sampled_ab = sampled.find_node_index("AB").unwrap();
         let sampled_a = sampled.find_node_index("A").unwrap();
@@ -370,7 +366,6 @@ mod tests {
     fn test_induced_transfers_non_transfer_events_filtered() {
         let complete_tree = make_tree("((A:1,B:1)AB:1,C:2)root:0;");
         let sampled_names: Vec<String> = vec!["A".into(), "C".into()];
-        let (sampled_tree, _) = extract_induced_subtree_by_names(&complete_tree, &sampled_names).unwrap();
 
         let events = vec![
             DTLEvent::Duplication {
@@ -392,7 +387,7 @@ mod tests {
             },
         ];
 
-        let induced = induced_transfers(&complete_tree, &sampled_tree, &sampled_names, &events);
+        let induced = induced_transfers(&complete_tree, &sampled_names, &events);
         assert_eq!(induced.len(), 0, "Non-transfer events should be filtered out");
     }
 }
