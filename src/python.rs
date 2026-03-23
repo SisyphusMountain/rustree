@@ -5472,181 +5472,194 @@ fn build_otf_batch(
     }
     validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
 
-    // 1. Simulate species tree
-    let mut sp_rng = StdRng::seed_from_u64(sp_seed);
-    let (mut sp_tree_raw, _) = simulate_bd_tree_bwd(n_sp, lambda_birth, mu_death, &mut sp_rng);
-    sp_tree_raw.assign_depths();
-    let sp_tree_raw_arc = Arc::new(sp_tree_raw);
-    let (extant_sp, _) = extract_extant_subtree(&sp_tree_raw_arc)
-        .ok_or_else(|| PyValueError::new_err("build_otf_batch: failed to extract extant species subtree"))?;
-    let extant_sp_arc = Arc::new(extant_sp);
-    let n_sp_nodes = extant_sp_arc.nodes.len();
+    // ---- GIL-free section ------------------------------------------------
+    // All simulation, tensor building, and collation is pure Rust with no
+    // Python object interaction.  Releasing the GIL here lets other Python
+    // threads (prefetcher producers, GPU transfer thread) run concurrently.
+    let sample_order_owned = sample_order.to_owned();
+    let result_or_err = py.allow_threads(move || -> Result<_, String> {
+        let sample_order: &str = &sample_order_owned;
 
-    // 2. Simulate and filter gene trees (one per slot, individual seeds)
-    let species_identity: Vec<Option<usize>> = (0..n_sp_nodes).map(|i| Some(i)).collect();
-    let mut valid_gene_trees: Vec<RecTree> = Vec::with_capacity(n_gene_trees);
+        // 1. Simulate species tree
+        let mut sp_rng = StdRng::seed_from_u64(sp_seed);
+        let (mut sp_tree_raw, _) = simulate_bd_tree_bwd(n_sp, lambda_birth, mu_death, &mut sp_rng);
+        sp_tree_raw.assign_depths();
+        let sp_tree_raw_arc = Arc::new(sp_tree_raw);
+        let (extant_sp, _) = extract_extant_subtree(&sp_tree_raw_arc)
+            .ok_or_else(|| "build_otf_batch: failed to extract extant species subtree".to_string())?;
+        let extant_sp_arc = Arc::new(extant_sp);
+        let n_sp_nodes = extant_sp_arc.nodes.len();
 
-    for i in 0..n_gene_trees {
-        let mut found = false;
-        for attempt in 0..=(max_retries as u64) {
-            let gt_seed = gt_seeds[i].wrapping_add(attempt);
-            let mut gt_rng = StdRng::seed_from_u64(gt_seed);
+        // 2. Simulate and filter gene trees (one per slot, individual seeds)
+        let species_identity: Vec<Option<usize>> = (0..n_sp_nodes).map(|i| Some(i)).collect();
+        let mut valid_gene_trees: Vec<RecTree> = Vec::with_capacity(n_gene_trees);
 
-            let (mut rec_tree, events) = match simulate_dtl_per_species(
-                &extant_sp_arc, extant_sp_arc.root,
-                lambda_d, lambda_t, lambda_l,
-                None, None, false,
-                &mut gt_rng,
-            ) {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            rec_tree.species_tree = Arc::clone(&extant_sp_arc);
-            rec_tree.dtl_events = Some(events);
+        for i in 0..n_gene_trees {
+            let mut found = false;
+            for attempt in 0..=(max_retries as u64) {
+                let gt_seed = gt_seeds[i].wrapping_add(attempt);
+                let mut gt_rng = StdRng::seed_from_u64(gt_seed);
 
-            // Extract extant gene leaves
-            let extant_gene_indices: std::collections::HashSet<usize> = rec_tree.gene_tree.nodes
-                .iter().enumerate()
-                .filter(|(idx, n)| {
-                    n.left_child.is_none() && n.right_child.is_none()
-                        && rec_tree.event_mapping[*idx] == Event::Leaf
-                })
-                .map(|(idx, _)| idx)
-                .collect();
+                let (mut rec_tree, events) = match simulate_dtl_per_species(
+                    &extant_sp_arc, extant_sp_arc.root,
+                    lambda_d, lambda_t, lambda_l,
+                    None, None, false,
+                    &mut gt_rng,
+                ) {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+                rec_tree.species_tree = Arc::clone(&extant_sp_arc);
+                rec_tree.dtl_events = Some(events);
 
-            if extant_gene_indices.is_empty() { continue; }
-            if extant_gene_indices.len() < min_gene_leaves { continue; }
+                // Extract extant gene leaves
+                let extant_gene_indices: std::collections::HashSet<usize> = rec_tree.gene_tree.nodes
+                    .iter().enumerate()
+                    .filter(|(idx, n)| {
+                        n.left_child.is_none() && n.right_child.is_none()
+                            && rec_tree.event_mapping[*idx] == Event::Leaf
+                    })
+                    .map(|(idx, _)| idx)
+                    .collect();
 
-            let (extant_gene_tree, gene_old_to_new) = match extract_induced_subtree(
-                &rec_tree.gene_tree, &extant_gene_indices,
-            ) {
-                Some(r) => r,
-                None => continue,
-            };
+                if extant_gene_indices.is_empty() { continue; }
+                if extant_gene_indices.len() < min_gene_leaves { continue; }
 
-            if max_gene_nodes > 0 && extant_gene_tree.nodes.len() > max_gene_nodes { continue; }
+                let (extant_gene_tree, gene_old_to_new) = match extract_induced_subtree(
+                    &rec_tree.gene_tree, &extant_gene_indices,
+                ) {
+                    Some(r) => r,
+                    None => continue,
+                };
 
-            let (new_node_mapping, new_event_mapping) = match remap_gene_tree_indices(
-                &extant_gene_tree, &gene_old_to_new,
-                &rec_tree.node_mapping, &rec_tree.event_mapping,
-                &species_identity,
-            ) {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
+                if max_gene_nodes > 0 && extant_gene_tree.nodes.len() > max_gene_nodes { continue; }
 
-            valid_gene_trees.push(RecTree::new(
-                Arc::clone(&extant_sp_arc),
-                extant_gene_tree,
-                new_node_mapping,
-                new_event_mapping,
-            ));
-            found = true;
-            break;
-        }
-        if !found {
-            return Err(PyValueError::new_err(format!(
-                "build_otf_batch: gene tree slot {} failed after {} retries", i, max_retries)));
-        }
-    }
+                let (new_node_mapping, new_event_mapping) = match remap_gene_tree_indices(
+                    &extant_gene_tree, &gene_old_to_new,
+                    &rec_tree.node_mapping, &rec_tree.event_mapping,
+                    &species_identity,
+                ) {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
 
-    // 3. Species tree tensors (computed once, replicated B times during collation)
-    let sp_preorder: Vec<usize> = extant_sp_arc.iter_indices(TraversalOrder::PreOrder).collect();
-    let species_names: Vec<String> = sp_preorder.iter()
-        .map(|&i| extant_sp_arc.nodes[i].name.clone()).collect();
-
-    let mut sp_name_to_id: HashMap<String, i64> = HashMap::new();
-    let mut sp_name_to_idx_map: HashMap<String, usize> = HashMap::new();
-    for (i, name) in species_names.iter().enumerate() {
-        sp_name_to_id.insert(name.clone(), (i + 1) as i64);
-        sp_name_to_idx_map.insert(name.clone(), i);
-    }
-
-    let x_sp_single: Vec<i64> = species_names.iter()
-        .map(|name| sp_name_to_id[name]).collect();
-
-    let mut sp_child_src_s: Vec<i64> = Vec::new();
-    let mut sp_child_dst_s: Vec<i64> = Vec::new();
-    let mut sp_parent_src_s: Vec<i64> = Vec::new();
-    let mut sp_parent_dst_s: Vec<i64> = Vec::new();
-    for &idx in &sp_preorder {
-        let node = &extant_sp_arc.nodes[idx];
-        let pi = sp_name_to_idx_map[&node.name] as i64;
-        for child_opt in [node.left_child, node.right_child] {
-            if let Some(child) = child_opt {
-                let ci = sp_name_to_idx_map[&extant_sp_arc.nodes[child].name] as i64;
-                sp_child_src_s.push(pi); sp_child_dst_s.push(ci);
-                sp_parent_src_s.push(ci); sp_parent_dst_s.push(pi);
+                valid_gene_trees.push(RecTree::new(
+                    Arc::clone(&extant_sp_arc),
+                    extant_gene_tree,
+                    new_node_mapping,
+                    new_event_mapping,
+                ));
+                found = true;
+                break;
+            }
+            if !found {
+                return Err(format!(
+                    "build_otf_batch: gene tree slot {} failed after {} retries", i, max_retries));
             }
         }
-    }
 
-    // 4. Extract base samples from gene trees
-    let base_samples: Vec<RustBaseSample> = valid_gene_trees.iter()
-        .map(|rt| extract_base_sample_internal(rt))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| PyValueError::new_err(e))?;
+        // 3. Species tree tensors (computed once, replicated B times during collation)
+        let sp_preorder: Vec<usize> = extant_sp_arc.iter_indices(TraversalOrder::PreOrder).collect();
+        let species_names: Vec<String> = sp_preorder.iter()
+            .map(|&i| extant_sp_arc.nodes[i].name.clone()).collect();
 
-    // 5. Build task tensors
-    let map_tensors: Vec<TaskTensors> = base_samples.iter().enumerate()
-        .map(|(i, s)| {
-            let mut rng = StdRng::seed_from_u64(map_coloring_seeds[i]);
-            build_task_tensors_internal(s, &sp_name_to_id, &mut rng, false, false, sample_order)
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| PyValueError::new_err(e))?;
-
-    let evt_tensors: Vec<TaskTensors> = if enable_event {
-        base_samples.iter().enumerate()
-            .map(|(i, s)| {
-                let mut rng = StdRng::seed_from_u64(evt_coloring_seeds[i]);
-                build_task_tensors_internal(s, &sp_name_to_id, &mut rng, true, false, sample_order)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| PyValueError::new_err(e))?
-    } else { Vec::new() };
-
-    let root_tensors: Vec<TaskTensors> = if enable_root {
-        base_samples.iter().enumerate()
-            .map(|(i, s)| {
-                let mut rng = StdRng::seed_from_u64(root_coloring_seeds[i]);
-                build_task_tensors_internal(s, &sp_name_to_id, &mut rng, false, true, sample_order)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| PyValueError::new_err(e))?
-    } else { Vec::new() };
-
-    // 6. Collate species (replicated B times with per-sample offsets)
-    let b = n_gene_trees;
-    let n_sp_e = sp_child_src_s.len();
-    let mut sp_x: Vec<i64> = Vec::with_capacity(b * n_sp_nodes);
-    let mut sp_child_src: Vec<i64> = Vec::with_capacity(b * n_sp_e);
-    let mut sp_child_dst: Vec<i64> = Vec::with_capacity(b * n_sp_e);
-    let mut sp_parent_src: Vec<i64> = Vec::with_capacity(b * n_sp_e);
-    let mut sp_parent_dst: Vec<i64> = Vec::with_capacity(b * n_sp_e);
-    let mut sp_batch: Vec<i64> = Vec::with_capacity(b * n_sp_nodes);
-    let mut sp_sizes: Vec<i64> = Vec::with_capacity(b);
-    let mut sp_ptr: Vec<i64> = Vec::with_capacity(b + 1);
-    sp_ptr.push(0);
-
-    for s_idx in 0..b {
-        let offset = (s_idx * n_sp_nodes) as i64;
-        sp_x.extend_from_slice(&x_sp_single);
-        for (&src, &dst) in sp_child_src_s.iter().zip(sp_child_dst_s.iter()) {
-            sp_child_src.push(src + offset); sp_child_dst.push(dst + offset);
+        let mut sp_name_to_id: HashMap<String, i64> = HashMap::new();
+        let mut sp_name_to_idx_map: HashMap<String, usize> = HashMap::new();
+        for (i, name) in species_names.iter().enumerate() {
+            sp_name_to_id.insert(name.clone(), (i + 1) as i64);
+            sp_name_to_idx_map.insert(name.clone(), i);
         }
-        for (&src, &dst) in sp_parent_src_s.iter().zip(sp_parent_dst_s.iter()) {
-            sp_parent_src.push(src + offset); sp_parent_dst.push(dst + offset);
-        }
-        for _ in 0..n_sp_nodes { sp_batch.push(s_idx as i64); }
-        sp_sizes.push(n_sp_nodes as i64);
-        sp_ptr.push((s_idx + 1) as i64 * n_sp_nodes as i64);
-    }
 
-    // 7. Collate task tensors
-    let map_c = collate_task_tensors(&map_tensors);
-    let evt_c = if enable_event { Some(collate_task_tensors(&evt_tensors)) } else { None };
-    let root_c = if enable_root { Some(collate_task_tensors(&root_tensors)) } else { None };
+        let x_sp_single: Vec<i64> = species_names.iter()
+            .map(|name| sp_name_to_id[name]).collect();
+
+        let mut sp_child_src_s: Vec<i64> = Vec::new();
+        let mut sp_child_dst_s: Vec<i64> = Vec::new();
+        let mut sp_parent_src_s: Vec<i64> = Vec::new();
+        let mut sp_parent_dst_s: Vec<i64> = Vec::new();
+        for &idx in &sp_preorder {
+            let node = &extant_sp_arc.nodes[idx];
+            let pi = sp_name_to_idx_map[&node.name] as i64;
+            for child_opt in [node.left_child, node.right_child] {
+                if let Some(child) = child_opt {
+                    let ci = sp_name_to_idx_map[&extant_sp_arc.nodes[child].name] as i64;
+                    sp_child_src_s.push(pi); sp_child_dst_s.push(ci);
+                    sp_parent_src_s.push(ci); sp_parent_dst_s.push(pi);
+                }
+            }
+        }
+
+        // 4. Extract base samples from gene trees
+        let base_samples: Vec<RustBaseSample> = valid_gene_trees.iter()
+            .map(|rt| extract_base_sample_internal(rt))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // 5. Build task tensors
+        let map_tensors: Vec<TaskTensors> = base_samples.iter().enumerate()
+            .map(|(i, s)| {
+                let mut rng = StdRng::seed_from_u64(map_coloring_seeds[i]);
+                build_task_tensors_internal(s, &sp_name_to_id, &mut rng, false, false, sample_order)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let evt_tensors: Vec<TaskTensors> = if enable_event {
+            base_samples.iter().enumerate()
+                .map(|(i, s)| {
+                    let mut rng = StdRng::seed_from_u64(evt_coloring_seeds[i]);
+                    build_task_tensors_internal(s, &sp_name_to_id, &mut rng, true, false, sample_order)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        } else { Vec::new() };
+
+        let root_tensors: Vec<TaskTensors> = if enable_root {
+            base_samples.iter().enumerate()
+                .map(|(i, s)| {
+                    let mut rng = StdRng::seed_from_u64(root_coloring_seeds[i]);
+                    build_task_tensors_internal(s, &sp_name_to_id, &mut rng, false, true, sample_order)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        } else { Vec::new() };
+
+        // 6. Collate species (replicated B times with per-sample offsets)
+        let b = n_gene_trees;
+        let n_sp_e = sp_child_src_s.len();
+        let mut sp_x: Vec<i64> = Vec::with_capacity(b * n_sp_nodes);
+        let mut sp_child_src: Vec<i64> = Vec::with_capacity(b * n_sp_e);
+        let mut sp_child_dst: Vec<i64> = Vec::with_capacity(b * n_sp_e);
+        let mut sp_parent_src: Vec<i64> = Vec::with_capacity(b * n_sp_e);
+        let mut sp_parent_dst: Vec<i64> = Vec::with_capacity(b * n_sp_e);
+        let mut sp_batch: Vec<i64> = Vec::with_capacity(b * n_sp_nodes);
+        let mut sp_sizes: Vec<i64> = Vec::with_capacity(b);
+        let mut sp_ptr: Vec<i64> = Vec::with_capacity(b + 1);
+        sp_ptr.push(0);
+
+        for s_idx in 0..b {
+            let offset = (s_idx * n_sp_nodes) as i64;
+            sp_x.extend_from_slice(&x_sp_single);
+            for (&src, &dst) in sp_child_src_s.iter().zip(sp_child_dst_s.iter()) {
+                sp_child_src.push(src + offset); sp_child_dst.push(dst + offset);
+            }
+            for (&src, &dst) in sp_parent_src_s.iter().zip(sp_parent_dst_s.iter()) {
+                sp_parent_src.push(src + offset); sp_parent_dst.push(dst + offset);
+            }
+            for _ in 0..n_sp_nodes { sp_batch.push(s_idx as i64); }
+            sp_sizes.push(n_sp_nodes as i64);
+            sp_ptr.push((s_idx + 1) as i64 * n_sp_nodes as i64);
+        }
+
+        // 7. Collate task tensors
+        let map_c = collate_task_tensors(&map_tensors);
+        let evt_c = if enable_event { Some(collate_task_tensors(&evt_tensors)) } else { None };
+        let root_c = if enable_root { Some(collate_task_tensors(&root_tensors)) } else { None };
+
+        Ok((sp_x, sp_child_src, sp_child_dst, sp_parent_src, sp_parent_dst,
+            sp_ptr, sp_sizes, sp_batch, map_c, evt_c, root_c))
+    });
+    // ---- End GIL-free section --------------------------------------------
+
+    let (sp_x, sp_child_src, sp_child_dst, sp_parent_src, sp_parent_dst,
+         sp_ptr, sp_sizes, sp_batch, map_c, evt_c, root_c) =
+        result_or_err.map_err(|e| PyValueError::new_err(e))?;
 
     // 8. Build result dict of numpy arrays
     let result = PyDict::new(py);
