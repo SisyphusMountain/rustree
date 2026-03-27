@@ -8,12 +8,13 @@ name = "rustree"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = { version = "0.18", features = ["extension-module"], optional = true }
-numpy = { version = "0.18", optional = true }
+pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+numpy = { version = "0.23", optional = true }
 extendr-api = { version = "0.6", optional = true }
 pest = "2.7.4"
 pest_derive = "2.7.4"
 rand = "0.8.5"
+rayon = "1.10"
 quick-xml = "0.31"
 tempfile = "3.8"
 
