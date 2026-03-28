@@ -5167,7 +5167,7 @@ fn build_task_tensors_internal(
         rng.gen_range(0..=max_to_sample)
     };
 
-    // Unroot tree
+    // Unroot tree: remove root node and reconnect its children
     let mut g_neighbors_unrooted: HashMap<String, Vec<String>> = HashMap::new();
     for (k, v) in g_neighbors {
         if k != g_root_name {
@@ -5179,12 +5179,24 @@ fn build_task_tensors_internal(
         }
     }
     if let Some(root_nbrs) = g_neighbors.get(g_root_name) {
-        if root_nbrs.len() == 2 {
-            let c1 = root_nbrs[0].clone();
-            let c2 = root_nbrs[1].clone();
-            g_neighbors_unrooted.entry(c1.clone()).or_default().push(c2.clone());
-            g_neighbors_unrooted.entry(c2.clone()).or_default().push(c1.clone());
+        // Connect all former root children to each other (handles bifurcating
+        // and multifurcating roots alike).
+        for i in 0..root_nbrs.len() {
+            for j in (i + 1)..root_nbrs.len() {
+                let ci = root_nbrs[i].clone();
+                let cj = root_nbrs[j].clone();
+                g_neighbors_unrooted.entry(ci.clone()).or_default().push(cj.clone());
+                g_neighbors_unrooted.entry(cj.clone()).or_default().push(ci.clone());
+            }
         }
+    }
+    // Safety: ensure every node referenced as a neighbor is also a key.
+    // Collect missing keys first to avoid borrowing issues.
+    let all_referenced: Vec<String> = g_neighbors_unrooted.values()
+        .flat_map(|vs| vs.iter().cloned())
+        .collect();
+    for name in all_referenced {
+        g_neighbors_unrooted.entry(name).or_default();
     }
 
     // Node selection
@@ -5219,7 +5231,17 @@ fn build_task_tensors_internal(
         for (u, vs) in &g_neighbors_unrooted {
             let ui = name_to_idx[u.as_str()];
             for v in vs {
-                let vi = name_to_idx[v.as_str()];
+                let vi = match name_to_idx.get(v.as_str()) {
+                    Some(&idx) => idx,
+                    None => {
+                        eprintln!(
+                            "[rustree] WARNING: neighbor '{}' of node '{}' not found \
+                             in g_neighbors_unrooted keys — skipping edge",
+                            v, u
+                        );
+                        continue;
+                    }
+                };
                 if ui != vi { adj[ui].push(vi); }
             }
         }
