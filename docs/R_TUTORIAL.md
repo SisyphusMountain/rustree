@@ -23,6 +23,9 @@ Comprehensive guide to building and using the rustree R bindings for phylogeneti
    - [Birth-Death Events](#birth-death-events)
    - [Pairwise Distances](#pairwise-distances)
    - [Subtree Extraction](#subtree-extraction)
+   - [Species Leaf Sampling](#species-leaf-sampling)
+   - [Parsing RecPhyloXML](#parsing-recphyloxml)
+   - [Streaming Simulation](#streaming-simulation-memory-efficient)
 7. [Export and Visualization](#export-and-visualization)
    - [Newick Format](#newick-format)
    - [RecPhyloXML Format](#recphyloxml-format)
@@ -462,6 +465,111 @@ gene_names <- tree_leaf_names(gene_tree)[1:20]
 sampled_gt <- extract_induced_subtree_by_names(gene_tree, gene_names)
 ```
 
+### Species Leaf Sampling
+
+`sample_leaves()` samples a subset of species from the species tree and automatically filters the gene tree to keep only genes mapping to the sampled species. Reconciliation mappings are preserved using an LCA-based approach.
+
+```r
+# Simulate
+sp_tree <- simulate_species_tree(50L, 1.0, 0.3, seed = 42L)
+gene_tree <- simulate_dtl(sp_tree, 0.5, 0.2, 0.3, seed = 123L)
+
+# Keep only a subset of species
+selected <- tree_leaf_names(sp_tree)[1:10]
+sampled_gt <- sample_leaves(gene_tree, selected)
+
+cat("Original extant:", gene_tree_num_extant(gene_tree), "\n")
+cat("After sampling:", gene_tree_num_extant(sampled_gt), "\n")
+```
+
+### Parsing RecPhyloXML
+
+Import reconciled gene trees from RecPhyloXML files (e.g., output from ALERax):
+
+```r
+# Parse a RecPhyloXML file
+gene_tree <- parse_recphyloxml("/path/to/reconciled_tree.xml")
+
+# Inspect the result
+cat("Extant genes:", gene_tree_num_extant(gene_tree), "\n")
+cat("Events:", paste(names(table(gene_tree$event)), table(gene_tree$event), sep = "=", collapse = ", "), "\n")
+
+# Round-trip: export a gene tree and re-import it
+save_xml(gene_tree, "/tmp/exported.xml")
+reimported <- parse_recphyloxml("/tmp/exported.xml")
+```
+
+### Streaming Simulation (Memory-Efficient)
+
+For large-scale simulations where holding all gene trees in memory is impractical, streaming functions write each tree directly to disk as it is generated. Only one tree is in memory at a time.
+
+**Key difference from batch functions:** Streaming functions take a **Newick string** as input (not a tree list), and write files to an output directory instead of returning R objects.
+
+#### Streaming to RecPhyloXML
+
+```r
+# Get the species tree as a Newick string
+sp_tree <- simulate_species_tree(50L, 1.0, 0.3, seed = 42L)
+newick <- tree_to_newick(sp_tree)
+
+# Stream 1000 gene trees to XML files (per-gene-copy model)
+simulate_dtl_stream_xml(
+  newick, 1000L,
+  lambda_d = 0.5, lambda_t = 0.2, lambda_l = 0.3,
+  seed = 123L,
+  output_dir = "/tmp/gene_trees_xml"
+)
+# Creates: /tmp/gene_trees_xml/gene_0000.xml, gene_0001.xml, ...
+
+# Per-species (Zombi) model
+simulate_dtl_per_species_stream_xml(
+  newick, 1000L,
+  lambda_d = 0.5, lambda_t = 0.2, lambda_l = 0.3,
+  seed = 123L,
+  output_dir = "/tmp/gene_trees_per_species_xml"
+)
+```
+
+#### Streaming to Newick
+
+```r
+# Stream to Newick files (no reconciliation info preserved)
+simulate_dtl_stream_newick(
+  newick, 1000L,
+  lambda_d = 0.5, lambda_t = 0.2, lambda_l = 0.3,
+  seed = 123L,
+  output_dir = "/tmp/gene_trees_nwk"
+)
+# Creates: /tmp/gene_trees_nwk/gene_0000.nwk, gene_0001.nwk, ...
+
+# Per-species model to Newick
+simulate_dtl_per_species_stream_newick(
+  newick, 1000L,
+  lambda_d = 0.5, lambda_t = 0.2, lambda_l = 0.3,
+  seed = 123L,
+  output_dir = "/tmp/gene_trees_per_species_nwk"
+)
+```
+
+#### Optional Parameters
+
+All streaming functions also support:
+- `transfer_alpha`: Distance decay for assortative transfers (`NULL` = uniform)
+- `replacement_transfer`: Probability of replacement transfer (`NULL` = no replacement)
+- `require_extant`: If `TRUE`, retry until each tree has at least 1 extant gene
+
+```r
+simulate_dtl_stream_xml(
+  newick, 500L,
+  lambda_d = 0.5, lambda_t = 0.3, lambda_l = 0.3,
+  transfer_alpha = 1.5,
+  replacement_transfer = 0.1,
+  require_extant = TRUE,
+  seed = 42L,
+  output_dir = "/tmp/assortative_xml"
+)
+```
+
 ---
 
 ## Export and Visualization
@@ -696,18 +804,29 @@ boxplot(results,
 | Function | Description | Returns |
 |----------|-------------|---------|
 | `extract_induced_subtree_by_names(tree, leaf_names)` | Extract subtree | `list` |
+| `sample_leaves(gene_tree, species_leaf_names)` | Sample species and filter gene tree | `list` |
 | `pairwise_distances(tree, distance_type, leaves_only)` | Compute distances | `data.frame` |
 | `save_pairwise_distances_csv(tree, filepath, distance_type, leaves_only)` | Save distances | `NULL` |
 
-### Export Functions
+### Import/Export Functions
 
 | Function | Description | Returns |
 |----------|-------------|---------|
+| `parse_recphyloxml(filepath)` | Parse RecPhyloXML file | `list` |
 | `save_newick(tree, filepath)` | Save to Newick | `NULL` |
 | `save_xml(gt, filepath)` | Save to RecPhyloXML | `NULL` |
 | `save_csv(gt, filepath)` | Save to CSV | `NULL` |
 | `save_bd_events_csv(sp_tree, filepath)` | Save BD events | `NULL` |
 | `gene_tree_to_svg(gt, filepath, open_browser)` | Generate SVG | `character` or `NULL` |
+
+### Streaming Functions (Memory-Efficient)
+
+| Function | Description | Returns |
+|----------|-------------|---------|
+| `simulate_dtl_stream_xml(newick, n, ...)` | Stream gene trees to XML (per-copy) | `character` (dir path) |
+| `simulate_dtl_stream_newick(newick, n, ...)` | Stream gene trees to Newick (per-copy) | `character` (dir path) |
+| `simulate_dtl_per_species_stream_xml(newick, n, ...)` | Stream gene trees to XML (per-species) | `character` (dir path) |
+| `simulate_dtl_per_species_stream_newick(newick, n, ...)` | Stream gene trees to Newick (per-species) | `character` (dir path) |
 
 ### Parameters
 
@@ -727,6 +846,11 @@ For per-species model: rates are per alive species
 #### Distance Types
 - `"metric"`, `"patristic"`, `"branch"`: Sum of branch lengths
 - `"topological"`, `"topo"`: Number of edges
+
+#### Streaming Parameters
+- `newick`: Species tree as a Newick string (character) — note: streaming functions take a string, not a tree list
+- `output_dir`: Directory to write output files (created if it doesn't exist)
+- `replacement_transfer`: Probability of replacement transfer (numeric or `NULL`)
 
 #### Other
 - `require_extant`: If `TRUE`, retry until ≥ 1 extant gene (logical)
