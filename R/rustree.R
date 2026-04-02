@@ -12,6 +12,10 @@ parse_newick <- function(newick_str) {
   .Call("wrap__parse_newick_r", as.character(newick_str))
 }
 
+name_internal_nodes <- function(tree) {
+  .Call("wrap__name_internal_nodes_r", tree)
+}
+
 tree_to_newick <- function(tree) {
   .Call("wrap__tree_to_newick_r", tree)
 }
@@ -72,6 +76,35 @@ extract_induced_subtree_by_names <- function(tree, leaf_names) {
 
 sample_leaves <- function(gene_tree, species_leaf_names) {
   .Call("wrap__sample_leaves_r", gene_tree, as.character(species_leaf_names))
+}
+
+# Induced Transfers
+
+#' Get DTL events attached to a gene tree.
+#'
+#' @param gene_tree A gene tree from simulate_dtl or simulate_dtl_batch
+#' @return A list with columns: event_type, time, gene_id, species,
+#'         from_species, to_species. Returns NULL if no events attached.
+get_dtl_events <- function(gene_tree) {
+  attr(gene_tree, "dtl_events")
+}
+
+#' Compute induced transfers by projecting onto a sampled subtree.
+#'
+#' @param species_tree The complete species tree
+#' @param sampled_leaf_names Character vector of species to keep
+#' @param dtl_events DTL events list (from get_dtl_events())
+#' @return A data.frame with columns: time, gene_id, from_complete,
+#'         to_complete, from_sampled, to_sampled
+induced_transfers <- function(species_tree, sampled_leaf_names,
+                              dtl_events) {
+  result <- .Call(
+    "wrap__induced_transfers_r",
+    species_tree,
+    as.character(sampled_leaf_names),
+    dtl_events
+  )
+  as.data.frame(result, stringsAsFactors = FALSE)
 }
 
 # I/O Functions

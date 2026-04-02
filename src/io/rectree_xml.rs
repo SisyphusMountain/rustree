@@ -77,8 +77,7 @@ impl RecTree {
         xml.push_str("\t<name>");
         match event {
             Event::Loss => xml.push_str("loss"),
-            Event::Leaf => xml.push_str(&node.name),
-            _ => xml.push_str("NULL"),
+            _ => xml.push_str(&node.name),
         }
         xml.push_str("</name>\n");
 
