@@ -617,13 +617,13 @@ impl FlatTree {
     ///
     /// # Returns
     /// A vector of PairwiseDistance entries containing all pairs (including symmetric
-    /// pairs and self-distances).
+    /// pairs only, excluding self-distances).
     ///
     /// # Example
     /// ```ignore
     /// let tree = parse_newick("((A:1,B:1):1,C:2):0;").unwrap().to_flat_tree();
     /// let distances = tree.pairwise_distances(DistanceType::Metric, true);
-    /// // Returns distances for: (A,A), (A,B), (A,C), (B,A), (B,B), (B,C), (C,A), (C,B), (C,C)
+    /// // Returns distances for: (A,B), (A,C), (B,C)  — upper triangle only
     /// ```
     pub fn pairwise_distances(&self, distance_type: DistanceType, leaves_only: bool) -> Result<Vec<PairwiseDistance<'_>>, String> {
         let indices: Vec<usize> = if leaves_only {
@@ -638,10 +638,11 @@ impl FlatTree {
             (0..self.nodes.len()).collect()
         };
 
-        let mut distances = Vec::with_capacity(indices.len() * indices.len());
+        let n = indices.len();
+        let mut distances = Vec::with_capacity(n * (n - 1) / 2);
 
-        for &i in &indices {
-            for &j in &indices {
+        for (pos_i, &i) in indices.iter().enumerate() {
+            for &j in &indices[pos_i + 1..] {
                 let dist = self.distance_between(i, j, distance_type)?;
                 distances.push(PairwiseDistance {
                     node1: &self.nodes[i].name,

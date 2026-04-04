@@ -512,7 +512,7 @@ Replace StdRng with `wyrand` or `fastrand`.
 ### Generate Flamegraph
 
 ```bash
-cd /home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree
+cd /path/to/rustree
 
 # Build with debug symbols
 cargo build --release
@@ -585,4 +585,4 @@ cargo run --release --example benchmark_parallel
 **Document Version:** 2.0
 **Last Updated:** 2026-02-14
 **rustree Version:** 0.1.0
-**Project Root:** `/home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree/`
+**Project Root:** repository root

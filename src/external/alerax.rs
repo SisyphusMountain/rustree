@@ -1068,7 +1068,7 @@ mod tests {
 
     #[test]
     fn test_parse_species_event_counts_file() {
-        let path = Path::new("test_data_3/output_alerax/reconciliations/summaries/family_1_meanSpeciesEventCounts.txt");
+        let path = Path::new("testdata/test_data_3/output_alerax/reconciliations/summaries/family_1_meanSpeciesEventCounts.txt");
         if !path.exists() {
             return; // Skip if test data not available
         }
@@ -1085,7 +1085,7 @@ mod tests {
 
     #[test]
     fn test_parse_total_species_event_counts() {
-        let path = Path::new("test_data_3/output_alerax/reconciliations/totalSpeciesEventCounts.txt");
+        let path = Path::new("testdata/test_data_3/output_alerax/reconciliations/totalSpeciesEventCounts.txt");
         if !path.exists() {
             return;
         }
@@ -1099,7 +1099,7 @@ mod tests {
 
     #[test]
     fn test_parse_transfer_rows_file() {
-        let path = Path::new("test_data_3/output_alerax/reconciliations/totalTransfers.txt");
+        let path = Path::new("testdata/test_data_3/output_alerax/reconciliations/totalTransfers.txt");
         if !path.exists() {
             return;
         }

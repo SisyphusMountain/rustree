@@ -55,8 +55,8 @@ pub fn handle_pair(pair: pest::iterators::Pair<Rule>) -> Result<Option<Node>, St
 
             for inner_pair in pair.into_inner() {
                 match inner_pair.as_rule() {
-                    Rule::NAME => {
-                        name = inner_pair.as_str().to_string();
+                    Rule::LABEL | Rule::NAME => {
+                        name = extract_label(inner_pair);
                     }
                     Rule::LENGTH => {
                         let val = inner_pair.as_str();
@@ -87,8 +87,8 @@ pub fn handle_pair(pair: pest::iterators::Pair<Rule>) -> Result<Option<Node>, St
                             .ok_or_else(|| "Malformed Newick: subtree produced no node".to_string())?;
                         subtrees.push(subtree);
                     }
-                    Rule::NAME => {
-                        name = inner_pair.as_str().to_string();
+                    Rule::LABEL | Rule::NAME => {
+                        name = extract_label(inner_pair);
                     }
                     Rule::LENGTH => {
                         let val = inner_pair.as_str();
@@ -120,7 +120,29 @@ pub fn handle_pair(pair: pest::iterators::Pair<Rule>) -> Result<Option<Node>, St
                 length,
             }))
         }
-        Rule::NAME | Rule::LENGTH => Ok(None),
+        Rule::NAME | Rule::LABEL | Rule::QUOTED_NAME | Rule::LENGTH | Rule::WHITESPACE => Ok(None),
+    }
+}
+
+/// Extract the label text from a LABEL, QUOTED_NAME, or NAME pair.
+/// For quoted names, strips the surrounding single quotes.
+fn extract_label(pair: pest::iterators::Pair<Rule>) -> String {
+    match pair.as_rule() {
+        Rule::LABEL => {
+            // LABEL wraps either QUOTED_NAME or NAME
+            if let Some(inner) = pair.into_inner().next() {
+                extract_label(inner)
+            } else {
+                String::new()
+            }
+        }
+        Rule::QUOTED_NAME => {
+            let s = pair.as_str();
+            // Strip surrounding single quotes
+            s[1..s.len() - 1].to_string()
+        }
+        Rule::NAME => pair.as_str().to_string(),
+        _ => pair.as_str().to_string(),
     }
 }
 impl Node {
@@ -175,3 +197,128 @@ fn node_to_newick_recursive(node: &Node, index: usize) -> Result<String, String>
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_with_colons() {
+        let result = parse_newick("(A:1.0,B:2.0):0.0;");
+        assert!(result.is_ok());
+        let nodes = result.unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].left_child.as_ref().unwrap().name, "A");
+    }
+
+    #[test]
+    fn test_parse_without_colons() {
+        let result = parse_newick("(A,B);");
+        assert!(result.is_ok());
+        let nodes = result.unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].left_child.as_ref().unwrap().name, "A");
+        assert_eq!(nodes[0].right_child.as_ref().unwrap().name, "B");
+    }
+
+    #[test]
+    fn test_parse_nested_without_colons() {
+        let result = parse_newick("((A,B),C);");
+        assert!(result.is_ok());
+        let nodes = result.unwrap();
+        assert_eq!(nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_with_whitespace() {
+        let result = parse_newick("( A:1.0 , B:2.0 ):0.0 ;");
+        assert!(result.is_ok());
+        let nodes = result.unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].left_child.as_ref().unwrap().name, "A");
+    }
+
+    #[test]
+    fn test_parse_mixed_colons() {
+        // Some leaves with branch lengths, some without
+        let result = parse_newick("(A:1.0,B);");
+        assert!(result.is_ok());
+        let nodes = result.unwrap();
+        let left = nodes[0].left_child.as_ref().unwrap();
+        let right = nodes[0].right_child.as_ref().unwrap();
+        assert_eq!(left.name, "A");
+        assert_eq!(left.length, 1.0);
+        assert_eq!(right.name, "B");
+        assert_eq!(right.length, 0.0);
+    }
+
+    #[test]
+    fn test_parse_newlines_in_newick() {
+        let result = parse_newick("(\n  A:1.0,\n  B:2.0\n):0.0;");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_parse_unnamed_leaves() {
+        // Standard Newick allows unnamed leaves: (,);
+        let result = parse_newick("(,);");
+        assert!(result.is_ok());
+        let nodes = result.unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert!(nodes[0].left_child.is_some());
+        assert!(nodes[0].right_child.is_some());
+        assert_eq!(nodes[0].left_child.as_ref().unwrap().name, "");
+        assert_eq!(nodes[0].right_child.as_ref().unwrap().name, "");
+    }
+
+    #[test]
+    fn test_parse_unnamed_with_lengths() {
+        // Unnamed leaves with branch lengths: (:1.0,:2.0);
+        let result = parse_newick("(:1.0,:2.0);");
+        assert!(result.is_ok());
+        let nodes = result.unwrap();
+        let left = nodes[0].left_child.as_ref().unwrap();
+        let right = nodes[0].right_child.as_ref().unwrap();
+        assert_eq!(left.name, "");
+        assert_eq!(left.length, 1.0);
+        assert_eq!(right.name, "");
+        assert_eq!(right.length, 2.0);
+    }
+
+    #[test]
+    fn test_parse_quoted_labels() {
+        // Quoted labels allow spaces and special characters
+        let result = parse_newick("('Species 1':1.0,'Species 2':2.0):0.0;");
+        assert!(result.is_ok(), "Failed to parse quoted labels: {:?}", result.err());
+        let nodes = result.unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].left_child.as_ref().unwrap().name, "Species 1");
+        assert_eq!(nodes[0].right_child.as_ref().unwrap().name, "Species 2");
+    }
+
+    #[test]
+    fn test_parse_mixed_quoted_unquoted() {
+        // Mix of quoted and unquoted labels
+        let result = parse_newick("('Homo sapiens':1.0,Mouse:2.0);");
+        assert!(result.is_ok());
+        let nodes = result.unwrap();
+        assert_eq!(nodes[0].left_child.as_ref().unwrap().name, "Homo sapiens");
+        assert_eq!(nodes[0].right_child.as_ref().unwrap().name, "Mouse");
+    }
+
+    #[test]
+    fn test_parse_quoted_internal_label() {
+        // Quoted label on internal node
+        let result = parse_newick("(A:1.0,B:2.0)'ancestor':0.5;");
+        assert!(result.is_ok());
+        let nodes = result.unwrap();
+        assert_eq!(nodes[0].name, "ancestor");
+    }
+
+    #[test]
+    fn test_roundtrip_preserves_topology() {
+        let newick = "(A:1.000000,B:2.000000):0.000000;";
+        let nodes = parse_newick(newick).unwrap();
+        let output = nodes[0].to_newick().unwrap();
+        assert_eq!(format!("{};", output), newick);
+    }
+}

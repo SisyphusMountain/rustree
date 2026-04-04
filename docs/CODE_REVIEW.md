@@ -270,7 +270,7 @@ Requires both `sampled_tree` AND `sampled_leaf_names` when the latter could be d
 
 ### 5.4 Python bindings lack docstrings
 
-Most `#[pymethods]` have no Python-visible documentation. No `.pyi` stub file for type hints. R bindings similarly lack complete roxygen2 documentation.
+Most `#[pymethods]` (now in `src/python/species_tree.rs`, `gene_tree.rs`, etc.) have no Python-visible documentation. A `.pyi` stub file exists (`rustree.pyi`) but may be incomplete. R bindings similarly lack complete roxygen2 documentation.
 
 ### 5.5 No `serde` support
 
@@ -288,7 +288,7 @@ Missing `//!` doc comments on: `src/simulation/mod.rs`, `src/comparison.rs`, `sr
 
 **Files:** `tests/test_alerax_real_file.rs:6`, `tests/test_real_separate_files.rs`
 
-Use `/home/enzo/...` paths. Should use environment variables or relative paths for portability.
+Use hardcoded absolute paths. Should use environment variables or relative paths for portability.
 
 ### 5.9 `genes_per_species: Option<HashMap>` appears always `Some`
 
@@ -298,7 +298,7 @@ The `Option` wrapper adds unnecessary complexity. If it's always `Some`, just us
 
 ### 5.10 Python ylabel typo
 
-**File:** `src/python.rs:475`
+**File:** `src/python/species_tree.rs` (was `src/python.rs:475`)
 
 `"Number of lineages)"` — missing opening parenthesis.
 
@@ -354,13 +354,13 @@ The `Option` wrapper adds unnecessary complexity. If it's always `Some`, just us
 
 **Comprehensive** ALERax integration. Issues: missing derives on public types; full tree clone for renaming; no version checking; threading could lose data on panic.
 
-### `src/python.rs` (2,588 lines)
+### `src/python/` (split from monolithic `python.rs`)
 
-**Comprehensive** Python API. Issues: ~300 lines of duplicated code (SVG, sampling, distance parsing); incomplete docstrings; ylabel typo; `PyDtlSimIter` inherits the infinite retry bug.
+**Comprehensive** Python API, now organized into submodules: `mod.rs` (thin wiring + module registration), `species_tree.rs`, `gene_tree.rs`, `sim_iter.rs`, `types.rs`, plus existing `reconciliation.rs`, `alerax.rs`, `forest.rs`, `training.rs`. Shared validation logic delegated to `bindings_common`. Remaining issues: incomplete docstrings; ylabel typo; `PyDtlSimIter` inherits the infinite retry bug.
 
-### `src/r.rs` (1,447 lines)
+### `src/r/` (split from monolithic `r.rs`)
 
-**Good** R API. Issues: ~120 lines of duplicated patterns (now partially addressed with `make_rng`, `extract_alpha`, etc.); no unit tests for R bindings; incomplete parameter validation.
+**Good** R API, now organized as `mod.rs` (all `#[extendr]` functions + `extendr_module!` macro) + `conversions.rs` (R↔Rust type conversion helpers). Rate validation and distance type parsing delegated to `bindings_common`. Remaining issues: no unit tests for R bindings; incomplete parameter validation.
 
 ---
 
@@ -373,7 +373,7 @@ Sorted by estimated lines saved:
 | 1 | `io/recphyloxml.rs` | `parse_species_tree()` / `parse_gene_tree()` share ~70% logic; `species_node_to_flat_tree()` / `gene_node_to_flat_tree()` ~90% identical | ~200 |
 | 2 | `python.rs` | Thirdkind SVG generation duplicated between `PySpeciesTree::to_svg()` and `PyGeneTree::to_svg()` | ~100 |
 | 3 | `python.rs` | Sampling index-remapping code in `sample_extant()` and `sample_by_names()` | ~83 |
-| 4 | `python.rs` | Same distance type match block appears 4 times | ~60 |
+| 4 | ~~`python.rs`~~ **FIXED** | ~~Same distance type match block appears 4 times~~ Extracted to `bindings_common::parse_distance_type()` | ~~60~~ 0 |
 | 5 | `io/rectree_csv.rs` | CSV row formatting duplicated between `to_csv_string()` and `save_csv()` | ~30 |
 | 6 | `dtl/per_gene.rs` + `per_species.rs` | Identical setup logic (Arc, events, depths, contemporaneity, LCA) | ~20 |
 
@@ -389,7 +389,7 @@ Sorted by estimated lines saved:
 | 4 | `src/simulation/bd/simulation.rs` | 159 | Stray character `a` at end of comment |
 | 5 | `src/simulation/dtl/state.rs` | 23 | Unresolved TODO: "make the function names more coherent and clear" |
 | 6 | `src/simulation/dtl/state.rs` | 30 | `genes_per_species: Option<HashMap>` — the `Option` wrapper is always `Some` |
-| 7 | `src/main.rs` | 2 | Comment says "just testing code here" |
+| 7 | ~~`src/main.rs`~~ | ~~2~~ | ~~Comment says "just testing code here"~~ File deleted |
 | 8 | `src/node/traits.rs` | 11-32 | Redundant `HasName` impls for `&Node` / `&FlatNode` |
 | 9 | `src/node/conversion.rs` | 140 | Unused `pos` variable from `enumerate()` |
 
@@ -410,7 +410,7 @@ Sorted by estimated lines saved:
 - **No test for empty/degenerate species trees** in DTL simulation
 - **No floating-point precision tests** with very small branch lengths or rates
 - **No R binding tests** visible in the Rust test suite
-- **Hard-coded absolute paths** in 2 test files (`/home/enzo/...`)
+- **Hard-coded absolute paths** in 2 test files (now fixed)
 - **Loose assertions** in BD tests (`tree.nodes.len() > 0` instead of exact count)
 - Only 1 test in `sampling_tests.rs` despite plural file name
 
@@ -435,7 +435,7 @@ Sorted by estimated lines saved:
 | **Low** | Comparison module incomplete | Missing RF distance, FlatTree support |
 | **Low** | No serde support | Limits interoperability |
 | **Low** | No property-based tests | Edge cases not systematically covered |
-| **Low** | ~500 lines of code duplication | Maintenance burden |
+| **Low** | ~500 lines of code duplication (reduced by ~60 via `bindings_common`) | Maintenance burden |
 | **Low** | Missing module-level documentation | Onboarding difficulty |
 | **Low** | Python bindings lack docstrings | Poor discoverability for Python users |
 | **Low** | Newick parser doesn't support quoted names | Limitation not documented |
@@ -466,7 +466,7 @@ Sorted by estimated lines saved:
 13. **Add missing derives** to ALERax types, `TraversalOrder`, `RecTreeColumns`
 14. **Extract shared DTL setup logic** into helper function
 15. **Remove dead code** (unused parameters, unreachable variants, redundant fields)
-16. **Eliminate major code duplication** (RecPhyloXML parsing, Python SVG/sampling/distance helpers)
+16. **Eliminate major code duplication** (RecPhyloXML parsing, Python SVG/sampling helpers — distance parsing already extracted to `bindings_common`)
 
 ### Phase 5: Performance
 17. **Replace `String::from_utf8_lossy()`** with byte-slice comparisons in RecPhyloXML parser

@@ -75,7 +75,7 @@ Comprehensive guide to using the rustree Python bindings for phylogenetic tree s
 
 ```bash
 # Clone the repository
-cd /home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree
+cd /path/to/rustree
 
 # Build and install in development mode (editable)
 maturin develop --release
@@ -386,7 +386,7 @@ s, d, t, l, leaves = gene_tree.count_events()
 print(f"Duplications: {d}, Transfers: {t}, Losses: {l}")
 ```
 
-See [RECPHYLOXML.md](/home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree/docs/RECPHYLOXML.md) for detailed documentation.
+See [RECPHYLOXML.md](RECPHYLOXML.md) for detailed documentation.
 
 ### Event Counting
 
@@ -511,7 +511,7 @@ sp_tree.plot_ltt(
 )
 ```
 
-See [LTT_PLOTS.md](/home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree/docs/LTT_PLOTS.md) for advanced examples.
+See [LTT_PLOTS.md](LTT_PLOTS.md) for advanced examples.
 
 ### Subtree Extraction
 
@@ -1063,7 +1063,7 @@ For per-species model: rates are per alive species
 
 Solution: Install with maturin:
 ```bash
-cd /home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree
+cd /path/to/rustree
 maturin develop --release
 ```
 
@@ -1103,10 +1103,10 @@ pip install matplotlib
 
 ### Getting Help
 
-- Check [R_TUTORIAL.md](/home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree/docs/R_TUTORIAL.md) for R-specific examples
-- See [RECPHYLOXML.md](/home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree/docs/RECPHYLOXML.md) for reconciliation file format details
-- See [LTT_PLOTS.md](/home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree/docs/LTT_PLOTS.md) for advanced LTT plotting
-- See [PERFORMANCE_PROFILING.md](/home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree/docs/PERFORMANCE_PROFILING.md) for performance optimization
+- Check [R_TUTORIAL.md](R_TUTORIAL.md) for R-specific examples
+- See [RECPHYLOXML.md](RECPHYLOXML.md) for reconciliation file format details
+- See [LTT_PLOTS.md](LTT_PLOTS.md) for advanced LTT plotting
+- See [PERFORMANCE_PROFILING.md](PERFORMANCE_PROFILING.md) for performance optimization
 
 ---
 
@@ -1123,4 +1123,4 @@ pip install matplotlib
 **Document Version:** 2.0
 **Last Updated:** 2026-02-14
 **rustree Version:** 0.1.0
-**Project Root:** `/home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree/`
+**Project Root:** repository root

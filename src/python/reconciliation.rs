@@ -223,7 +223,7 @@ impl PyReconciliationComparison {
     /// clade, truth_species, inferred_species, truth_event,
     /// inferred_event, mapping_correct, event_correct
     fn to_dataframe(&self, py: Python) -> PyResult<PyObject> {
-        let pandas = py.import("pandas")?;
+        let pandas = super::import_pymodule(py, "pandas")?;
         let dict = pyo3::types::PyDict::new(py);
 
         let n = self.inner.node_details.len();
@@ -279,7 +279,7 @@ impl PyReconciliationComparison {
     ///
     /// Columns: truth_event, inferred_event, count
     fn confusion_matrix(&self, py: Python) -> PyResult<PyObject> {
-        let pandas = py.import("pandas")?;
+        let pandas = super::import_pymodule(py, "pandas")?;
         let dict = pyo3::types::PyDict::new(py);
 
         let n = self.inner.event_confusion.len();
@@ -365,7 +365,7 @@ impl PyReconciliationComparison {
             landscape, fill_species, species_color, species_fontsize, background,
         )?;
 
-        let ipython_display = py.import("IPython.display")?;
+        let ipython_display = super::import_pymodule(py, "IPython.display")?;
         let svg_class = ipython_display.getattr("SVG")?;
         let display_obj = svg_class.call1((svg,))?;
         Ok(display_obj.into())

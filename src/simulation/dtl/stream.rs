@@ -166,6 +166,9 @@ impl<'a, R: Rng> Iterator for DtlSimIter<'a, R> {
             return None;
         }
 
+        const MAX_ATTEMPTS: usize = 10_000;
+        let mut attempts = 0;
+
         loop {
             let lca_ref = self.lca_depths.as_ref().map(|v| v.as_slice());
             let result = simulate_dtl_gillespie(
@@ -191,6 +194,14 @@ impl<'a, R: Rng> Iterator for DtlSimIter<'a, R> {
                         return Some(Ok((rec_tree, events)));
                     }
                     // Retry: tree had no extant genes
+                    attempts += 1;
+                    if attempts >= MAX_ATTEMPTS {
+                        return Some(Err(format!(
+                            "Failed to generate a gene tree with extant genes after {} attempts. \
+                             The DTL rates (d={}, t={}, l={}) may make extant genes extremely unlikely.",
+                            MAX_ATTEMPTS, self.lambda_d, self.lambda_t, self.lambda_l
+                        )));
+                    }
                 }
                 Err(e) => return Some(Err(e)),
             }

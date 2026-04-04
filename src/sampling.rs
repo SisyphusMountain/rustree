@@ -55,10 +55,15 @@ pub fn extract_induced_subtree(tree: &FlatTree, keep_leaf_indices: &HashSet<usiz
         return None;
     }
 
-    Some((FlatTree {
+    let mut induced_tree = FlatTree {
         nodes: new_nodes,
         root: 0, // Root is always first node added
-    }, old_to_new))
+    };
+
+    // Recalculate depths from branch lengths (original depths are invalid after collapsing)
+    induced_tree.assign_depths();
+
+    Some((induced_tree, old_to_new))
 }
 
 /// Marks nodes using postorder traversal (children before parents).
@@ -271,7 +276,7 @@ pub fn find_extant_leaf_indices(tree: &FlatTree) -> HashSet<usize> {
 ///
 /// // Simulate tree with 20 extant species
 /// let mut rng = StdRng::seed_from_u64(42);
-/// let (tree, _) = simulate_bd_tree_bwd(20, 1.0, 0.5, &mut rng);
+/// let (tree, _) = simulate_bd_tree_bwd(20, 1.0, 0.5, &mut rng).unwrap();
 ///
 /// // Extract only extant species (removes extinct lineages)
 /// let (extant_tree, mapping) = extract_extant_subtree(&tree)
@@ -284,10 +289,7 @@ pub fn find_extant_leaf_indices(tree: &FlatTree) -> HashSet<usize> {
 /// ```
 pub fn extract_extant_subtree(tree: &FlatTree) -> Option<(FlatTree, Vec<Option<usize>>)> {
     let extant_indices = find_extant_leaf_indices(tree);
-    let (mut extant_tree, mapping) = extract_induced_subtree(tree, &extant_indices)?;
-
-    // Assign depths to the extracted tree (required for DTL simulation)
-    extant_tree.assign_depths();
+    let (extant_tree, mapping) = extract_induced_subtree(tree, &extant_indices)?;
 
     Some((extant_tree, mapping))
 }
@@ -514,7 +516,7 @@ mod tests {
 
         // Simulate with high extinction rate
         let mut rng = StdRng::seed_from_u64(42);
-        let (tree, _) = simulate_bd_tree_bwd(20, 1.0, 0.7, &mut rng);
+        let (tree, _) = simulate_bd_tree_bwd(20, 1.0, 0.7, &mut rng).unwrap();
 
         let extant_indices = find_extant_leaf_indices(&tree);
 
@@ -537,7 +539,7 @@ mod tests {
         use rand::SeedableRng;
 
         let mut rng = StdRng::seed_from_u64(42);
-        let (tree, _) = simulate_bd_tree_bwd(20, 1.0, 0.5, &mut rng);
+        let (tree, _) = simulate_bd_tree_bwd(20, 1.0, 0.5, &mut rng).unwrap();
 
         // Extract extant subtree
         let (extant_tree, mapping) = extract_extant_subtree(&tree)
@@ -570,7 +572,7 @@ mod tests {
 
         // Simulate with NO extinction (mu = 0)
         let mut rng = StdRng::seed_from_u64(123);
-        let (tree, _) = simulate_bd_tree_bwd(15, 1.0, 0.0, &mut rng);
+        let (tree, _) = simulate_bd_tree_bwd(15, 1.0, 0.0, &mut rng).unwrap();
 
         let (extant_tree, _) = extract_extant_subtree(&tree)
             .expect("Should have extant species");

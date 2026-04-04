@@ -594,7 +594,7 @@ pub fn build_training_tensors(
     };
 
     // ---- Species tensors ----
-    let n_sp = species_names.len();
+    let _n_sp = species_names.len();
     let mut sp_name_to_id: HashMap<&str, i32> = HashMap::new();
     let mut sp_name_to_idx: HashMap<&str, usize> = HashMap::new();
     for (i, name) in species_names.iter().enumerate() {
@@ -1404,7 +1404,7 @@ pub fn build_otf_batch(
 
         // 1. Simulate species tree
         let mut sp_rng = StdRng::seed_from_u64(sp_seed);
-        let (mut sp_tree_raw, _) = simulate_bd_tree_bwd(n_sp, lambda_birth, mu_death, &mut sp_rng);
+        let (mut sp_tree_raw, _) = simulate_bd_tree_bwd(n_sp, lambda_birth, mu_death, &mut sp_rng)?;
         sp_tree_raw.assign_depths();
         let sp_tree_raw_arc = Arc::new(sp_tree_raw);
         let (extant_sp, _) = extract_extant_subtree(&sp_tree_raw_arc)

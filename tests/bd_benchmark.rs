@@ -21,7 +21,7 @@ fn benchmark_bd_tree_1000x1000() {
     let start = Instant::now();
 
     for i in 0..n_trees {
-        let (_tree, _events) = simulate_bd_tree_bwd(n_leaves, lambda, mu, &mut rng);
+        let (_tree, _events) = simulate_bd_tree_bwd(n_leaves, lambda, mu, &mut rng).unwrap();
 
         // Print progress every 100 trees
         if (i + 1) % 100 == 0 {
@@ -57,7 +57,7 @@ fn benchmark_bd_tree_pure_birth_1000x1000() {
     let start = Instant::now();
 
     for i in 0..n_trees {
-        let (_tree, _events) = simulate_bd_tree_bwd(n_leaves, lambda, mu, &mut rng);
+        let (_tree, _events) = simulate_bd_tree_bwd(n_leaves, lambda, mu, &mut rng).unwrap();
 
         // Print progress every 100 trees
         if (i + 1) % 100 == 0 {
@@ -94,7 +94,7 @@ fn benchmark_varying_sizes() {
 
         let start = Instant::now();
         for _ in 0..n_reps {
-            let (_tree, _events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng);
+            let (_tree, _events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng).unwrap();
         }
         let elapsed = start.elapsed();
 

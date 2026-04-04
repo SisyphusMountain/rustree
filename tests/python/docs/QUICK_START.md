@@ -4,7 +4,7 @@
 
 Ensure rustree is compiled:
 ```bash
-cd /home/enzo/Documents/git/WP2/rustree
+cd /path/to/rustree
 cargo build --release
 ```
 
@@ -12,7 +12,7 @@ cargo build --release
 
 ### 1. Run All Tree Sampling Tests
 ```bash
-cd /home/enzo/Documents/git/WP2/rustree
+cd /path/to/rustree
 python -m pytest tests/python/test_tree_sampling.py -v
 ```
 
@@ -100,7 +100,7 @@ You can also test the functionality interactively:
 
 ```python
 import sys
-sys.path.insert(0, "/home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree/target/release")
+sys.path.insert(0, "target/release")
 import rustree
 
 # Create a species tree
@@ -130,7 +130,7 @@ print(f"Newick: {sampled.to_newick()}")
 If you get `ModuleNotFoundError: No module named 'rustree'`:
 ```bash
 # Make sure rustree is compiled
-cd /home/enzo/Documents/git/WP2/rustree
+cd /path/to/rustree
 cargo build --release
 
 # Check the compiled library exists

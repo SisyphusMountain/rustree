@@ -19,7 +19,7 @@ quick-xml = "0.31"
 tempfile = "3.8"
 
 [features]
-default = ["python"]
+default = []
 python = ["pyo3", "numpy"]
 r = ["extendr-api"]
 

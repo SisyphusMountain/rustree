@@ -23,6 +23,9 @@ pub mod debug;
 // Analysis
 pub mod induced_transfers;
 
+// Shared bindings utilities
+pub mod bindings_common;
+
 // External tool integration
 pub mod external;
 pub use external::alerax;

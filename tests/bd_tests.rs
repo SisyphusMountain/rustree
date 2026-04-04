@@ -13,7 +13,7 @@ fn test_bd_tree_basic() {
     let lambda = 1.0;
     let mu = 0.5;
 
-    let (tree, events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng);
+    let (tree, events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng).unwrap();
 
     // Count leaf nodes (nodes with no children)
     let leaf_count = tree.nodes.iter()
@@ -53,7 +53,7 @@ fn test_bd_tree_traversal() {
     let lambda = 1.0;
     let mu = 0.3;
 
-    let (tree, _events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng);
+    let (tree, _events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng).unwrap();
 
     // Test that we can traverse the tree
     let mut node_count = 0;
@@ -72,7 +72,7 @@ fn test_bd_tree_invalid_rates() {
     let lambda = 0.5;
     let mu = 1.0; // mu >= lambda should panic
 
-    simulate_bd_tree_bwd(n, lambda, mu, &mut rng);
+    simulate_bd_tree_bwd(n, lambda, mu, &mut rng).unwrap();
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn test_bd_tree_pure_birth() {
     let lambda = 1.0;
     let mu = 0.0; // Pure birth (Yule) process
 
-    let (tree, events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng);
+    let (tree, events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng).unwrap();
 
     // In a pure birth process, there should be no extinct lineages
     // So we should have exactly 2n-1 nodes (n leaves + n-1 internal nodes)

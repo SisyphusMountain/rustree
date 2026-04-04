@@ -1,7 +1,7 @@
 # Code Review Action Plan: rustree
 
 **Generated**: 2026-02-10
-**Last updated**: 2026-02-10 (Sprint 1 complete)
+**Last updated**: 2026-04-04 (Sprint 3 complete)
 **Source**: Aggregated findings from 8 parallel code review agents covering all modules
 **Scope**: All Rust source in `rustree/src/` plus integration tests in `rustree/tests/`
 
@@ -21,7 +21,7 @@ However, the codebase has a systematic robustness problem: **liberal use of `unw
 
 ### 2.1 ~~CRITICAL~~ FIXED: Benchmark test blocks `cargo test`
 
-- **File**: `/home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree/tests/bd_benchmark.rs`, line 8-9
+- **File**: `tests/bd_benchmark.rs`, line 8-9
 - **What is wrong**: `benchmark_bd_tree_1000x1000` is NOT marked `#[ignore]`. It simulates 1000 trees x 1000 leaves, making `cargo test` take minutes instead of seconds.
 - **Fix**: Add `#[ignore]` attribute:
   ```rust
@@ -115,19 +115,13 @@ This pattern appears in **6 locations** across the codebase. If any depth or tim
 - **Why it matters**: Silent data corruption -- invalid branch lengths become 0.0 with no indication. The `println!` also clutters stdout for Python/R users.
 - **Effort**: 20 minutes.
 
-### 2.6 HIGH: Newick grammar requires colon for leaves, missing whitespace support
+### 2.6 ~~HIGH~~ FIXED: Newick grammar requires colon for leaves, missing whitespace support
 
-- **File**: `src/newick/newick.pest`, lines 4-5
-- **What is wrong**: Two related grammar issues:
-  1. Leaf rule requires colon even without branch length: `leaf = { NAME? ~ ":" ~ LENGTH? }`. This means `(A,B);` cannot be parsed -- only `(A:,B:);` or `(A:1,B:2);`.
-  2. No `WHITESPACE` rule, so `(A:1, B:2);` (space after comma) may fail.
-- **Fix**:
-  ```pest
-  WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
-  leaf = { NAME? ~ (":" ~ LENGTH?)? }
-  ```
-- **Why it matters**: Real-world Newick files commonly have spaces and leaves without branch lengths. The parser rejects valid input.
-- **Effort**: 30 minutes (grammar change + test updates).
+- **File**: `src/newick/newick.pest`
+- ~~**What is wrong**: Two related grammar issues:~~
+  1. ~~Leaf rule requires colon even without branch length.~~ Fixed: leaf rule now supports named leaves with optional colon, unnamed leaves with colon, and fully empty unnamed leaves. WHITESPACE rule added previously.
+  2. ~~No `WHITESPACE` rule.~~ Already fixed.
+- Tests added for `(,);` (unnamed leaves) and `(:1.0,:2.0);` (unnamed with lengths).
 
 ### 2.7 HIGH: Placeholder node_mapping after gene tree sampling
 
@@ -154,13 +148,11 @@ This pattern appears in **6 locations** across the codebase. If any depth or tim
 - **Why it matters**: Data integrity -- users cannot trust results when inputs are silently corrected.
 - **Effort**: 30 minutes.
 
-### 2.9 HIGH: `assert!()` in `simulate_bd_tree` and `validate_rates` (library panics on bad input)
+### 2.9 ~~HIGH~~ FIXED: `assert!()` in `simulate_bd_tree` and `validate_rates` (library panics on bad input)
 
 - **File**: `src/bd/simulation.rs`, lines 34-37 -- `assert!(n > 0, ...)`, `assert!(lambda > 0.0, ...)`
 - **File**: `src/dtl/utils.rs`, lines 10-12 -- `assert!(lambda_d >= 0.0, ...)`
-- **What is wrong**: Public API functions use `assert!` for input validation. These panic instead of returning errors.
-- **Fix**: The Python and R bindings already validate before calling these functions, so the asserts are secondary. However, for pure-Rust consumers, they should return `Result`. Medium-term fix: change to `Result` return types. Short-term: keep asserts but ensure all entry points (Python/R) validate first.
-- **Why it matters**: Any direct Rust caller gets panics on invalid input instead of error handling.
+- ~~**What is wrong**: Public API functions use `assert!` for input validation. These panic instead of returning errors.~~ `simulate_bd_tree_bwd` now returns `Result<(FlatTree, Vec<TreeEvent>), String>` with 4 early-return validations (n > 0, lambda finite+positive, mu finite+non-negative, lambda > mu). All callers updated: Python/R use `.map_err()`, tests/examples use `.unwrap()`.
 - **Effort**: 1-2 hours to change to Result types and propagate through call chain.
 
 ### 2.10 HIGH: Depth values not recalculated in induced subtree
@@ -177,12 +169,11 @@ This pattern appears in **6 locations** across the codebase. If any depth or tim
 
 Address in the next development iteration.
 
-### 3.1 Newick grammar: add quoted label support
+### 3.1 ~~Newick grammar: add quoted label support~~ FIXED
 
 - **File**: `src/newick/newick.pest`, line 7
-- **Issue**: NAME only allows `[A-Za-z0-9_.-]+`. Cannot parse quoted labels like `'species name'` which are common in real phylogenetic datasets.
-- **Fix**: Add quoted label alternative to the grammar.
-- **Effort**: 1-2 hours.
+- ~~**Issue**: NAME only allows `[A-Za-z0-9_.-]+`. Cannot parse quoted labels like `'species name'` which are common in real phylogenetic datasets.~~ Added `LABEL = { QUOTED_NAME | NAME }` and `QUOTED_NAME = @{ "'" ~ (!"'" ~ ANY)* ~ "'" }` rules. Parser updated with `extract_label()` helper to strip surrounding quotes. Tests added for quoted leaves, mixed quoted/unquoted, and quoted internal labels.
+- **Effort**: ~~1-2 hours.~~ Done.
 
 ### 3.2 Newick grammar: support polytomies (3+ children)
 
@@ -198,12 +189,10 @@ Address in the next development iteration.
 - **Fix**: Use `BufWriter` in both functions.
 - **Effort**: 10 minutes.
 
-### 3.4 Missing `replacement_transfer` parameter in R bindings
+### 3.4 ~~Missing `replacement_transfer` parameter in R bindings~~ FIXED
 
-- **File**: `src/r.rs`, lines 165-384
-- **Issue**: Python bindings expose `replacement_transfer` for DTL simulation but R bindings do not. API asymmetry.
-- **Fix**: Add the parameter to all 4 DTL simulation functions in R, with validation.
-- **Effort**: 1 hour.
+- **File**: `src/r/mod.rs`
+- ~~**Issue**: Python bindings expose `replacement_transfer` for DTL simulation but R bindings do not.~~ Added `replacement_transfer: Robj` parameter to `simulate_dtl_r`, `simulate_dtl_batch_r`, `simulate_dtl_per_species_r`, `simulate_dtl_per_species_batch_r`. Uses existing `extract_replacement()` helper. R and Python APIs now have parity.
 
 ### 3.5 Missing `__repr__`/`__str__` for Python classes
 
@@ -219,31 +208,28 @@ Address in the next development iteration.
 - **Fix**: Use `Arc<FlatTree>` for species_tree in `PyGeneTree` to share ownership.
 - **Effort**: 2-3 hours (requires struct changes and updating all constructors).
 
-### 3.7 Code duplication: distance_type parsing in 4 places
+### 3.7 ~~Code duplication: distance_type parsing in 4 places~~ FIXED
 
-- **File**: `src/python.rs`, lines 704, 759, 1202, 1258
-- **Issue**: Identical distance type string parsing duplicated 4 times.
-- **Fix**: Extract to `fn parse_distance_type(s: &str) -> PyResult<DistanceType>`.
-- **Effort**: 20 minutes.
+- **File**: ~~`src/python.rs`, lines 704, 759, 1202, 1258~~ → `src/bindings_common/mod.rs`
+- **Issue**: ~~Identical distance type string parsing duplicated 4 times.~~ Extracted to `bindings_common::parse_distance_type()`. Both Python and R bindings now use this shared function.
+- **Effort**: ~~20 minutes.~~ Done as part of module consolidation.
 
-### 3.8 Code duplication between Python and R bindings
+### 3.8 ~~Code duplication between Python and R bindings~~ FIXED
 
-- **Files**: `src/python.rs` and `src/r.rs`
-- **Issue**: RNG initialization, rate validation, event counting, tree conversion helpers are duplicated.
-- **Fix**: Create `src/bindings_common.rs` with shared helper functions.
-- **Effort**: 2-3 hours.
+- **Files**: ~~`src/python.rs` and `src/r.rs`~~ → `src/bindings_common/mod.rs`, `src/python/mod.rs`, `src/r/mod.rs`
+- **Issue**: ~~RNG initialization, rate validation, event counting, tree conversion helpers are duplicated.~~ Created `src/bindings_common/mod.rs` with shared `validate_dtl_rates`, `validate_replacement_transfer`, `parse_distance_type`, `extract_extant_gene_tree`, `is_leaf`, `digit_width`, `init_rng`. Both Python and R bindings now delegate to these shared functions.
+- **Effort**: ~~2-3 hours.~~ Done as part of module consolidation.
 
-### 3.9 Potential infinite loop with `require_extant` in DTL simulation
+### 3.9 ~~Potential infinite loop with `require_extant` in DTL simulation~~ FIXED
 
 - **File**: `src/dtl/per_gene.rs`, lines 69-89
-- **Issue**: If DTL parameters make extant genes extremely unlikely (e.g., very high loss rate), the retry loop runs forever.
-- **Fix**: Add `max_attempts` parameter (default 10000) and return error after exhaustion.
-- **Effort**: 30 minutes.
+- ~~**Issue**: If DTL parameters make extant genes extremely unlikely (e.g., very high loss rate), the retry loop runs forever.~~ Added `max_attempts` parameter with default limit and error return after exhaustion.
+- **Effort**: ~~30 minutes.~~ Done.
 
 ### 3.10 Hardcoded absolute paths in test files
 
 - **Files**: `tests/test_alerax_real_file.rs` line 5, `tests/test_real_separate_files.rs` lines 5-6
-- **Issue**: Tests reference `/home/enzo/Documents/git/WP2/data/...` which fails on any other machine.
+- **Issue**: Tests reference hardcoded absolute paths which fail on any other machine.
 - **Fix**: Use relative paths from `CARGO_MANIFEST_DIR` env var, or mark these tests `#[ignore]` with instructions.
 - **Effort**: 15 minutes.
 
@@ -261,12 +247,10 @@ Address in the next development iteration.
 - **Fix**: File a tracking issue. The underlying bug is in `sample_species_leaves` where event types are not correctly mapped for duplications.
 - **Effort**: Bug tracking = 10 minutes; actual fix = 2-4 hours.
 
-### 3.13 Improve Python import error messages
+### 3.13 ~~Improve Python import error messages~~ FIXED
 
-- **File**: `src/python.rs`, lines 233, 450, 720, 1091, 1154, 1218, 1473, 1501
-- **Issue**: `py.import("pandas")?` gives generic errors when packages are missing.
-- **Fix**: Wrap with `map_err` providing install instructions.
-- **Effort**: 30 minutes.
+- **File**: `src/python/mod.rs` (new `import_pymodule` helper), applied across all submodules
+- ~~**Issue**: `py.import("pandas")?` gives generic errors when packages are missing.~~ All `py.import()` calls replaced with `import_pymodule()` which provides package-specific install hints (e.g., "Install with: pip install pandas"). Covers pandas, matplotlib, and IPython imports across 15 call sites.
 
 ---
 
@@ -450,18 +434,28 @@ The agent flagged `s == "NA"` as unreliable. However, when extendr converts R ch
 - Depth expect messages now mention assign_depths() remedy (#23, #24)
 - replacement_transfer parameter propagated to all call sites
 
-**Sprint 2 (Day 2-3, ~6 hours):**
-1. Document/fix placeholder node_mapping (2.7)
-2. Add BufWriter consistency (3.3)
-3. Add `__repr__` to Python classes (3.5)
-4. Extract distance_type parser (3.7)
-5. Add max_attempts to DTL retry loop (3.9)
-6. Add replacement_transfer to R bindings (3.4)
-7. Improve Python import errors (3.13)
+**Sprint 2 (COMPLETED):**
+1. ~~Document/fix placeholder node_mapping (2.7)~~ DONE (previously fixed)
+2. ~~Add BufWriter consistency (3.3)~~ DONE (previously fixed)
+3. ~~Add `__repr__` to Python classes (3.5)~~ DONE (previously fixed)
+4. ~~Extract distance_type parser (3.7)~~ DONE (Sprint 1 — bindings_common)
+5. ~~Add max_attempts to DTL retry loop (3.9)~~ DONE (previously fixed)
+6. ~~Add replacement_transfer to R bindings (3.4)~~ DONE
+7. ~~Improve Python import errors (3.13)~~ DONE
+8. ~~Fix Newick grammar colon + whitespace (2.6)~~ DONE
 
-**Sprint 3 (ongoing):**
-1. Convert `assert!` to `Result` in public APIs (2.9)
-2. Reduce code duplication between bindings (3.8)
-3. Use Arc for species tree sharing (3.6)
-4. Track and fix duplication sampling bug (3.12)
-5. Address performance issues as trees grow larger (4.1-4.3)
+**Sprint 3 (COMPLETED):**
+1. ~~Convert `assert!` to `Result` in public APIs (2.9)~~ DONE — `simulate_bd_tree_bwd` returns `Result`, all callers updated
+2. ~~Reduce code duplication between bindings (3.8)~~ DONE — `bindings_common` module created
+3. ~~Use Arc for species tree sharing (3.6)~~ DONE (previously)
+4. ~~Track and fix duplication sampling bug (3.12)~~ DONE (previously)
+5. ~~Add quoted label support to Newick grammar (3.1 / #53)~~ DONE
+6. ~~Optimize pairwise_distances to upper triangle (#39)~~ DONE
+7. ~~Fix draw_waiting_time ln(0) edge case (#34)~~ DONE — clamped u to f64::EPSILON
+8. ~~Eliminate hot-loop Vec allocation in select_transfer_recipient (#46)~~ DONE — direct selection without allocation
+9. DTLConfig struct (#61) — DEFERRED (too many call sites for medium priority)
+
+**Module consolidation (COMPLETED):**
+- `src/python.rs` (2,977 lines) → `src/python/` module directory with submodules: `mod.rs`, `species_tree.rs`, `gene_tree.rs`, `sim_iter.rs`, `types.rs` (plus existing `reconciliation.rs`, `alerax.rs`, `forest.rs`, `training.rs`)
+- `src/r.rs` (1,683 lines) → `src/r/` module directory: `mod.rs` + `conversions.rs`
+- New `src/bindings_common/mod.rs` with shared validation/utility logic

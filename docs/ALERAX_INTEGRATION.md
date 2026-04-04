@@ -41,12 +41,12 @@ Rustree now includes Python bindings to call ALERax for gene tree reconciliation
 import rustree
 
 # Load species tree
-species_tree = rustree.parse_species_tree("test_data_3/output_zombi/T/ExtantTree.nwk")
+species_tree = rustree.parse_species_tree("testdata/test_data_3/output_zombi/T/ExtantTree.nwk")
 
 # Reconcile a single gene tree
 results = rustree.reconcile_with_alerax(
     species_tree=species_tree,
-    gene_trees="test_data_3/output_zombi/G/Gene_trees/1_prunedtree.nwk",
+    gene_trees="testdata/test_data_3/output_zombi/G/Gene_trees/1_prunedtree.nwk",
     seed=42  # For reproducibility
 )
 
@@ -139,8 +139,8 @@ for species, events in stats.events_per_species.items():
 ```python
 # Reconcile multiple gene families at once
 gene_trees = {
-    "family_1": "test_data_3/output_zombi/G/Gene_trees/1_prunedtree.nwk",
-    "family_2": "test_data_3/output_zombi/G/Gene_trees/2_prunedtree.nwk"
+    "family_1": "testdata/test_data_3/output_zombi/G/Gene_trees/1_prunedtree.nwk",
+    "family_2": "testdata/test_data_3/output_zombi/G/Gene_trees/2_prunedtree.nwk"
 }
 
 results = rustree.reconcile_with_alerax(
@@ -268,15 +268,15 @@ species tree: ['unknown_species_1', 'unknown_species_2']
 
 ## Testing with Provided Data
 
-The `test_data_3/` directory contains example data:
+The `testdata/test_data_3/` directory contains example data:
 
 ```python
 import rustree
 
 # Load data
-species_tree = rustree.parse_species_tree("test_data_3/output_zombi/T/ExtantTree.nwk")
-gene_tree_1 = "test_data_3/output_zombi/G/Gene_trees/1_prunedtree.nwk"
-gene_tree_2 = "test_data_3/output_zombi/G/Gene_trees/2_prunedtree.nwk"
+species_tree = rustree.parse_species_tree("testdata/test_data_3/output_zombi/T/ExtantTree.nwk")
+gene_tree_1 = "testdata/test_data_3/output_zombi/G/Gene_trees/1_prunedtree.nwk"
+gene_tree_2 = "testdata/test_data_3/output_zombi/G/Gene_trees/2_prunedtree.nwk"
 
 # Reconcile both families
 results = rustree.reconcile_with_alerax(
@@ -344,8 +344,8 @@ maturin develop --release
 # Run Python tests
 python -c "
 import rustree
-species_tree = rustree.parse_species_tree('test_data_3/output_zombi/T/ExtantTree.nwk')
-results = rustree.reconcile_with_alerax(species_tree, 'test_data_3/output_zombi/G/Gene_trees/1_prunedtree.nwk', seed=42)
+species_tree = rustree.parse_species_tree('testdata/test_data_3/output_zombi/T/ExtantTree.nwk')
+results = rustree.reconcile_with_alerax(species_tree, 'testdata/test_data_3/output_zombi/G/Gene_trees/1_prunedtree.nwk', seed=42)
 print('Success! Reconciled with', len(results), 'families')
 for name, result in results.items():
     print(f'{name}: {len(result.gene_trees)} samples, D={result.duplication_rate:.4f}')

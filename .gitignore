@@ -5,24 +5,12 @@ AleRax/
 # Output / generated files
 out/
 *.svg
-species.nwk
-tests.ipynb
 
-# Root-level generated data
-/bd_events.csv
-/gene_tree.csv
-/test_dtl_events.csv
-/test_dtl_output.xml
-
-# Test data
-test_data_3/
+# Test data (generated outputs live under testdata/)
+testdata/
 tests/RF_trees
 tests/python/__pycache__
 
-# Root-level test scripts
-/test_*.py
-
 # Misc
-code_damien.R
-test_alerax_statistics.py
-
+__pycache__/
+.pytest_cache/

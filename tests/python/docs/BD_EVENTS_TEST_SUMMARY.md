@@ -3,7 +3,7 @@
 ## Created Files
 
 ### 1. Test File
-**File:** `/home/enzo/Documents/git/WP2/rustree/tests/python/test_bd_events.py`
+**File:** `tests/python/test_bd_events.py`
 
 Comprehensive test suite covering birth-death events functionality with **34 test cases**:
 
@@ -56,7 +56,7 @@ Comprehensive test suite covering birth-death events functionality with **34 tes
 - Parsed tree workflow
 
 ### 2. Documentation
-**File:** `/home/enzo/Documents/git/WP2/rustree/tests/python/README_BD_EVENTS.md`
+**File:** `tests/python/README_BD_EVENTS.md`
 
 Complete documentation including:
 - Test coverage overview
@@ -67,7 +67,7 @@ Complete documentation including:
 - Dictionary structure specification
 
 ### 3. Example Code
-**File:** `/home/enzo/Documents/git/WP2/rustree/examples/bd_events_example.py`
+**File:** `examples/bd_events_example.py`
 
 Four example scenarios:
 1. Simulated birth-death tree
@@ -76,7 +76,7 @@ Four example scenarios:
 4. High extinction rate
 
 ### 4. Python Bindings
-**File:** `/home/enzo/Documents/git/WP2/rustree/src/python.rs` (modified)
+**File:** `src/python/mod.rs` (modified)
 
 Added two methods to `PySpeciesTree` class:
 

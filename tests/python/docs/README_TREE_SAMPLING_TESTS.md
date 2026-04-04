@@ -67,7 +67,7 @@ Comprehensive tests for the `extract_induced_subtree_by_names()` function (expos
 
 ### Run all tree sampling tests:
 ```bash
-cd /home/enzo/Documents/git/WP2/rustree
+cd /path/to/rustree
 python -m pytest tests/python/test_tree_sampling.py -v
 ```
 
@@ -95,7 +95,7 @@ python -m pytest tests/python/test_tree_sampling.py -k "topology" -v
 
 - Python 3.7+
 - pytest
-- rustree compiled in release mode at `/home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree/target/release`
+- rustree compiled in release mode (`target/release/`)
 
 ## Test Patterns
 

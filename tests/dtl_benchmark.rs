@@ -26,7 +26,7 @@ fn benchmark_dtl_varying_rates() {
     let mut rng = StdRng::seed_from_u64(42);
 
     // Generate a species tree once
-    let (mut species_tree, _) = simulate_bd_tree_bwd(10, 1.0, 0.3, &mut rng);
+    let (mut species_tree, _) = simulate_bd_tree_bwd(10, 1.0, 0.3, &mut rng).unwrap();
     species_tree.assign_depths();
 
     // Test configurations: (lambda_d, lambda_t, lambda_l, label)
@@ -122,7 +122,7 @@ fn benchmark_dtl_varying_species_tree_size() {
 
         for _ in 0..n_reps {
             // Generate a new species tree for each replicate
-            let (mut species_tree, _) = simulate_bd_tree_bwd(n_species, 1.0, 0.3, &mut rng);
+            let (mut species_tree, _) = simulate_bd_tree_bwd(n_species, 1.0, 0.3, &mut rng).unwrap();
             species_tree.assign_depths();
 
             let start = Instant::now();
@@ -171,7 +171,7 @@ fn benchmark_dtl_scalability() {
     println!("Species tree: 20 species, 10 replicates per configuration\n");
 
     let mut rng = StdRng::seed_from_u64(99999);
-    let (mut species_tree, _) = simulate_bd_tree_bwd(20, 1.0, 0.3, &mut rng);
+    let (mut species_tree, _) = simulate_bd_tree_bwd(20, 1.0, 0.3, &mut rng).unwrap();
     species_tree.assign_depths();
 
     // Test with increasing event rates
@@ -229,7 +229,7 @@ fn benchmark_dtl_transfer_intensity() {
     println!("Species tree: 15 species, λ_d=1.0, λ_l=0.3, 50 reps\n");
 
     let mut rng = StdRng::seed_from_u64(54321);
-    let (mut species_tree, _) = simulate_bd_tree_bwd(15, 1.0, 0.3, &mut rng);
+    let (mut species_tree, _) = simulate_bd_tree_bwd(15, 1.0, 0.3, &mut rng).unwrap();
     species_tree.assign_depths();
 
     let lambda_d = 1.0;
@@ -297,7 +297,7 @@ fn benchmark_dtl_loss_impact() {
     println!("Species tree: 10 species, λ_d=1.0, λ_t=0.5, 100 reps\n");
 
     let mut rng = StdRng::seed_from_u64(77777);
-    let (mut species_tree, _) = simulate_bd_tree_bwd(10, 1.0, 0.3, &mut rng);
+    let (mut species_tree, _) = simulate_bd_tree_bwd(10, 1.0, 0.3, &mut rng).unwrap();
     species_tree.assign_depths();
 
     let lambda_d = 1.0;
@@ -385,7 +385,7 @@ fn benchmark_dtl_large_scale() {
 
         for _ in 0..n_reps {
             // Generate species tree
-            let (mut species_tree, _) = simulate_bd_tree_bwd(n_species, 1.0, 0.3, &mut rng);
+            let (mut species_tree, _) = simulate_bd_tree_bwd(n_species, 1.0, 0.3, &mut rng).unwrap();
             species_tree.assign_depths();
 
             let start = Instant::now();
@@ -423,7 +423,7 @@ fn benchmark_dtl_quick_test() {
     println!("10 species tree, 20 replicates with balanced rates\n");
 
     let mut rng = StdRng::seed_from_u64(42);
-    let (mut species_tree, _) = simulate_bd_tree_bwd(10, 1.0, 0.3, &mut rng);
+    let (mut species_tree, _) = simulate_bd_tree_bwd(10, 1.0, 0.3, &mut rng).unwrap();
     species_tree.assign_depths();
 
     let lambda_d = 1.0;

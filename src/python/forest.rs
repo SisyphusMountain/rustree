@@ -289,7 +289,7 @@ fn species_event_rows_to_df(
     py: Python,
     rows: &[crate::alerax::SpeciesEventRow],
 ) -> PyResult<PyObject> {
-    let pandas = py.import("pandas")?;
+    let pandas = super::import_pymodule(py, "pandas")?;
     let dict = pyo3::types::PyDict::new(py);
 
     let labels: Vec<&str> = rows.iter().map(|r| r.species_label.as_str()).collect();
@@ -346,7 +346,7 @@ impl PyAleRaxForestResult {
     /// Columns: source, destination, count
     #[getter]
     fn total_transfers(&self, py: Python) -> PyResult<PyObject> {
-        let pandas = py.import("pandas")?;
+        let pandas = super::import_pymodule(py, "pandas")?;
         let dict = pyo3::types::PyDict::new(py);
 
         let sources: Vec<&str> = self.total_transfers_data.iter().map(|r| r.source.as_str()).collect();

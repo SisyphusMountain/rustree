@@ -104,8 +104,8 @@ mod tests {
         let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 1.0, 0.5, 0.5, None, None, false, &mut rng).unwrap();
 
         // Save events to CSV
-        save_events_to_csv(&events, &species_tree, &rec_tree.gene_tree, "test_dtl_events.csv").expect("Failed to write events CSV");
-        println!("Events saved to test_dtl_events.csv");
+        save_events_to_csv(&events, &species_tree, &rec_tree.gene_tree, "testdata/test_dtl_events.csv").expect("Failed to write events CSV");
+        println!("Events saved to testdata/test_dtl_events.csv");
 
         // Generate XML
         let xml = rec_tree.to_xml();
@@ -118,8 +118,8 @@ mod tests {
 
         // Write to file for inspection
         use std::fs;
-        fs::write("test_dtl_output.xml", &xml).expect("Failed to write XML");
-        println!("XML output written to test_dtl_output.xml");
+        fs::write("testdata/test_dtl_output.xml", &xml).expect("Failed to write XML");
+        println!("XML output written to testdata/test_dtl_output.xml");
     }
 
     #[test]

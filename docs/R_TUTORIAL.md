@@ -66,7 +66,7 @@ Comprehensive guide to building and using the rustree R bindings for phylogeneti
 **Important:** Build with R feature only to avoid symbol conflicts:
 
 ```bash
-cd /home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree
+cd /path/to/rustree
 
 # Build with R feature only (exclude Python)
 cargo build --release --no-default-features --features r
@@ -1048,4 +1048,4 @@ cargo build --release --no-default-features --features python
 **Document Version:** 2.0
 **Last Updated:** 2026-02-14
 **rustree Version:** 0.1.0
-**Project Root:** `/home/enzo/Documents/Zombi/ZOMBI/zombi-rs/rustree/`
+**Project Root:** repository root
