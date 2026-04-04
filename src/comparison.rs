@@ -211,7 +211,9 @@ fn build_extant_clade_map(
             continue;
         }
         // get_descendant_leaf_names returns ALL leaves; filter to extant only
-        let all_descendants = get_descendant_leaf_names(tree, idx);
+        // Safety: idx comes from tree.postorder_indices(), so it is a valid tree node index
+        let all_descendants = get_descendant_leaf_names(tree, idx)
+            .expect("internal error: postorder index should be valid");
         let clade: BTreeSet<String> = all_descendants.into_iter()
             .filter(|name| extant_names.contains(name))
             .collect();

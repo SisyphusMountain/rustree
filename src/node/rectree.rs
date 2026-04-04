@@ -151,23 +151,64 @@ impl RecTree {
     }
 
     /// Gets the species tree node index for a given gene tree node.
-    /// Returns `None` if the mapping is unknown (e.g., after pruning).
-    pub fn species_node_for(&self, gene_node_idx: usize) -> Option<usize> {
-        self.node_mapping[gene_node_idx]
+    /// Returns `None` inside `Ok` if the mapping is unknown (e.g., after pruning).
+    ///
+    /// # Errors
+    /// Returns an error if `gene_node_idx` is out of bounds.
+    pub fn species_node_for(&self, gene_node_idx: usize) -> Result<Option<usize>, String> {
+        self.node_mapping
+            .get(gene_node_idx)
+            .copied()
+            .ok_or_else(|| {
+                format!(
+                    "gene_node_idx {} is out of bounds (gene tree has {} nodes)",
+                    gene_node_idx,
+                    self.node_mapping.len()
+                )
+            })
     }
 
     /// Gets the event type for a given gene tree node.
-    pub fn event_for(&self, gene_node_idx: usize) -> &Event {
-        &self.event_mapping[gene_node_idx]
+    ///
+    /// # Errors
+    /// Returns an error if `gene_node_idx` is out of bounds.
+    pub fn event_for(&self, gene_node_idx: usize) -> Result<&Event, String> {
+        self.event_mapping.get(gene_node_idx).ok_or_else(|| {
+            format!(
+                "gene_node_idx {} is out of bounds (gene tree has {} nodes)",
+                gene_node_idx,
+                self.event_mapping.len()
+            )
+        })
     }
 
     /// Gets the gene tree node and its corresponding species node and event.
-    pub fn get_full_info(&self, gene_node_idx: usize) -> (&FlatNode, Option<usize>, &Event) {
-        (
-            &self.gene_tree.nodes[gene_node_idx],
-            self.node_mapping[gene_node_idx],
-            &self.event_mapping[gene_node_idx],
-        )
+    ///
+    /// # Errors
+    /// Returns an error if `gene_node_idx` is out of bounds.
+    pub fn get_full_info(&self, gene_node_idx: usize) -> Result<(&FlatNode, Option<usize>, &Event), String> {
+        let gene_node = self.gene_tree.nodes.get(gene_node_idx).ok_or_else(|| {
+            format!(
+                "gene_node_idx {} is out of bounds (gene tree has {} nodes)",
+                gene_node_idx,
+                self.gene_tree.nodes.len()
+            )
+        })?;
+        let species_idx = self.node_mapping.get(gene_node_idx).copied().ok_or_else(|| {
+            format!(
+                "gene_node_idx {} is out of bounds for node_mapping (len {})",
+                gene_node_idx,
+                self.node_mapping.len()
+            )
+        })?;
+        let event = self.event_mapping.get(gene_node_idx).ok_or_else(|| {
+            format!(
+                "gene_node_idx {} is out of bounds for event_mapping (len {})",
+                gene_node_idx,
+                self.event_mapping.len()
+            )
+        })?;
+        Ok((gene_node, species_idx, event))
     }
 
 }
