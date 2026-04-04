@@ -201,6 +201,8 @@ fn node_to_newick_recursive(node: &Node, index: usize) -> Result<String, String>
 mod tests {
     use super::*;
 
+    // --- Original tests ---
+
     #[test]
     fn test_parse_with_colons() {
         let result = parse_newick("(A:1.0,B:2.0):0.0;");
@@ -239,7 +241,6 @@ mod tests {
 
     #[test]
     fn test_parse_mixed_colons() {
-        // Some leaves with branch lengths, some without
         let result = parse_newick("(A:1.0,B);");
         assert!(result.is_ok());
         let nodes = result.unwrap();
@@ -259,7 +260,6 @@ mod tests {
 
     #[test]
     fn test_parse_unnamed_leaves() {
-        // Standard Newick allows unnamed leaves: (,);
         let result = parse_newick("(,);");
         assert!(result.is_ok());
         let nodes = result.unwrap();
@@ -272,7 +272,6 @@ mod tests {
 
     #[test]
     fn test_parse_unnamed_with_lengths() {
-        // Unnamed leaves with branch lengths: (:1.0,:2.0);
         let result = parse_newick("(:1.0,:2.0);");
         assert!(result.is_ok());
         let nodes = result.unwrap();
@@ -286,7 +285,6 @@ mod tests {
 
     #[test]
     fn test_parse_quoted_labels() {
-        // Quoted labels allow spaces and special characters
         let result = parse_newick("('Species 1':1.0,'Species 2':2.0):0.0;");
         assert!(result.is_ok(), "Failed to parse quoted labels: {:?}", result.err());
         let nodes = result.unwrap();
@@ -297,7 +295,6 @@ mod tests {
 
     #[test]
     fn test_parse_mixed_quoted_unquoted() {
-        // Mix of quoted and unquoted labels
         let result = parse_newick("('Homo sapiens':1.0,Mouse:2.0);");
         assert!(result.is_ok());
         let nodes = result.unwrap();
@@ -307,7 +304,6 @@ mod tests {
 
     #[test]
     fn test_parse_quoted_internal_label() {
-        // Quoted label on internal node
         let result = parse_newick("(A:1.0,B:2.0)'ancestor':0.5;");
         assert!(result.is_ok());
         let nodes = result.unwrap();
@@ -320,5 +316,76 @@ mod tests {
         let nodes = parse_newick(newick).unwrap();
         let output = nodes[0].to_newick().unwrap();
         assert_eq!(format!("{};", output), newick);
+    }
+
+    // --- Additional edge-case tests ---
+
+    #[test]
+    fn parse_newick_preserves_names() {
+        let nodes = parse_newick("(Alpha:1.0,Beta:2.0);").unwrap();
+        let root = &nodes[0];
+        let left_name = root.left_child.as_ref().unwrap().name.as_str();
+        let right_name = root.right_child.as_ref().unwrap().name.as_str();
+        let names = vec![left_name, right_name];
+        assert!(names.contains(&"Alpha"), "Should contain 'Alpha'");
+        assert!(names.contains(&"Beta"), "Should contain 'Beta'");
+    }
+
+    #[test]
+    fn parse_newick_preserves_branch_lengths() {
+        let nodes = parse_newick("(A:1.5,B:2.5);").unwrap();
+        let root = &nodes[0];
+        let left_len = root.left_child.as_ref().unwrap().length;
+        let right_len = root.right_child.as_ref().unwrap().length;
+        let lengths = vec![left_len, right_len];
+        assert!(lengths.contains(&1.5));
+        assert!(lengths.contains(&2.5));
+    }
+
+    #[test]
+    fn parse_newick_empty_string_fails() {
+        let result = parse_newick("");
+        assert!(result.is_err(), "Empty string should fail");
+    }
+
+    #[test]
+    fn parse_newick_whitespace_only_fails() {
+        let result = parse_newick("   ");
+        assert!(result.is_err(), "Whitespace-only should fail");
+    }
+
+    #[test]
+    fn parse_newick_unbalanced_parens_fails() {
+        let result = parse_newick("((A:1,B:1);");
+        assert!(result.is_err(), "Unbalanced parentheses should fail");
+    }
+
+    #[test]
+    fn parse_newick_missing_semicolon_fails() {
+        let result = parse_newick("(A:1,B:1)");
+        assert!(result.is_err(), "Missing semicolon should fail");
+    }
+
+    #[test]
+    fn parse_newick_garbage_input_fails() {
+        let result = parse_newick("this is not newick");
+        assert!(result.is_err(), "Garbage input should fail");
+    }
+
+    #[test]
+    fn parse_newick_nested_tree() {
+        let nodes = parse_newick("(((A:1,B:1):1,(C:1,D:1):1):1,E:3);").unwrap();
+        assert_eq!(nodes.len(), 1);
+        let tree = nodes[0].to_flat_tree();
+        let leaf_count = tree.nodes.iter()
+            .filter(|n| n.left_child.is_none() && n.right_child.is_none())
+            .count();
+        assert_eq!(leaf_count, 5);
+    }
+
+    #[test]
+    fn parse_newick_zero_branch_length() {
+        let nodes = parse_newick("(A:0,B:0);");
+        assert!(nodes.is_ok(), "Zero branch lengths should be valid");
     }
 }
