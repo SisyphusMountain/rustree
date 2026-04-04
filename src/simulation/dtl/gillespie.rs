@@ -141,8 +141,7 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
                 BDEvent::Speciation => {
                     let child1 = sp_event.child1.ok_or_else(|| format!("Speciation event for node {} has no child1", sp_event.node_id))?;
                     let child2 = sp_event.child2.ok_or_else(|| format!("Speciation event for node {} has no child2", sp_event.node_id))?;
-                    let gps = state.genes_per_species.as_mut().ok_or("Internal error: genes_per_species not initialized")?;
-                    if let Some(genes) = gps.remove(&sp_event.node_id) {
+                    if let Some(genes) = state.take_genes_for_species(sp_event.node_id) {
                         for gene_idx in genes {
                             state.handle_speciation(
                                 gene_idx, sp_event.node_id, child1, child2, current_time,
@@ -151,16 +150,14 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
                     }
                 }
                 BDEvent::Extinction => {
-                    let gps = state.genes_per_species.as_mut().ok_or("Internal error: genes_per_species not initialized")?;
-                    if let Some(genes) = gps.remove(&sp_event.node_id) {
+                    if let Some(genes) = state.take_genes_for_species(sp_event.node_id) {
                         for gene_idx in genes {
                             state.handle_loss(gene_idx, sp_event.node_id, current_time);
                         }
                     }
                 }
                 BDEvent::Leaf => {
-                    let gps = state.genes_per_species.as_mut().ok_or("Internal error: genes_per_species not initialized")?;
-                    if let Some(genes) = gps.remove(&sp_event.node_id) {
+                    if let Some(genes) = state.take_genes_for_species(sp_event.node_id) {
                         for gene_idx in genes {
                             state.handle_leaf(gene_idx, sp_event.node_id, current_time);
                         }
