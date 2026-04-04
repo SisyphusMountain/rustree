@@ -1,4 +1,8 @@
 // rustree/src/lib.rs
+//! Phylogenetic tree simulation library.
+//!
+//! Error handling: this library uses `Result<_, String>` throughout for simplicity.
+
 #[macro_use]
 extern crate pest_derive;
 

@@ -1174,7 +1174,9 @@ fn name_internal_nodes_r(tree_list: List) -> Result<List> {
     Ok(flattree_to_rlist(&tree))
 }
 
-// Macro to generate exports
+// Macro to generate exports.
+// The `_r` suffix on each function name avoids collisions with the wrapper
+// functions that extendr auto-generates (which use the unsuffixed names).
 extendr_module! {
     mod rustree;
     fn simulate_species_tree_r;

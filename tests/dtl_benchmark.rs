@@ -433,10 +433,15 @@ fn benchmark_dtl_quick_test() {
 
     let mut total_time = 0.0;
     let mut total_events = 0;
+    let mut total_s: usize = 0;
+    let mut total_d: usize = 0;
+    let mut total_t: usize = 0;
+    let mut total_l: usize = 0;
+    let mut total_leaves: usize = 0;
 
     for _ in 0..n_reps {
         let start = Instant::now();
-        let (_rec_tree, events) = simulate_dtl(
+        let (rec_tree, events) = simulate_dtl(
             &species_tree,
             species_tree.root,
             lambda_d,
@@ -450,6 +455,13 @@ fn benchmark_dtl_quick_test() {
         let elapsed = start.elapsed();
         total_time += elapsed.as_secs_f64() * 1000.0;
         total_events += events.len();
+
+        let (s, d, t, l, leaves) = count_events(&rec_tree);
+        total_s += s;
+        total_d += d;
+        total_t += t;
+        total_l += l;
+        total_leaves += leaves;
     }
 
     let avg_time_ms = total_time / n_reps as f64;
@@ -458,4 +470,16 @@ fn benchmark_dtl_quick_test() {
     println!("Average time per simulation: {:.3} ms", avg_time_ms);
     println!("Average events per simulation: {}", avg_events);
     println!("Simulations per second: {:.1}", 1000.0 / avg_time_ms);
+    println!("Avg speciations: {}, duplications: {}, transfers: {}, losses: {}, leaves: {}",
+        total_s / n_reps, total_d / n_reps, total_t / n_reps, total_l / n_reps, total_leaves / n_reps);
+
+    // Statistical sanity checks with deterministic seed:
+    // - Every simulation should produce events (species tree has 10 leaves -> at least 9 speciations)
+    assert!(avg_events >= 9, "Expected at least 9 events on average, got {}", avg_events);
+    // - With lambda_d=1.0, we expect some duplications
+    assert!(total_d > 0, "Expected at least some duplications with lambda_d=1.0");
+    // - With lambda_t=0.5, we expect some transfers
+    assert!(total_t > 0, "Expected at least some transfers with lambda_t=0.5");
+    // - Every gene tree should have at least one leaf
+    assert!(total_leaves >= n_reps, "Expected at least 1 leaf per simulation");
 }
