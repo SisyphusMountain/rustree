@@ -10,7 +10,24 @@ use crate::sampling::{mark_nodes_postorder, NodeMark, get_descendant_leaf_names}
 // Topology comparison (existing)
 // ============================================================================
 
+/// Returns the lexicographically smallest leaf name in the subtree.
+/// Used for canonical child ordering to avoid exponential comparison.
+fn min_leaf_name(node: &Node) -> &str {
+    match (&node.left_child, &node.right_child) {
+        (None, None) => &node.name,
+        (Some(left), Some(right)) => {
+            let l = min_leaf_name(left);
+            let r = min_leaf_name(right);
+            if l <= r { l } else { r }
+        }
+        (Some(child), None) | (None, Some(child)) => min_leaf_name(child),
+    }
+}
+
 /// Recursively compares two Node objects (ignoring the order of children).
+///
+/// Uses canonical child ordering (by minimum leaf name) to achieve O(n)
+/// comparison instead of the O(2^h) worst case of trying both orderings.
 pub fn compare_nodes(n1: &Node, n2: &Node, use_lengths: bool, tol: f64) -> Result<bool, String> {
     if n1.name != n2.name { return Ok(false); }
 
@@ -18,19 +35,14 @@ pub fn compare_nodes(n1: &Node, n2: &Node, use_lengths: bool, tol: f64) -> Resul
         if (n1.length - n2.length).abs() > tol { return Ok(false); }
     }
 
-
-
     // Collect non-None children for each node.
     let mut children1 = Vec::new();
-    if let Some(child) = &n1.left_child { children1.push(child); }
-    if let Some(child) = &n1.right_child { children1.push(child); }
+    if let Some(child) = &n1.left_child { children1.push(child.as_ref()); }
+    if let Some(child) = &n1.right_child { children1.push(child.as_ref()); }
 
     let mut children2 = Vec::new();
-    if let Some(child) = &n2.left_child { children2.push(child); }
-    if let Some(child) = &n2.right_child { children2.push(child); }
-
-    // Check if the number of children is the same.
-    // It may be the case that one node has 2 children (internal node) and the other has 1
+    if let Some(child) = &n2.left_child { children2.push(child.as_ref()); }
+    if let Some(child) = &n2.right_child { children2.push(child.as_ref()); }
 
     if children1.len() != children2.len() {
         return Ok(false);
@@ -39,8 +51,11 @@ pub fn compare_nodes(n1: &Node, n2: &Node, use_lengths: bool, tol: f64) -> Resul
     match children1.len() {
         0 => Ok(true),
         2 => {
-            Ok((compare_nodes(children1[0], children2[0], use_lengths, tol)? && compare_nodes(children1[1], children2[1], use_lengths, tol)?)
-            || (compare_nodes(children1[0], children2[1], use_lengths, tol)? && compare_nodes(children1[1], children2[0], use_lengths, tol)?))
+            // Sort children by min leaf name for canonical ordering
+            children1.sort_by_key(|c| min_leaf_name(c));
+            children2.sort_by_key(|c| min_leaf_name(c));
+            Ok(compare_nodes(children1[0], children2[0], use_lengths, tol)?
+                && compare_nodes(children1[1], children2[1], use_lengths, tol)?)
         },
         n => Err(format!("Invalid binary tree: node '{}' has {} children (expected 0 or 2)", n1.name, n))
     }
