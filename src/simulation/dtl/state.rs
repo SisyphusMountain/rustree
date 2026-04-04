@@ -19,6 +19,9 @@ pub(crate) struct SimulationState<'a> {
     /// Maps species_idx -> Vec of gene node indices alive in that species.
     /// Uses BTreeMap for deterministic iteration order (ensures reproducibility with seeds).
     pub genes_per_species: Option<BTreeMap<usize, Vec<usize>>>,
+    /// Incrementally maintained total count of alive gene copies across all species.
+    /// Avoids O(n_species) summation on every query.
+    total_gene_count: usize,
 }
 
 impl<'a> SimulationState<'a> {
@@ -31,6 +34,7 @@ impl<'a> SimulationState<'a> {
             event_mapping: Vec::with_capacity(capacity),
             events: Vec::with_capacity(capacity),
             genes_per_species: Some(BTreeMap::new()),
+            total_gene_count: 0,
         }
     }
 
@@ -62,6 +66,7 @@ impl<'a> SimulationState<'a> {
     pub fn add_gene_to_species(&mut self, species_idx: usize, gene_idx: usize) {
         if let Some(ref mut map) = self.genes_per_species {
             map.entry(species_idx).or_default().push(gene_idx);
+            self.total_gene_count += 1;
         }
     }
 
@@ -71,9 +76,23 @@ impl<'a> SimulationState<'a> {
             if let Some(genes) = map.get_mut(&species_idx) {
                 if let Some(pos) = genes.iter().position(|&g| g == gene_idx) {
                     genes.swap_remove(pos);
+                    self.total_gene_count -= 1;
                 }
             }
         }
+    }
+
+    /// Remove all genes for a species from tracking and return them.
+    /// Used during species-level events (speciation, extinction, leaf) where
+    /// the entire species entry is consumed at once.
+    pub fn take_genes_for_species(&mut self, species_idx: usize) -> Option<Vec<usize>> {
+        if let Some(ref mut map) = self.genes_per_species {
+            if let Some(genes) = map.remove(&species_idx) {
+                self.total_gene_count -= genes.len();
+                return Some(genes);
+            }
+        }
+        None
     }
 
     /// Handles a duplication event: creates two children and records the event.
@@ -173,13 +192,12 @@ impl<'a> SimulationState<'a> {
 
     /// Picks a random gene copy from all alive copies across all species.
     /// Used by per-gene Gillespie to select which copy experiences the next event.
-    /// It may seem inefficient to iterate over all species and their gene lists, but in practice
-    /// but it will make it easier to implement different transfer rates
+    /// Uses the cached total_gene_count to avoid a counting pass, then does a
+    /// single iteration to find the selected copy.
     pub fn random_gene_copy<R: Rng>(&self, rng: &mut R) -> Option<(usize, usize)> {
         let gps = self.genes_per_species.as_ref()?;
-        let total: usize = gps.values().map(|g| g.len()).sum();
-        if total == 0 { return None; }
-        let mut target = rng.gen_range(0..total);
+        if self.total_gene_count == 0 { return None; }
+        let mut target = rng.gen_range(0..self.total_gene_count);
         for (&species, genes) in gps.iter() {
             if target < genes.len() {
                 return Some((species, genes[target]));
@@ -190,9 +208,9 @@ impl<'a> SimulationState<'a> {
     }
 
     /// Returns the total number of alive gene copies across all species.
+    /// O(1) via the incrementally maintained counter.
     pub fn total_gene_copies(&self) -> usize {
-        self.genes_per_species.as_ref()
-            .map_or(0, |gps| gps.values().map(|g| g.len()).sum())
+        self.total_gene_count
     }
 
     /// Handles reaching a leaf species: gene survives as extant.
