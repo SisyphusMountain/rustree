@@ -89,6 +89,10 @@ impl LcaTable {
     }
 
     /// Find the lowest common ancestor of two nodes in O(1).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `u` or `v` are not valid node indices for the tree this table was built from.
     pub fn lca(&self, u: usize, v: usize) -> usize {
         if u == v {
             return u;
@@ -261,6 +265,10 @@ impl Node {
     /// # Arguments
     /// * `node` - The root node of the tree.
     /// * `parent_depth` - The depth of the parent node.
+    ///
+    /// # Panics
+    ///
+    /// Panics if depths have not been assigned (via [`assign_depths`](Self::assign_depths)).
     pub fn depths_to_lengths(&mut self, parent_depth: f64) {
         let depth = self.depth.expect("depths must be assigned before calling depths_to_lengths() - call assign_depths() first");
         self.length = depth - parent_depth;
@@ -357,6 +365,11 @@ impl FlatTree {
     /// - `intervals[0]` is always `0.0` (there is no interval before the first depth point).
     /// - `intervals[i]` for `i >= 1` equals `depths[i] - depths[i-1]`.
     ///
+    /// # Panics
+    ///
+    /// Panics (unsigned underflow) if the tree has no assigned depths, because the
+    /// subdivision will be empty. Call [`assign_depths`](Self::assign_depths) first.
+    ///
     /// # Example
     ///
     /// If the depths are `[0, 1, 2, 3, 5]`, the returned intervals are `[0, 1, 1, 1, 2]`.
@@ -442,6 +455,10 @@ impl FlatTree {
     /// * `depths` - A sorted slice of time points (depths) representing the subdivision,
     ///   as returned by [`make_subdivision`](Self::make_subdivision).
     ///
+    /// # Panics
+    ///
+    /// Panics if depths have not been assigned (via [`assign_depths`](Self::assign_depths)).
+    ///
     /// # Returns
     ///
     /// A `Vec<Vec<usize>>` of the same length as `depths`, where `contemporaneity[j]`
@@ -514,6 +531,10 @@ impl FlatTree {
     /// This is used for efficient distance computation during assortative transfer selection.
     /// The distance between two nodes A and B at time t is: 2 * (t - lca_depth[A][B])
     ///
+    /// # Panics
+    ///
+    /// Panics if the tree has no nodes (via [`LcaTable::new`]).
+    ///
     /// # Returns
     /// A symmetric matrix where `result[i][j]` = depth of LCA(i, j).
     pub fn precompute_lca_depths(&self) -> Result<Vec<Vec<f64>>, String> {
@@ -563,6 +584,11 @@ impl FlatTree {
     /// * `node_b` - Index of the second node
     /// * `distance_type` - Type of distance to compute (Topological or Metric)
     ///
+    /// # Panics
+    ///
+    /// Panics if the parent chain from either node to their LCA is broken (i.e., a node
+    /// on the path has no parent). This should not happen on a well-formed tree.
+    ///
     /// # Returns
     /// The distance between the two nodes.
     pub fn distance_between(&self, node_a: usize, node_b: usize, distance_type: DistanceType) -> Result<f64, String> {
@@ -610,6 +636,10 @@ impl FlatTree {
     /// * `distance_type` - Type of distance to compute (Topological or Metric)
     /// * `leaves_only` - If true, only compute distances between leaf nodes
     ///
+    /// # Panics
+    ///
+    /// Panics if the tree has a broken parent chain (see [`distance_between`](Self::distance_between)).
+    ///
     /// # Returns
     /// A vector of PairwiseDistance entries containing all pairs (including symmetric
     /// pairs only, excluding self-distances).
@@ -654,6 +684,10 @@ impl FlatTree {
     ///
     /// # Arguments
     /// * `distance_type` - Type of distance to compute (Topological or Metric)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tree has a broken parent chain (see [`distance_between`](Self::distance_between)).
     ///
     /// # Returns
     /// A symmetric matrix where `result[i][j]` = distance between nodes i and j.
