@@ -20,7 +20,7 @@ fn bd_statistical_leaf_count() {
     let mut total_node_count: usize = 0;
 
     for _ in 0..n_trees {
-        let (tree, _events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng);
+        let (tree, _events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng).unwrap();
 
         let leaf_count = tree.nodes.iter()
             .filter(|node| node.left_child.is_none() && node.right_child.is_none())

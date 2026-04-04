@@ -86,21 +86,22 @@ impl TreeEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn bd_event_from_str_valid() {
-        assert_eq!(BDEvent::from_str("Speciation"), Some(BDEvent::Speciation));
-        assert_eq!(BDEvent::from_str("Extinction"), Some(BDEvent::Extinction));
-        assert_eq!(BDEvent::from_str("Leaf"), Some(BDEvent::Leaf));
+        assert_eq!(BDEvent::from_str("Speciation"), Ok(BDEvent::Speciation));
+        assert_eq!(BDEvent::from_str("Extinction"), Ok(BDEvent::Extinction));
+        assert_eq!(BDEvent::from_str("Leaf"), Ok(BDEvent::Leaf));
     }
 
     #[test]
     fn bd_event_from_str_invalid() {
-        assert_eq!(BDEvent::from_str(""), None);
-        assert_eq!(BDEvent::from_str("speciation"), None); // case-sensitive
-        assert_eq!(BDEvent::from_str("SPECIATION"), None);
-        assert_eq!(BDEvent::from_str("Unknown"), None);
-        assert_eq!(BDEvent::from_str("Transfer"), None); // valid DTL event but not BD
+        assert!(BDEvent::from_str("").is_err());
+        assert!(BDEvent::from_str("speciation").is_err()); // case-sensitive
+        assert!(BDEvent::from_str("SPECIATION").is_err());
+        assert!(BDEvent::from_str("Unknown").is_err());
+        assert!(BDEvent::from_str("Transfer").is_err()); // valid DTL event but not BD
     }
 
     #[test]
@@ -108,7 +109,7 @@ mod tests {
         for event in [BDEvent::Speciation, BDEvent::Extinction, BDEvent::Leaf] {
             let s = event.as_str();
             let parsed = BDEvent::from_str(s);
-            assert_eq!(parsed, Some(event), "Roundtrip failed for {:?}", event);
+            assert_eq!(parsed, Ok(event), "Roundtrip failed for {:?}", event);
         }
     }
 }
