@@ -77,3 +77,33 @@ impl TreeEvent {
         "time,node_name,event_type,child1_name,child2_name"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bd_event_from_str_valid() {
+        assert_eq!(BDEvent::from_str("Speciation"), Some(BDEvent::Speciation));
+        assert_eq!(BDEvent::from_str("Extinction"), Some(BDEvent::Extinction));
+        assert_eq!(BDEvent::from_str("Leaf"), Some(BDEvent::Leaf));
+    }
+
+    #[test]
+    fn bd_event_from_str_invalid() {
+        assert_eq!(BDEvent::from_str(""), None);
+        assert_eq!(BDEvent::from_str("speciation"), None); // case-sensitive
+        assert_eq!(BDEvent::from_str("SPECIATION"), None);
+        assert_eq!(BDEvent::from_str("Unknown"), None);
+        assert_eq!(BDEvent::from_str("Transfer"), None); // valid DTL event but not BD
+    }
+
+    #[test]
+    fn bd_event_roundtrip() {
+        for event in [BDEvent::Speciation, BDEvent::Extinction, BDEvent::Leaf] {
+            let s = event.as_str();
+            let parsed = BDEvent::from_str(s);
+            assert_eq!(parsed, Some(event), "Roundtrip failed for {:?}", event);
+        }
+    }
+}

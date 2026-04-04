@@ -175,3 +175,93 @@ fn node_to_newick_recursive(node: &Node, index: usize) -> Result<String, String>
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_newick_two_taxa() {
+        let nodes = parse_newick("(A:1,B:2);").unwrap();
+        assert_eq!(nodes.len(), 1, "Should parse into a single root tree");
+        let root = &nodes[0];
+        assert!(root.left_child.is_some());
+        assert!(root.right_child.is_some());
+    }
+
+    #[test]
+    fn parse_newick_three_taxa() {
+        let nodes = parse_newick("((A:1,B:1):0.5,C:1.5);").unwrap();
+        assert_eq!(nodes.len(), 1);
+    }
+
+    #[test]
+    fn parse_newick_preserves_names() {
+        let nodes = parse_newick("(Alpha:1.0,Beta:2.0);").unwrap();
+        let root = &nodes[0];
+        let left_name = root.left_child.as_ref().unwrap().name.as_str();
+        let right_name = root.right_child.as_ref().unwrap().name.as_str();
+        let names = vec![left_name, right_name];
+        assert!(names.contains(&"Alpha"), "Should contain 'Alpha'");
+        assert!(names.contains(&"Beta"), "Should contain 'Beta'");
+    }
+
+    #[test]
+    fn parse_newick_preserves_branch_lengths() {
+        let nodes = parse_newick("(A:1.5,B:2.5);").unwrap();
+        let root = &nodes[0];
+        let left_len = root.left_child.as_ref().unwrap().length;
+        let right_len = root.right_child.as_ref().unwrap().length;
+        let lengths = vec![left_len, right_len];
+        assert!(lengths.contains(&1.5));
+        assert!(lengths.contains(&2.5));
+    }
+
+    #[test]
+    fn parse_newick_empty_string_fails() {
+        let result = parse_newick("");
+        assert!(result.is_err(), "Empty string should fail");
+    }
+
+    #[test]
+    fn parse_newick_whitespace_only_fails() {
+        let result = parse_newick("   ");
+        assert!(result.is_err(), "Whitespace-only should fail");
+    }
+
+    #[test]
+    fn parse_newick_unbalanced_parens_fails() {
+        let result = parse_newick("((A:1,B:1);");
+        assert!(result.is_err(), "Unbalanced parentheses should fail");
+    }
+
+    #[test]
+    fn parse_newick_missing_semicolon_fails() {
+        let result = parse_newick("(A:1,B:1)");
+        assert!(result.is_err(), "Missing semicolon should fail");
+    }
+
+    #[test]
+    fn parse_newick_garbage_input_fails() {
+        let result = parse_newick("this is not newick");
+        assert!(result.is_err(), "Garbage input should fail");
+    }
+
+    #[test]
+    fn parse_newick_nested_tree() {
+        let nodes = parse_newick("(((A:1,B:1):1,(C:1,D:1):1):1,E:3);").unwrap();
+        assert_eq!(nodes.len(), 1);
+        let tree = nodes[0].to_flat_tree();
+        let leaf_count = tree.nodes.iter()
+            .filter(|n| n.left_child.is_none() && n.right_child.is_none())
+            .count();
+        assert_eq!(leaf_count, 5);
+    }
+
+    #[test]
+    fn parse_newick_zero_branch_length() {
+        // Zero-length branches should be valid
+        let nodes = parse_newick("(A:0,B:0);");
+        assert!(nodes.is_ok(), "Zero branch lengths should be valid");
+    }
+}
+
