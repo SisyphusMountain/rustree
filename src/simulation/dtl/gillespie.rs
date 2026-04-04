@@ -8,6 +8,7 @@ use crate::node::{FlatTree, Event, RecTree};
 use rand::Rng;
 use std::sync::Arc;
 
+use super::DTLConfig;
 use super::event::DTLEvent;
 use super::state::SimulationState;
 use crate::simulation::utils::draw_waiting_time;
@@ -45,13 +46,15 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
     contemporaneity: &[Vec<usize>],
     lca_depths: Option<&[Vec<f64>]>,
     origin_species: usize,
-    lambda_d: f64,
-    lambda_t: f64,
-    lambda_l: f64,
-    transfer_alpha: Option<f64>,
-    replacement_transfer: Option<f64>,
+    config: &DTLConfig,
     rng: &mut R,
 ) -> Result<(RecTree, Vec<DTLEvent>), String> {
+
+    let lambda_d = config.lambda_d;
+    let lambda_t = config.lambda_t;
+    let lambda_l = config.lambda_l;
+    let transfer_alpha = config.transfer_alpha;
+    let replacement_transfer = config.replacement_transfer;
 
     let total_dtl_rate = lambda_d + lambda_t + lambda_l;
     let dup_threshold = if total_dtl_rate > 0.0 { lambda_d / total_dtl_rate } else { 0.0 };

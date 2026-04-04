@@ -14,9 +14,24 @@ mod utils;
 // Re-export main types and functions
 pub use event::DTLEvent;
 pub use stream::DtlSimIter;
-pub use per_gene::{simulate_dtl, simulate_dtl_batch, simulate_dtl_iter};
-pub use per_species::{simulate_dtl_per_species, simulate_dtl_per_species_batch, simulate_dtl_per_species_iter};
+pub use per_gene::{simulate_dtl, simulate_dtl_batch, simulate_dtl_iter, simulate_dtl_iter_with_config};
+pub use per_species::{simulate_dtl_per_species, simulate_dtl_per_species_batch, simulate_dtl_per_species_iter, simulate_dtl_per_species_iter_with_config};
 pub use utils::{count_extant_genes, count_events};
+
+/// Configuration for DTL (Duplication-Transfer-Loss) simulation.
+#[derive(Clone, Debug)]
+pub struct DTLConfig {
+    /// Duplication rate
+    pub lambda_d: f64,
+    /// Transfer rate
+    pub lambda_t: f64,
+    /// Loss rate
+    pub lambda_l: f64,
+    /// Assortative transfer parameter (None = uniform transfer)
+    pub transfer_alpha: Option<f64>,
+    /// Replacement transfer probability (None = additive only)
+    pub replacement_transfer: Option<f64>,
+}
 
 // Re-export from io module for backward compatibility
 pub use crate::io::save_dtl_events_to_csv as save_events_to_csv;

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::fs;
 
 use crate::bd::TreeEvent;
-use crate::dtl::count_extant_genes;
+use crate::dtl::{count_extant_genes, DTLConfig};
 use crate::node::{FlatTree, RecTree};
 use crate::simulation::dtl::gillespie::{DTLMode, simulate_dtl_gillespie};
 
@@ -60,11 +60,7 @@ pub struct PyDtlSimIter {
     pub(crate) lca_depths: Option<Vec<Vec<f64>>>,
     // Simulation parameters
     pub(crate) origin_species: usize,
-    pub(crate) lambda_d: f64,
-    pub(crate) lambda_t: f64,
-    pub(crate) lambda_l: f64,
-    pub(crate) transfer_alpha: Option<f64>,
-    pub(crate) replacement_transfer: Option<f64>,
+    pub(crate) config: DTLConfig,
     pub(crate) n_simulations: usize,
     pub(crate) require_extant: bool,
     pub(crate) mode: DTLMode,
@@ -93,11 +89,7 @@ impl PyDtlSimIter {
                 &self.contemporaneity,
                 lca_ref,
                 self.origin_species,
-                self.lambda_d,
-                self.lambda_t,
-                self.lambda_l,
-                self.transfer_alpha,
-                self.replacement_transfer,
+                &self.config,
                 &mut self.rng,
             );
 
@@ -274,7 +266,7 @@ impl PyDtlSimIter {
         format!(
             "PyDtlSimIter(mode={}, completed={}/{}, D={}, T={}, L={})",
             mode_str, self.completed, self.n_simulations,
-            self.lambda_d, self.lambda_t, self.lambda_l
+            self.config.lambda_d, self.config.lambda_t, self.config.lambda_l
         )
     }
 
