@@ -379,17 +379,31 @@ pub fn build_leaf_pair_lca_map(tree: &FlatTree) -> HashMap<(String, String), usi
 
     for i in 0..leaf_indices.len() {
         for j in (i+1)..leaf_indices.len() {
-            let leaf1 = &tree.nodes[leaf_indices[i]];
-            let leaf2 = &tree.nodes[leaf_indices[j]];
+            let name1 = &tree.nodes[leaf_indices[i]].name;
+            let name2 = &tree.nodes[leaf_indices[j]].name;
             let lca_idx = compute_lca(tree, leaf_indices[i], leaf_indices[j]);
 
-            // Store both orderings for easy lookup
-            lca_map.insert((leaf1.name.clone(), leaf2.name.clone()), lca_idx);
-            lca_map.insert((leaf2.name.clone(), leaf1.name.clone()), lca_idx);
+            // Store canonical ordering (smaller name first) to halve memory
+            let key = if name1 <= name2 {
+                (name1.clone(), name2.clone())
+            } else {
+                (name2.clone(), name1.clone())
+            };
+            lca_map.insert(key, lca_idx);
         }
     }
 
     lca_map
+}
+
+/// Look up the LCA for a pair of leaf names in a canonical-ordered LCA map.
+pub fn lca_map_get(lca_map: &HashMap<(String, String), usize>, a: &str, b: &str) -> Option<usize> {
+    let key = if a <= b {
+        (a.to_string(), b.to_string())
+    } else {
+        (b.to_string(), a.to_string())
+    };
+    lca_map.get(&key).copied()
 }
 
 /// Maps sampled species tree node indices to original species tree node indices.
@@ -431,13 +445,12 @@ pub fn build_sampled_to_original_mapping(
 
             if leaf_names.len() >= 2 {
                 // Use first two leaves to identify this internal node
-                let key = (leaf_names[0].clone(), leaf_names[1].clone());
-                let original_idx = original_lca_map.get(&key)
+                let original_idx = lca_map_get(original_lca_map, &leaf_names[0], &leaf_names[1])
                     .ok_or_else(|| format!(
                         "LCA for leaves ('{}', '{}') not found in original tree",
-                        key.0, key.1
+                        leaf_names[0], leaf_names[1]
                     ))?;
-                mapping.insert(sampled_idx, *original_idx);
+                mapping.insert(sampled_idx, original_idx);
             }
         }
     }

@@ -1,5 +1,5 @@
 use rustree::{RecTree, Event, GeneForest, parse_newick};
-use rustree::sampling::{compute_lca, build_leaf_pair_lca_map, get_descendant_leaf_names};
+use rustree::sampling::{compute_lca, build_leaf_pair_lca_map, lca_map_get, get_descendant_leaf_names};
 use std::sync::Arc;
 
 /// Helper to create a simple species tree for testing
@@ -56,12 +56,12 @@ fn test_build_leaf_pair_lca_map() {
 
     let ab_idx = tree.nodes.iter().position(|n| n.name == "AB").unwrap();
 
-    // Check that (A, B) and (B, A) both map to AB
-    assert_eq!(lca_map.get(&("A".to_string(), "B".to_string())), Some(&ab_idx));
-    assert_eq!(lca_map.get(&("B".to_string(), "A".to_string())), Some(&ab_idx));
+    // Check that both orderings resolve via lca_map_get
+    assert_eq!(lca_map_get(&lca_map, "A", "B"), Some(ab_idx));
+    assert_eq!(lca_map_get(&lca_map, "B", "A"), Some(ab_idx));
 
     // Check that (A, C) maps to Root
-    assert_eq!(lca_map.get(&("A".to_string(), "C".to_string())), Some(&tree.root));
+    assert_eq!(lca_map_get(&lca_map, "A", "C"), Some(tree.root));
 }
 
 #[test]

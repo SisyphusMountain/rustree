@@ -44,7 +44,7 @@ pub use node::{RecTree, Event, GeneForest, parse_recphyloxml, parse_recphyloxml_
 pub use metric_functions::{DistanceType, PairwiseDistance, LcaTable};
 pub use sampling::{
     extract_induced_subtree, extract_induced_subtree_by_names,
-    compute_lca, build_leaf_pair_lca_map, build_sampled_to_original_mapping,
+    compute_lca, build_leaf_pair_lca_map, lca_map_get, build_sampled_to_original_mapping,
     get_descendant_leaf_names, find_all_leaf_indices, find_leaf_indices_by_names,
 };
 pub use alerax::{

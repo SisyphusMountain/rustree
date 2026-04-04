@@ -9,15 +9,15 @@
 
 ## Executive Summary
 
-A comprehensive review of the rustree codebase identified **87 unique issues** across 8 modules. **All critical issues, all correctness bugs (Section 1), and all Tier 1 safety issues (#26-31) have been fixed.** Module consolidation and Sprint 2 addressed binding duplication, Newick grammar, R API parity, and Python import UX. Sprint 3 converted BD asserts to Result, added Newick quoted labels, optimized pairwise distances, fixed draw_waiting_time, and eliminated hot-loop allocation. Sprint 4 implemented `FromStr` traits, removed dead code, added node_mapping validation, fixed module naming, added structural/edge-case/roundtrip tests. The remaining open issues are 1 high, 8 medium, and 8 low.
+A comprehensive review of the rustree codebase identified **87 unique issues** across 8 modules. **All critical issues, all correctness bugs (Section 1), and all Tier 1 safety issues (#26-31) have been fixed.** Module consolidation and Sprint 2 addressed binding duplication, Newick grammar, R API parity, and Python import UX. Sprint 3 converted BD asserts to Result, added Newick quoted labels, optimized pairwise distances, fixed draw_waiting_time, and eliminated hot-loop allocation. Sprint 4 implemented `FromStr` traits, removed dead code, added node_mapping validation, fixed module naming, added structural/edge-case/roundtrip tests. Sprint 5 added `# Panics` docs, module docs, depth lifecycle docs, 14 edge case tests, and 4 snapshot/regression tests. The remaining open issues are 2 high, 5 medium, and 6 low.
 
 | Severity | Original | Fixed | Remaining |
 |----------|----------|-------|-----------|
 | Critical | 16       | 16    | **0**     |
-| High     | 25       | 24    | **1**     |
-| Medium   | 34       | 26    | **8**     |
-| Low      | 12       | 4     | **8**     |
-| **Total**| **87**   | **70**| **17**    |
+| High     | 25       | 23    | **2**     |
+| Medium   | 34       | 29    | **5**     |
+| Low      | 12       | 6     | **6**     |
+| **Total**| **87**   | **74**| **13**    |
 
 ---
 
@@ -92,7 +92,7 @@ Issues where the code can panic or crash on invalid/unexpected input.
 | 47 | ~~MEDIUM~~ **FIXED** | `bd/types.rs` | 60-61 | ~~Unnecessary `.clone()` on child names in `to_csv_row()`.~~ Now uses `&str` references throughout, no allocations. | ~~Use `as_str()` references with `format!`.~~ |
 | 48 | **MEDIUM** | `node/rectree.rs` | 87-236 | XML generation uses repeated `push_str()` without pre-allocation. | Use `write!()` macro for better performance. |
 | 49 | ~~LOW~~ **FIXED** | `metric_functions.rs` | 172 | ~~Vec capacity hint is off by one in `make_intervals`.~~ Capacity now `depths.len()` (correct). | ~~Use `Vec::with_capacity(depths.len())`.~~ |
-| 50 | **LOW** | `sampling.rs` | 305-306 | `build_leaf_pair_lca_map` stores both (A,B) and (B,A), doubling memory. | Store canonical ordering only. |
+| 50 | ~~LOW~~ **FIXED** | `sampling.rs` | 305-306 | ~~`build_leaf_pair_lca_map` stores both (A,B) and (B,A), doubling memory.~~ Now stores canonical ordering (smaller name first), halving entries. Added `lca_map_get()` helper for order-independent lookup. | ~~Store canonical ordering only.~~ |
 | 51 | **LOW** | `dtl/state.rs` | 69-70 | O(n) gene removal via `.iter().position()`. | Use HashSet instead of Vec for gene tracking if bottleneck. |
 | 52 | **LOW** | `dtl/state.rs` | 172-184 | `random_gene_copy` iterates all species twice. | Cache total gene count incrementally. |
 
@@ -134,9 +134,9 @@ Issues where the code can panic or crash on invalid/unexpected input.
 | 75 | **HIGH** | -- | No tests for R-specific edge cases: float seed, missing fields, NA handling, i32 overflow. | Create `tests/r_bindings_test.rs`. |
 | 76 | **HIGH** | -- | No tests for error paths in R bindings. | Add `#[should_panic]` or Result-checking tests. |
 | 77 | ~~HIGH~~ **FIXED** | `tests/bd_tests.rs:10-43` | ~~`test_bd_tree_basic` only checks non-empty, not structural validity.~~ Now asserts: binary branching, leaves = internal + 1, parent-child consistency, root has no parent. Also added 6 new tests: roundtrip, error paths (zero species, negative/NaN/infinite rates), single/two species edge cases. | ~~Add structural assertions.~~ |
-| 78 | **MEDIUM** | -- | No edge case tests: empty trees, single-node trees, invalid indices, corrupted structures, root-involving SPR. | Add dedicated edge case test suite. |
+| 78 | ~~MEDIUM~~ **FIXED** | -- | ~~No edge case tests.~~ Added `tests/edge_cases.rs` with 14 tests: single-node tree ops, sampling edge cases, Newick parsing edge cases, conversion roundtrips, depth idempotency. | ~~Add dedicated edge case test suite.~~ |
 | 79 | ~~MEDIUM~~ **FIXED** | `tests/bd_tests.rs` | ~~No Newick round-trip test.~~ Added `test_bd_newick_roundtrip`: exports to Newick, re-parses, verifies node/leaf count preserved. | ~~Parse exported Newick and verify equivalence.~~ |
-| 80 | **MEDIUM** | -- | No regression/snapshot tests with deterministic seeds. | Create golden-file tests. |
+| 80 | ~~MEDIUM~~ **FIXED** | -- | ~~No regression/snapshot tests with deterministic seeds.~~ Added `tests/snapshot_tests.rs` with 4 determinism tests: BD seed stability, pure birth snapshot, DTL seed stability, different seeds divergence. | ~~Create golden-file tests.~~ |
 | 81 | **MEDIUM** | -- | No concurrency/thread-safety tests for parallel simulation. | Add rayon-based parallel test. |
 | 82 | **LOW** | -- | Benchmark tests only measure time, not statistical correctness of stochastic output. | Add assertions on mean event counts. |
 
@@ -146,11 +146,11 @@ Issues where the code can panic or crash on invalid/unexpected input.
 
 | # | Severity | File | Line(s) | Description | Suggested Fix |
 |---|----------|------|---------|-------------|---------------|
-| 83 | **MEDIUM** | `metric_functions.rs` | 71, 89, 114, 206, 236 | Public methods have undocumented preconditions (e.g., depths must be assigned). | Add `# Panics` sections to all public function docs. |
-| 84 | **MEDIUM** | `bd/mod.rs` | 1-2 | Module has brief comments but no proper `//!` module-level documentation with examples. | Add module-level rustdoc with usage examples. |
+| 83 | ~~MEDIUM~~ **FIXED** | `metric_functions.rs` | 71, 89, 114, 206, 236 | ~~Public methods have undocumented preconditions.~~ Added `# Panics` sections to 7 public methods documenting depth/index requirements. | ~~Add `# Panics` sections.~~ |
+| 84 | ~~MEDIUM~~ **FIXED** | `bd/mod.rs` | 1-2 | ~~Module has brief comments but no proper `//!` documentation.~~ Added `//!` module-level doc describing BD simulation, events, and CSV export. | ~~Add module-level rustdoc.~~ |
 | 85 | ~~MEDIUM~~ **FIXED** | `metric_functions.rs` | 40-53 | ~~`give_depth()` appears to be dead code.~~ Removed. | ~~Remove or deprecate.~~ |
-| 86 | **LOW** | `node/rectree.rs` | 68-84, 361-377 | Public methods `species_node_for()`, `event_for()`, `get_full_info()` lack doc comments. | Add comprehensive doc comments with examples. |
-| 87 | **LOW** | -- | -- | No documentation on the `depth` field semantics: when it is `None` vs `Some`, which operations invalidate it. | Add module-level doc explaining depth lifecycle. |
+| 86 | ~~LOW~~ **FIXED** | `node/rectree.rs` | 68-84, 361-377 | ~~Public methods lack doc comments.~~ Already had proper `///` doc comments (verified). | ~~Add comprehensive doc comments.~~ |
+| 87 | ~~LOW~~ **FIXED** | `node/mod.rs` | -- | ~~No documentation on `depth` field semantics.~~ Added doc comment to `FlatNode::depth` explaining None/Some lifecycle and invalidation. | ~~Add module-level doc explaining depth lifecycle.~~ |
 
 ---
 
