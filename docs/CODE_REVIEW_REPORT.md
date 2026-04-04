@@ -9,15 +9,15 @@
 
 ## Executive Summary
 
-A comprehensive review of the rustree codebase identified **87 unique issues** across 8 modules. **All critical issues, all correctness bugs (Section 1), and all Tier 1 safety issues (#26-31) have been fixed.** Module consolidation and Sprint 2 addressed binding duplication, Newick grammar, R API parity, and Python import UX. Sprint 3 converted BD asserts to Result, added Newick quoted labels, optimized pairwise distances, fixed draw_waiting_time, and eliminated hot-loop allocation. Sprint 4 implemented `FromStr` traits, removed dead code, added node_mapping validation, fixed module naming, added structural/edge-case/roundtrip tests. Sprint 5 added `# Panics` docs, module docs, depth lifecycle docs, 14 edge case tests, and 4 snapshot/regression tests. The remaining open issues are 2 high, 5 medium, and 6 low.
+A comprehensive review of the rustree codebase identified **87 unique issues** across 8 modules. **All critical issues, all correctness bugs (Section 1), and all Tier 1 safety issues (#26-31) have been fixed.** Module consolidation and Sprint 2 addressed binding duplication, Newick grammar, R API parity, and Python import UX. Sprint 3 converted BD asserts to Result, added Newick quoted labels, optimized pairwise distances, fixed draw_waiting_time, and eliminated hot-loop allocation. Sprint 4 implemented `FromStr` traits, removed dead code, added node_mapping validation, fixed module naming, added structural/edge-case/roundtrip tests. Sprint 5 added `# Panics` docs, module docs, depth lifecycle docs, 14 edge case tests, and 4 snapshot/regression tests. Sprint 6 fixed canonical LCA map ordering, O(n) tree comparison, and concurrency tests. The remaining open issues are 2 high, 2 medium, and 4 low.
 
 | Severity | Original | Fixed | Remaining |
 |----------|----------|-------|-----------|
 | Critical | 16       | 16    | **0**     |
 | High     | 25       | 23    | **2**     |
-| Medium   | 34       | 29    | **5**     |
-| Low      | 12       | 6     | **6**     |
-| **Total**| **87**   | **74**| **13**    |
+| Medium   | 34       | 32    | **2**     |
+| Low      | 12       | 7     | **5**     |
+| **Total**| **87**   | **78**| **9**     |
 
 ---
 
@@ -137,7 +137,7 @@ Issues where the code can panic or crash on invalid/unexpected input.
 | 78 | ~~MEDIUM~~ **FIXED** | -- | ~~No edge case tests.~~ Added `tests/edge_cases.rs` with 14 tests: single-node tree ops, sampling edge cases, Newick parsing edge cases, conversion roundtrips, depth idempotency. | ~~Add dedicated edge case test suite.~~ |
 | 79 | ~~MEDIUM~~ **FIXED** | `tests/bd_tests.rs` | ~~No Newick round-trip test.~~ Added `test_bd_newick_roundtrip`: exports to Newick, re-parses, verifies node/leaf count preserved. | ~~Parse exported Newick and verify equivalence.~~ |
 | 80 | ~~MEDIUM~~ **FIXED** | -- | ~~No regression/snapshot tests with deterministic seeds.~~ Added `tests/snapshot_tests.rs` with 4 determinism tests: BD seed stability, pure birth snapshot, DTL seed stability, different seeds divergence. | ~~Create golden-file tests.~~ |
-| 81 | **MEDIUM** | -- | No concurrency/thread-safety tests for parallel simulation. | Add rayon-based parallel test. |
+| 81 | ~~MEDIUM~~ **FIXED** | -- | ~~No concurrency/thread-safety tests.~~ Added `tests/concurrency_tests.rs` with 3 tests: parallel BD simulation, parallel DTL with shared Arc species tree, cross-thread determinism. | ~~Add rayon-based parallel test.~~ |
 | 82 | **LOW** | -- | Benchmark tests only measure time, not statistical correctness of stochastic output. | Add assertions on mean event counts. |
 
 ---
