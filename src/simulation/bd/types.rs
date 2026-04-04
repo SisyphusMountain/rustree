@@ -1,6 +1,7 @@
 // birth-death process types
 
 use crate::node::FlatTree;
+use std::str::FromStr;
 
 /// Event types in a birth-death process
 // This type only refers to the event of a given node.
@@ -25,13 +26,17 @@ impl BDEvent {
         }
     }
 
-    /// Parse from string representation
-    pub fn from_str(s: &str) -> Option<Self> {
+}
+
+impl FromStr for BDEvent {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Speciation" => Some(BDEvent::Speciation),
-            "Extinction" => Some(BDEvent::Extinction),
-            "Leaf" => Some(BDEvent::Leaf),
-            _ => None,
+            "Speciation" => Ok(BDEvent::Speciation),
+            "Extinction" => Ok(BDEvent::Extinction),
+            "Leaf" => Ok(BDEvent::Leaf),
+            _ => Err(format!("Unknown BDEvent '{}'. Valid values: Speciation, Extinction, Leaf", s)),
         }
     }
 }
@@ -59,15 +64,15 @@ impl TreeEvent {
             .ok_or_else(|| format!("Invalid node_id {} (tree has {} nodes)", self.node_id, tree.nodes.len()))?;
         let child1_name = match self.child1 {
             Some(c) => tree.nodes.get(c)
-                .map(|n| n.name.clone())
+                .map(|n| n.name.as_str())
                 .ok_or_else(|| format!("Invalid child1 index {} (tree has {} nodes)", c, tree.nodes.len()))?,
-            None => String::new(),
+            None => "",
         };
         let child2_name = match self.child2 {
             Some(c) => tree.nodes.get(c)
-                .map(|n| n.name.clone())
+                .map(|n| n.name.as_str())
                 .ok_or_else(|| format!("Invalid child2 index {} (tree has {} nodes)", c, tree.nodes.len()))?,
-            None => String::new(),
+            None => "",
         };
         Ok(format!("{},{},{},{},{}", self.time, node_name, self.event_type.as_str(), child1_name, child2_name))
     }

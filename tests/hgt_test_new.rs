@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use rustree::newick::newick::parse_newick;
+use rustree::newick::parse_newick;
 use rustree::node::Node;
 use rustree::comparison::compare_nodes_topology; // Import from comparison module
 use rustree::surgery::spr_topology; // Import the surgery module function

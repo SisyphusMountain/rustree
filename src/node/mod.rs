@@ -65,6 +65,7 @@ pub struct Node {
 }
 
 /// Traversal order for tree iteration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TraversalOrder {
     PreOrder,
     InOrder,

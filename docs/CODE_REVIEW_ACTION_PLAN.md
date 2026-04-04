@@ -1,7 +1,7 @@
 # Code Review Action Plan: rustree
 
 **Generated**: 2026-02-10
-**Last updated**: 2026-04-04 (Sprint 3 complete)
+**Last updated**: 2026-04-05 (Sprint 4 complete)
 **Source**: Aggregated findings from 8 parallel code review agents covering all modules
 **Scope**: All Rust source in `rustree/src/` plus integration tests in `rustree/tests/`
 
@@ -454,6 +454,20 @@ The agent flagged `s == "NA"` as unreliable. However, when extendr converts R ch
 7. ~~Fix draw_waiting_time ln(0) edge case (#34)~~ DONE — clamped u to f64::EPSILON
 8. ~~Eliminate hot-loop Vec allocation in select_transfer_recipient (#46)~~ DONE — direct selection without allocation
 9. DTLConfig struct (#61) — DEFERRED (too many call sites for medium priority)
+
+**Sprint 4 (COMPLETED):**
+1. ~~Implement `std::str::FromStr` for `BDEvent` (#60)~~ DONE
+2. ~~Implement `std::str::FromStr` for `DistanceType` (#68)~~ DONE — also added `Eq` derive
+3. ~~Remove dead `give_depth` function (#85)~~ DONE
+4. ~~Add node_mapping bounds validation to RecTree constructors (#33)~~ DONE
+5. ~~Fix `make_intervals` Vec capacity off-by-one (#49)~~ DONE
+6. ~~Add derives to `TraversalOrder` (#67)~~ DONE — Clone, Copy, Debug, PartialEq, Eq
+7. ~~Fix newick module re-export (#69)~~ DONE — submodule private, `parse_newick` re-exported, all callers updated
+8. ~~Eliminate `to_csv_row` clones (#47)~~ DONE — `&str` references
+9. ~~Add BD structural assertions (#77)~~ DONE — binary branching, parent-child, leaf=internal+1
+10. ~~Add Newick roundtrip test (#79)~~ DONE
+11. ~~Add BD error-path + edge-case tests~~ DONE — zero species, NaN, infinity, single/two species
+12. ~~Fix non-compilable doc-test examples~~ DONE
 
 **Module consolidation (COMPLETED):**
 - `src/python.rs` (2,977 lines) → `src/python/` module directory with submodules: `mod.rs`, `species_tree.rs`, `gene_tree.rs`, `sim_iter.rs`, `types.rs` (plus existing `reconciliation.rs`, `alerax.rs`, `forest.rs`, `training.rs`)

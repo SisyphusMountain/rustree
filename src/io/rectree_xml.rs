@@ -314,7 +314,7 @@ impl RecTree {
         species_newick_path: &str,
         gene_xml_path: &str,
     ) -> Result<Self, String> {
-        use crate::newick::newick::parse_newick;
+        use crate::newick::parse_newick;
         use std::fs;
 
         let species_newick = fs::read_to_string(species_newick_path)

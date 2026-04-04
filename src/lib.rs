@@ -38,7 +38,7 @@ pub mod python;
 pub mod r;
 
 // Re-export key types for easier access
-pub use newick::newick::parse_newick;
+pub use newick::parse_newick;
 pub use node::{Node, FlatNode, FlatTree, TraversalOrder, map_by_topology, rename_gene_tree};
 pub use node::{RecTree, Event, GeneForest, parse_recphyloxml, parse_recphyloxml_file};
 pub use metric_functions::{DistanceType, PairwiseDistance, LcaTable};

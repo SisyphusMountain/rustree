@@ -118,7 +118,7 @@ fn simulate_species_tree(n: usize, lambda_: f64, mu: f64, seed: Option<u64>) -> 
 /// Parse a Newick string or file into a species tree.
 #[pyfunction]
 pub(crate) fn parse_species_tree(newick_str: &str) -> PyResult<PySpeciesTree> {
-    use crate::newick::newick::parse_newick;
+    use crate::newick::parse_newick;
     use std::path::Path;
 
     // Check if input is a file path

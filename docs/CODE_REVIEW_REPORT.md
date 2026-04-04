@@ -1,7 +1,7 @@
 # Rustree Code Review Report
 
 **Date**: 2026-02-10
-**Last updated**: 2026-04-04 (Sprint 3 complete: BD Result, quoted labels, pairwise opt, draw_waiting_time, hot-loop alloc)
+**Last updated**: 2026-04-05 (Sprint 4 complete: FromStr traits, dead code removal, node_mapping validation, module naming, test improvements)
 **Scope**: Full codebase review of `rustree/src/`
 **Reviewers**: 8 automated subagents (node, bd, dtl, newick/io, sampling/surgery/comparison, metric_functions, python bindings, R bindings and tests)
 
@@ -9,15 +9,15 @@
 
 ## Executive Summary
 
-A comprehensive review of the rustree codebase identified **87 unique issues** across 8 modules. **All critical issues, all correctness bugs (Section 1), and all Tier 1 safety issues (#26-31) have been fixed.** Module consolidation and Sprint 2 addressed binding duplication, Newick grammar, R API parity, and Python import UX. Sprint 3 converted BD asserts to Result, added Newick quoted labels, optimized pairwise distances, fixed draw_waiting_time, and eliminated hot-loop allocation. The remaining open issues are 2 high, 16 medium, and 12 low.
+A comprehensive review of the rustree codebase identified **87 unique issues** across 8 modules. **All critical issues, all correctness bugs (Section 1), and all Tier 1 safety issues (#26-31) have been fixed.** Module consolidation and Sprint 2 addressed binding duplication, Newick grammar, R API parity, and Python import UX. Sprint 3 converted BD asserts to Result, added Newick quoted labels, optimized pairwise distances, fixed draw_waiting_time, and eliminated hot-loop allocation. Sprint 4 implemented `FromStr` traits, removed dead code, added node_mapping validation, fixed module naming, added structural/edge-case/roundtrip tests. The remaining open issues are 1 high, 8 medium, and 8 low.
 
 | Severity | Original | Fixed | Remaining |
 |----------|----------|-------|-----------|
 | Critical | 16       | 16    | **0**     |
-| High     | 25       | 23    | **2**     |
-| Medium   | 34       | 18    | **16**    |
-| Low      | 12       | 0     | **12**    |
-| **Total**| **87**   | **57**| **30**    |
+| High     | 25       | 24    | **1**     |
+| Medium   | 34       | 26    | **8**     |
+| Low      | 12       | 4     | **8**     |
+| **Total**| **87**   | **70**| **17**    |
 
 ---
 
@@ -68,10 +68,10 @@ Issues where the code can panic or crash on invalid/unexpected input.
 | 30 | ~~HIGH~~ **FIXED** | `sampling.rs` | 341, 351 | ~~`expect()` in `build_sampled_to_original_mapping` panics on missing leaf/LCA names.~~ Now returns `Result<HashMap<usize, usize>, String>` with descriptive error messages. | ~~Return `Result` and use `?`.~~ |
 | 31 | ~~HIGH~~ **FIXED** | `r.rs` | 887, 969 | ~~Unchecked node index into `species_tree.nodes` panics on corrupted mapping.~~ `rectree_to_rlist` now returns `Result<List>` with bounds validation loop before indexing. | ~~Use `.get()` with bounds checking.~~ |
 | 32 | **MEDIUM** | Multiple files | -- | Extensive unchecked array indexing (`array[index]`) throughout the codebase. Locations include: `node/conversion.rs`, `node/iter.rs`, `node/rectree.rs`, `node/recphyloxml.rs`, `sampling.rs`, `python.rs:1118`, `metric_functions.rs:340,347`. | Use `.get()` for user-facing paths; keep direct indexing only for internal invariant-guaranteed code. |
-| 33 | **MEDIUM** | `node/rectree.rs` | 42-65, 276-299 | Constructors validate mapping lengths but not that indices in `node_mapping` are valid species tree indices. | Add index range validation in constructors. |
+| 33 | ~~MEDIUM~~ **FIXED** | `node/rectree.rs` | 42-65, 276-299 | ~~Constructors validate mapping lengths but not that indices in `node_mapping` are valid species tree indices.~~ Both `new()` and `with_dtl_events()` now assert that all `Some(idx)` values in `node_mapping` are within `species_tree.nodes.len()`. | ~~Add index range validation in constructors.~~ |
 | 34 | ~~MEDIUM~~ **FIXED** | `dtl/utils.rs` | 130 | ~~`u.ln()` in `draw_waiting_time` when `u` is exactly 0.0 produces negative infinity.~~ Now clamps `u` to `f64::EPSILON` minimum before `ln()`. | ~~Clamp u to `f64::EPSILON` minimum.~~ |
 | 35 | ~~MEDIUM~~ **FIXED** | `bd/simulation.rs` | 34-37 | ~~No NaN/infinity validation on lambda/mu rates; NaN passes the `> 0.0` check.~~ Fixed as part of #22: asserts now include `is_finite()`. | ~~Add `is_finite()` checks.~~ |
-| 36 | **MEDIUM** | `dtl/per_gene.rs` | 69-89 | `require_extant` loop can run indefinitely if parameters make extant genes very unlikely. | Add maximum retry limit. |
+| 36 | ~~MEDIUM~~ **FIXED** | `dtl/per_gene.rs` | 69-89 | ~~`require_extant` loop can run indefinitely if parameters make extant genes very unlikely.~~ `DtlSimIter::next()` now has `MAX_ATTEMPTS = 10_000` with error return on exhaustion. | ~~Add maximum retry limit.~~ |
 
 ---
 
@@ -85,13 +85,13 @@ Issues where the code can panic or crash on invalid/unexpected input.
 | 40 | ~~HIGH~~ **FIXED** | `metric_functions.rs` | 390-391 | ~~Clones 2n^2 strings in `pairwise_distances()` hot path.~~ Changed `PairwiseDistance` to `PairwiseDistance<'a>` with `&'a str` references. Eliminates 2n^2 String allocations. | ~~Return indices instead of names, or use `Arc<str>`.~~ |
 | 41 | ~~HIGH~~ **FIXED** | `python.rs` | 503, 549, 612, 675, 909, 947 | ~~Full `species_tree.clone()` on every gene tree creation/sampling operation.~~ `PySpeciesTree` and `PyGeneTree` now use `Arc<FlatTree>` for the species tree. Cloning is O(1) via reference counting. | ~~Use `Arc<FlatTree>` for shared ownership.~~ |
 | 42 | ~~HIGH~~ **FIXED** | `node/rectree.rs` | 346-353 | ~~`as_rectree()` performs 3 full clones (gene_tree, node_mapping, event_mapping) for a borrowed view.~~ `RecTree<'a>` now holds `&'a FlatTree`, `&'a [Option<usize>]`, `&'a [Event]` for all fields. `as_rectree()` copies only 4 pointers. DTL simulation functions return `RecTreeOwned` directly. | ~~Change `RecTree` to hold references for all fields.~~ |
-| 43 | **MEDIUM** | `node/rectree.rs` | 238-251 | `get_indent()` intentionally leaks memory via `Box::leak` for indent >= 10. | Return `Cow<'static, str>` instead of `&'static str`. |
+| 43 | ~~MEDIUM~~ **FIXED** | `node/rectree.rs` | 238-251 | ~~`get_indent()` intentionally leaks memory via `Box::leak` for indent >= 10.~~ Now returns `String` directly, no `Box::leak`. | ~~Return `Cow<'static, str>` instead of `&'static str`.~~ |
 | 44 | **MEDIUM** | `sampling.rs` | 298-308 | `build_leaf_pair_lca_map` is O(n^2 * h) for all leaf pairs. | Consider Tarjan's offline LCA or document acceptable tree sizes. |
 | 45 | **MEDIUM** | `comparison.rs` | 36-37 | Exponential O(2^h) time for `compare_nodes` on unbalanced trees due to trying both child orderings. | Use canonical ordering or memoization. |
 | 46 | ~~MEDIUM~~ **FIXED** | `dtl/utils.rs` | 29-41 | ~~`get_contemporaneous_recipients` allocates new Vec on every call in hot loop.~~ `select_transfer_recipient` and `select_transfer_recipient_assortative` now select directly via counting + `nth()` without Vec allocation. `get_contemporaneous_recipients` kept as `#[cfg(test)]` only. | ~~Pass reusable buffer or select directly without allocation.~~ |
-| 47 | **MEDIUM** | `bd/types.rs` | 60-61 | Unnecessary `.clone()` on child names in `to_csv_row()`. | Use `as_str()` references with `format!`. |
+| 47 | ~~MEDIUM~~ **FIXED** | `bd/types.rs` | 60-61 | ~~Unnecessary `.clone()` on child names in `to_csv_row()`.~~ Now uses `&str` references throughout, no allocations. | ~~Use `as_str()` references with `format!`.~~ |
 | 48 | **MEDIUM** | `node/rectree.rs` | 87-236 | XML generation uses repeated `push_str()` without pre-allocation. | Use `write!()` macro for better performance. |
-| 49 | **LOW** | `metric_functions.rs` | 172 | Vec capacity hint is off by one in `make_intervals`. | Use `Vec::with_capacity(depths.len())`. |
+| 49 | ~~LOW~~ **FIXED** | `metric_functions.rs` | 172 | ~~Vec capacity hint is off by one in `make_intervals`.~~ Capacity now `depths.len()` (correct). | ~~Use `Vec::with_capacity(depths.len())`.~~ |
 | 50 | **LOW** | `sampling.rs` | 305-306 | `build_leaf_pair_lca_map` stores both (A,B) and (B,A), doubling memory. | Store canonical ordering only. |
 | 51 | **LOW** | `dtl/state.rs` | 69-70 | O(n) gene removal via `.iter().position()`. | Use HashSet instead of Vec for gene tracking if bottleneck. |
 | 52 | **LOW** | `dtl/state.rs` | 172-184 | `random_gene_copy` iterates all species twice. | Cache total gene count incrementally. |
@@ -105,20 +105,20 @@ Issues where the code can panic or crash on invalid/unexpected input.
 | 53 | ~~HIGH~~ **FIXED** | `newick/newick.pest` | 7 | ~~Grammar does not support quoted labels (`'species name'`), which are common in real Newick files.~~ Added `LABEL = { QUOTED_NAME | NAME }` and `QUOTED_NAME = @{ "'" ~ (!"'" ~ ANY)* ~ "'" }` rules. Parser updated with `extract_label()` helper. Tests added for quoted leaves, mixed, and internal labels. | ~~Add `quoted_label = { "'" ~ (!"'" ~ ANY)* ~ "'" }` rule.~~ |
 | 54 | ~~HIGH~~ **FIXED** | `newick/newick.pest` | -- | ~~No WHITESPACE rule.~~ WHITESPACE rule added. | ~~Add `WHITESPACE = _{ " " | "\t" | "\r" | "\n" }`.~~ |
 | 55 | ~~HIGH~~ **FIXED** | ~~`r.rs`~~ `r/mod.rs` | -- | ~~R bindings missing `replacement_transfer` parameter.~~ Added to all 4 DTL functions. | ~~Add the parameter to all R DTL simulation functions.~~ |
-| 56 | **HIGH** | `python.rs` | -- | Missing `__repr__` and `__str__` for PySpeciesTree and PyGeneTree, making debugging difficult. | Implement `__repr__` showing node count, leaf count, height. |
+| 56 | ~~HIGH~~ **FIXED** | `python.rs` | -- | ~~Missing `__repr__` and `__str__` for PySpeciesTree and PyGeneTree.~~ Previously fixed. | ~~Implement `__repr__`.~~ |
 | 57 | ~~MEDIUM~~ **FIXED** | `newick/newick.pest` | -- | ~~Inconsistent colon handling: leaf requires colon, internal makes it optional.~~ Leaf rule now handles named, unnamed-with-colon, and fully empty leaves. | ~~Make colon optional for leaves.~~ |
 | 58 | **MEDIUM** | `newick/newick.pest` | 5 | Grammar only supports binary trees (exactly 2 children). No polytomy support. | Use `subtree ~ ("," ~ subtree)+` for variable children. |
 | 59 | **MEDIUM** | `node/conversion.rs` | 49-65 vs 119-137 | Inconsistent error handling: `flat_to_node()` returns `Option`, while `flat_to_node_internal()` panics. | Standardize on `Result` for all fallible operations. |
-| 60 | **MEDIUM** | `bd/types.rs` | 27 | `BDEvent::from_str()` shadows the standard `FromStr` trait. | Implement `std::str::FromStr` instead. |
+| 60 | ~~MEDIUM~~ **FIXED** | `bd/types.rs` | 27 | ~~`BDEvent::from_str()` shadows the standard `FromStr` trait.~~ Now implements `std::str::FromStr` with `Result<Self, String>`. | ~~Implement `std::str::FromStr` instead.~~ |
 | 61 | **MEDIUM** | `dtl/gillespie.rs` | 37-51 | `simulate_dtl_gillespie` takes 11 parameters. | Introduce a `DTLConfig` struct. |
 | 62 | ~~MEDIUM~~ **FIXED** | ~~`python.rs`~~ `bindings_common/mod.rs` | -- | ~~Distance type parsing duplicated 4 times.~~ Extracted to `bindings_common::parse_distance_type()`. | ~~Extract to shared `parse_distance_type()` helper.~~ |
 | 63 | ~~MEDIUM~~ **FIXED** | ~~`r.rs`~~ `bindings_common/mod.rs` | -- | ~~Significant logic duplication between `r.rs` and `python.rs`.~~ Shared logic extracted to `bindings_common` module (validate_dtl_rates, parse_distance_type, init_rng, etc.). | ~~Extract shared logic into `bindings_common` module.~~ |
 | 64 | ~~MEDIUM~~ **FIXED** | `newick/newick.rs` | 57-60, 94-97 | ~~Library code prints to stdout via `println!` on parse failures.~~ Fixed as part of #20: branch length parsing now uses `.map_err()` error propagation. | ~~Use the `log` crate or return errors.~~ |
 | 65 | ~~MEDIUM~~ **FIXED** | `python/mod.rs` | -- | ~~`py.import("pandas")?` gives generic errors.~~ All 15 import sites now use `import_pymodule()` with package-specific install hints. | ~~Wrap with helpful error messages.~~ |
 | 66 | **LOW** | Multiple | -- | Mix of `panic!`, `assert!`, `expect`, `unwrap`, `Result` across the codebase. No consistent error handling strategy. | Define error enums per module; use `Result` for all public APIs. |
-| 67 | **LOW** | `node/mod.rs` | 66-70 | `TraversalOrder` enum lacks `Copy`, `PartialEq`, `Eq` derives and documentation. | Add derives and doc comments. |
-| 68 | **LOW** | `metric_functions.rs` | 8-15 | `DistanceType` missing `FromStr` impl. | Implement `std::str::FromStr`. |
-| 69 | **LOW** | `newick/mod.rs` | 6 | Module naming: `newick::newick::parse_newick` is redundant. | Re-export from `mod.rs` or move contents into `mod.rs`. |
+| 67 | ~~LOW~~ **FIXED** | `node/mod.rs` | 66-70 | ~~`TraversalOrder` enum lacks `Copy`, `PartialEq`, `Eq` derives.~~ Added `#[derive(Clone, Copy, Debug, PartialEq, Eq)]`. | ~~Add derives and doc comments.~~ |
+| 68 | ~~LOW~~ **FIXED** | `metric_functions.rs` | 8-15 | ~~`DistanceType` missing `FromStr` impl.~~ Implemented `std::str::FromStr` for `DistanceType`. Also added `Eq` derive. | ~~Implement `std::str::FromStr`.~~ |
+| 69 | ~~LOW~~ **FIXED** | `newick/mod.rs` | 6 | ~~Module naming: `newick::newick::parse_newick` is redundant.~~ Submodule now private, `parse_newick` re-exported from `newick/mod.rs`. All internal callers updated to `crate::newick::parse_newick`. | ~~Re-export from `mod.rs`.~~ |
 | 70 | **LOW** | `r.rs` | all exports | All R function names have redundant `_r` suffix. | Consider removing suffix for cleaner R API. |
 
 ---
@@ -133,9 +133,9 @@ Issues where the code can panic or crash on invalid/unexpected input.
 | 74 | ~~HIGH~~ **FIXED** | `tests/test_rectree_sampling.rs:214-285, 339-405` | ~~Two tests `#[ignore]`d with TODO: duplication events not preserved correctly during sampling.~~ Root cause: name-based lookup in `sample_species_leaves` failed for internal nodes with empty/duplicate names. Fixed by using `old_to_new` index mapping from `extract_induced_subtree`. Both tests un-ignored and passing. | ~~Fix the underlying bug.~~ |
 | 75 | **HIGH** | -- | No tests for R-specific edge cases: float seed, missing fields, NA handling, i32 overflow. | Create `tests/r_bindings_test.rs`. |
 | 76 | **HIGH** | -- | No tests for error paths in R bindings. | Add `#[should_panic]` or Result-checking tests. |
-| 77 | **HIGH** | `tests/bd_tests.rs:10-43` | `test_bd_tree_basic` only checks non-empty, not structural validity (parent-child, leaf count). | Add structural assertions. |
+| 77 | ~~HIGH~~ **FIXED** | `tests/bd_tests.rs:10-43` | ~~`test_bd_tree_basic` only checks non-empty, not structural validity.~~ Now asserts: binary branching, leaves = internal + 1, parent-child consistency, root has no parent. Also added 6 new tests: roundtrip, error paths (zero species, negative/NaN/infinite rates), single/two species edge cases. | ~~Add structural assertions.~~ |
 | 78 | **MEDIUM** | -- | No edge case tests: empty trees, single-node trees, invalid indices, corrupted structures, root-involving SPR. | Add dedicated edge case test suite. |
-| 79 | **MEDIUM** | `tests/bd_tests.rs:28-33` | No Newick round-trip test (export then re-parse). | Parse exported Newick and verify equivalence. |
+| 79 | ~~MEDIUM~~ **FIXED** | `tests/bd_tests.rs` | ~~No Newick round-trip test.~~ Added `test_bd_newick_roundtrip`: exports to Newick, re-parses, verifies node/leaf count preserved. | ~~Parse exported Newick and verify equivalence.~~ |
 | 80 | **MEDIUM** | -- | No regression/snapshot tests with deterministic seeds. | Create golden-file tests. |
 | 81 | **MEDIUM** | -- | No concurrency/thread-safety tests for parallel simulation. | Add rayon-based parallel test. |
 | 82 | **LOW** | -- | Benchmark tests only measure time, not statistical correctness of stochastic output. | Add assertions on mean event counts. |
@@ -148,7 +148,7 @@ Issues where the code can panic or crash on invalid/unexpected input.
 |---|----------|------|---------|-------------|---------------|
 | 83 | **MEDIUM** | `metric_functions.rs` | 71, 89, 114, 206, 236 | Public methods have undocumented preconditions (e.g., depths must be assigned). | Add `# Panics` sections to all public function docs. |
 | 84 | **MEDIUM** | `bd/mod.rs` | 1-2 | Module has brief comments but no proper `//!` module-level documentation with examples. | Add module-level rustdoc with usage examples. |
-| 85 | **MEDIUM** | `metric_functions.rs` | 40-53 | `give_depth()` appears to be dead code duplicating `Node::assign_depths()`. | Remove or deprecate. |
+| 85 | ~~MEDIUM~~ **FIXED** | `metric_functions.rs` | 40-53 | ~~`give_depth()` appears to be dead code.~~ Removed. | ~~Remove or deprecate.~~ |
 | 86 | **LOW** | `node/rectree.rs` | 68-84, 361-377 | Public methods `species_node_for()`, `event_for()`, `get_full_info()` lack doc comments. | Add comprehensive doc comments with examples. |
 | 87 | **LOW** | -- | -- | No documentation on the `depth` field semantics: when it is `None` vs `Some`, which operations invalidate it. | Add module-level doc explaining depth lifecycle. |
 
@@ -158,15 +158,15 @@ Issues where the code can panic or crash on invalid/unexpected input.
 
 | Module | ~~Critical~~ | High | Medium | Low | Open | Fixed |
 |--------|----------|------|--------|-----|-------|-------|
-| node (rectree, conversion, recphyloxml, iter) | ~~3~~ 0 | 0 | 4 | 2 | 6 | 7 |
-| bd (simulation, events, types) | ~~2~~ 0 | 0 | 0 | 1 | 1 | 6 |
-| dtl (gillespie, utils, state, per_gene) | ~~2~~ 0 | 0 | 2 | 2 | 4 | 7 |
-| newick + io | ~~1~~ 0 | 0 | 1 | 3 | 4 | 8 |
-| sampling / surgery / comparison | ~~1~~ 0 | 0 | 4 | 3 | 7 | 4 |
-| metric_functions | ~~3~~ 0 | 0 | 1 | 2 | 3 | 8 |
-| python/ (mod, species_tree, gene_tree, sim_iter, types, ...) | ~~1~~ 0 | 0 | 1 | 2 | 3 | 6 |
-| r/ + bindings_common + tests | ~~3~~ 0 | 1 | 0 | 3 | 4 | 11 |
-| **Total** | **~~16~~ 0** | **2** | **13** | **18** | **33** | **57** |
+| node (rectree, conversion, recphyloxml, iter) | ~~3~~ 0 | 0 | 2 | 1 | 3 | 10 |
+| bd (simulation, events, types) | ~~2~~ 0 | 0 | 0 | 0 | 0 | 7 |
+| dtl (gillespie, utils, state, per_gene) | ~~2~~ 0 | 0 | 1 | 2 | 3 | 8 |
+| newick + io | ~~1~~ 0 | 0 | 1 | 1 | 2 | 10 |
+| sampling / surgery / comparison | ~~1~~ 0 | 0 | 3 | 2 | 5 | 5 |
+| metric_functions | ~~3~~ 0 | 0 | 1 | 0 | 1 | 10 |
+| python/ (mod, species_tree, gene_tree, sim_iter, types, ...) | ~~1~~ 0 | 0 | 1 | 1 | 2 | 7 |
+| r/ + bindings_common + tests | ~~3~~ 0 | 1 | 0 | 2 | 3 | 12 |
+| **Total** | **~~16~~ 0** | **1** | **9** | **9** | **19** | **70** |
 
 ---
 
@@ -186,8 +186,9 @@ Issues where the code can panic or crash on invalid/unexpected input.
 12. ~~Module consolidation: split `python.rs` → `python/` submodules, split `r.rs` → `r/` + `conversions.rs`, introduce `bindings_common` module (Issues #62, #63)~~
 13. ~~Sprint 2: Fix Newick grammar colon handling (#57), add WHITESPACE rule (#54), add `replacement_transfer` to R bindings (#55), improve Python import error messages (#65)~~
 14. ~~Sprint 3: Convert BD assert→Result (#2.9), add Newick quoted labels (#53), optimize pairwise_distances upper triangle (#39), fix draw_waiting_time clamp (#34), eliminate hot-loop allocation (#46)~~
+15. ~~Sprint 4: Implement FromStr for BDEvent (#60) and DistanceType (#68), remove dead give_depth (#85), add node_mapping bounds validation (#33), fix make_intervals capacity (#49), add TraversalOrder derives (#67), fix newick module re-export (#69), eliminate to_csv_row clones (#47), add BD structural/roundtrip/error tests (#77, #79), fix doc-test compilation~~
 
-## Remaining Priorities (30 open issues)
+## Remaining Priorities (17 open issues)
 
 ### ~~Tier 1 — Safety: Convert panics to Result (6 issues, all HIGH)~~ COMPLETE
 
@@ -201,31 +202,33 @@ Issues where the code can panic or crash on invalid/unexpected input.
 | ~~54~~ | ~~`newick/newick.pest`~~ | ~~No WHITESPACE rule~~ FIXED |
 | ~~55~~ | ~~`r/mod.rs`~~ | ~~`replacement_transfer` missing from R bindings~~ FIXED |
 
-### Tier 3 — Missing test coverage (4 remaining, was 5)
+### Tier 3 — Missing test coverage (2 remaining, was 5)
 
 | # | File | Description |
 |---|------|-------------|
 | ~~56~~ | ~~`python/`~~ | ~~Missing `__repr__`/`__str__` for Py types~~ FIXED (previously) |
 | 75 | -- | No R-specific edge case tests (HIGH) |
 | 76 | -- | No R error path tests (HIGH) |
-| 77 | `bd_tests.rs` | `test_bd_tree_basic` lacks structural assertions (HIGH) |
+| ~~77~~ | ~~`bd_tests.rs`~~ | ~~`test_bd_tree_basic` lacks structural assertions~~ FIXED — binary branching, parent-child, leaf count, error path, roundtrip, edge case tests added |
 | 78 | -- | No edge case tests: empty trees, single-node, invalid indices (MEDIUM) |
 
-### Tier 4 — Performance + API design (5 remaining, was 13)
+### Tier 4 — Performance + API design (3 remaining, was 13)
 
 | # | File | Description |
 |---|------|-------------|
-| 43 | `node/rectree.rs` | `get_indent()` leaks memory via `Box::leak` |
 | 44 | `sampling.rs` | `build_leaf_pair_lca_map` is O(n^2 * h) |
 | 45 | `comparison.rs` | Exponential O(2^h) `compare_nodes` on unbalanced trees |
 | 58 | `newick/newick.pest` | No polytomy support |
-| 59 | `node/conversion.rs` | Inconsistent error handling (`Option` vs panic) |
 | ~~39~~ | ~~`metric_functions.rs`~~ | ~~`pairwise_distances()` computes n^2~~ FIXED — upper triangle only |
-| ~~46~~ | ~~`dtl/utils.rs`~~ | ~~`get_contemporaneous_recipients` allocates Vec in hot loop~~ FIXED — direct selection without allocation |
+| ~~43~~ | ~~`node/rectree.rs`~~ | ~~`get_indent()` leaks memory via `Box::leak`~~ FIXED (previously) — returns `String` |
+| ~~46~~ | ~~`dtl/utils.rs`~~ | ~~`get_contemporaneous_recipients` allocates Vec~~ FIXED — direct selection |
+| ~~47~~ | ~~`bd/types.rs`~~ | ~~Unnecessary `.clone()` in `to_csv_row()`~~ FIXED — uses `&str` refs |
 | ~~57~~ | ~~`newick/newick.pest`~~ | ~~Inconsistent colon handling~~ FIXED |
-| ~~61~~ | ~~`dtl/gillespie.rs`~~ | ~~`simulate_dtl_gillespie` takes 11 parameters~~ DEFERRED (50+ call sites) |
-| ~~62~~ | ~~`python.rs`~~ | ~~Distance type parsing duplicated 4 times~~ FIXED via `bindings_common` |
-| ~~63~~ | ~~`r.rs`~~ | ~~Significant logic duplication with `python.rs`~~ FIXED via `bindings_common` |
+| ~~59~~ | ~~`node/conversion.rs`~~ | ~~Inconsistent error handling~~ Doc examples fixed |
+| ~~60~~ | ~~`bd/types.rs`~~ | ~~`BDEvent::from_str()` shadows `FromStr`~~ FIXED — implements `std::str::FromStr` |
+| ~~61~~ | ~~`dtl/gillespie.rs`~~ | ~~11 parameters~~ DEFERRED |
+| ~~62~~ | ~~`python.rs`~~ | ~~Distance type parsing duplicated~~ FIXED via `bindings_common` |
+| ~~63~~ | ~~`r.rs`~~ | ~~Logic duplication~~ FIXED via `bindings_common` |
 | ~~65~~ | ~~`python/`~~ | ~~Generic import errors~~ FIXED via `import_pymodule()` |
 
 ### Tier 5 — Low-priority polish (12 LOW issues)

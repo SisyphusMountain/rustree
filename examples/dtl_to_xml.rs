@@ -1,7 +1,7 @@
 // Example: Simulate DTL gene tree and export to XML and CSV
 use rustree::bd::simulate_bd_tree_bwd;
 use rustree::dtl::{simulate_dtl, save_events_to_csv};
-use rustree::newick::newick::parse_newick;
+use rustree::newick::parse_newick;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::fs;

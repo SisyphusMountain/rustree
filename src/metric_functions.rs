@@ -4,14 +4,27 @@
 
 
 use crate::node::{Node, TraversalOrder, FlatTree};
+use std::str::FromStr;
 
 /// Type of distance to compute between nodes.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DistanceType {
     /// Topological distance: number of edges between two nodes
     Topological,
     /// Metric distance: sum of branch lengths along the path
     Metric,
+}
+
+impl FromStr for DistanceType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "topological" => Ok(DistanceType::Topological),
+            "metric" => Ok(DistanceType::Metric),
+            _ => Err(format!("Unknown distance type '{}'. Valid values: topological, metric", s)),
+        }
+    }
 }
 
 /// A single pairwise distance entry between two nodes.
@@ -213,24 +226,6 @@ impl LcaTable {
     }
 }
 
-/// Recursively sets the depth of nodes in a tree.
-/// Each node's depth includes its own stem length plus all ancestral stem lengths.
-///
-/// # Arguments
-/// * `node` - The root node to set the depth for.
-/// * `depth` - The depth at the parent node (usually 0.0 at the root's parent).
-pub fn give_depth(node: &mut Node, depth: f64) {
-    // Include this node's stem length in its depth
-    let node_depth = depth + node.length;
-    node.depth = Some(node_depth);
-    if let Some(left_child) = &mut node.left_child {
-        give_depth(left_child, node_depth);
-    }
-    if let Some(right_child) = &mut node.right_child {
-        give_depth(right_child, node_depth);
-    }
-}
-
 impl Node {
     pub fn total_length(&self) -> f64 {
         let mut total_length = 0.0;
@@ -367,7 +362,7 @@ impl FlatTree {
     /// If the depths are `[0, 1, 2, 3, 5]`, the returned intervals are `[0, 1, 1, 1, 2]`.
     pub fn make_intervals(&self) -> Vec<f64> {
         let depths = self.make_subdivision();
-        let mut intervals: Vec<f64> = Vec::with_capacity(depths.len() - 1);
+        let mut intervals: Vec<f64> = Vec::with_capacity(depths.len());
         intervals.push(0.0);
         for i in 0..depths.len() - 1 {
             intervals.push(depths[i + 1] - depths[i]);
@@ -680,7 +675,7 @@ impl FlatTree {
 
 #[cfg(test)]
 mod tests {
-    use crate::newick::newick::parse_newick;
+    use crate::newick::parse_newick;
     use crate::node::FlatTree;
 
     /// Helper: parse a Newick string and return a FlatTree with depths assigned.

@@ -1,5 +1,6 @@
 //! R ↔ Rust conversion helpers for tree and event data structures.
 
+use std::str::FromStr;
 use extendr_api::prelude::*;
 
 use crate::bd::{BDEvent, TreeEvent};
@@ -78,7 +79,7 @@ pub(crate) fn rlist_to_flattree(list: &List) -> Result<FlatTree> {
                         if s.is_empty() || s == "NA" {
                             return None;
                         }
-                        return BDEvent::from_str(s);
+                        return BDEvent::from_str(s).ok();
                     }
                 }
                 None
@@ -141,10 +142,7 @@ pub(crate) fn rlist_to_bd_events(list: &List) -> Result<Vec<TreeEvent>> {
     let events: Vec<TreeEvent> = (0..times.len())
         .map(|i| {
             let event_type = BDEvent::from_str(&event_types[i])
-                .ok_or_else(|| format!(
-                    "Unknown BD event type '{}' at index {}. Expected one of: Speciation, Extinction, Leaf",
-                    event_types[i], i
-                ))?;
+                .map_err(|e| format!("At index {}: {}", i, e))?;
             Ok(TreeEvent {
                 time: times[i],
                 node_id: node_ids[i] as usize,

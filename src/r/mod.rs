@@ -104,7 +104,7 @@ fn simulate_species_tree_r(n: i32, lambda: f64, mu: f64, seed: Robj) -> Result<L
 /// @export
 #[extendr]
 fn parse_newick_r(newick_str: &str) -> Result<List> {
-    use crate::newick::newick::parse_newick;
+    use crate::newick::parse_newick;
 
     let mut nodes = parse_newick(newick_str)
         .map_err(|e| format!("Failed to parse Newick: {}", e))?;
@@ -803,7 +803,7 @@ fn parse_recphyloxml_r(filepath: &str) -> Result<List> {
 
 /// Helper: parse a Newick string into a FlatTree with depths assigned.
 fn parse_newick_to_flattree(newick: &str) -> Result<FlatTree> {
-    use crate::newick::newick::parse_newick;
+    use crate::newick::parse_newick;
 
     let mut nodes = parse_newick(newick)
         .map_err(|e| format!("Failed to parse Newick: {}", e))?;

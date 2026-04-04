@@ -2,7 +2,7 @@
 
 use rustree::bd::simulate_bd_tree_bwd;
 use rustree::dtl::{simulate_dtl, count_events, count_extant_genes};
-use rustree::newick::newick::parse_newick;
+use rustree::newick::parse_newick;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::time::Instant;

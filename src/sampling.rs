@@ -448,7 +448,7 @@ pub fn build_sampled_to_original_mapping(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::newick::newick::parse_newick;
+    use crate::newick::parse_newick;
 
     fn make_tree(newick: &str) -> FlatTree {
         let mut nodes = parse_newick(newick).unwrap();

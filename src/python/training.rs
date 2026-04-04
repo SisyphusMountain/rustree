@@ -44,7 +44,7 @@ pub fn create_training_sample(
     g_newick_path: &str,
     xml_path: &str,
 ) -> PyResult<PyObject> {
-    use crate::newick::newick::parse_newick;
+    use crate::newick::parse_newick;
     use crate::node::TraversalOrder;
     use crate::io::recphyloxml::parse_xml_gene_annotations_file;
     use pyo3::types::{PyDict, PyList};
@@ -1912,7 +1912,7 @@ pub fn from_reconciliation(
     node_species: &Bound<'_, pyo3::types::PyDict>,
     node_events: &Bound<'_, pyo3::types::PyDict>,
 ) -> PyResult<PyGeneTree> {
-    use crate::newick::newick::parse_newick;
+    use crate::newick::parse_newick;
     use crate::node::rectree::{Event, RecTree};
 
     // Parse species tree

@@ -203,7 +203,7 @@ pub fn induced_transfers(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::newick::newick::parse_newick;
+    use crate::newick::parse_newick;
     use crate::sampling::extract_induced_subtree_by_names;
 
     fn make_tree(newick: &str) -> FlatTree {

@@ -148,9 +148,13 @@ impl FlatTree {
 /// nodes or leaf/internal mismatch at any position).
 ///
 /// # Example
-/// ```rust
+/// ```rust,no_run
+/// # use rustree::{FlatTree, map_by_topology};
+/// # let tree_a = FlatTree { nodes: vec![], root: 0 };
+/// # let tree_b = FlatTree { nodes: vec![], root: 0 };
 /// let mapping = map_by_topology(&tree_a, &tree_b)?;
 /// // mapping[b_idx] == a_idx for corresponding nodes
+/// # Ok::<(), String>(())
 /// ```
 pub fn map_by_topology(
     source_tree: &FlatTree,
@@ -212,7 +216,7 @@ pub fn map_by_topology(
 /// Ok(()) on success, or an error if trees have incompatible topologies.
 ///
 /// # Example
-/// ```rust
+/// ```rust,ignore
 /// rename_gene_tree(&original_tree, &mut rec_tree)?;
 /// // Now rec_tree.gene_tree has the same node names as original_tree
 /// ```

@@ -172,7 +172,7 @@ pub fn validate_inputs(
     // Check each gene tree
     for (family_name, newick) in gene_trees {
         // Parse gene tree to check leaves
-        let mut nodes = crate::newick::newick::parse_newick(newick)
+        let mut nodes = crate::newick::parse_newick(newick)
             .map_err(|e| format!("Failed to parse gene tree '{}': {}", family_name, e))?;
 
         let root = nodes.pop()

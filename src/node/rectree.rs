@@ -47,7 +47,8 @@ impl RecTree {
     /// Creates a new RecTree with a shared species tree.
     ///
     /// # Panics
-    /// Panics if the mappings don't match the gene tree size.
+    /// Panics if the mappings don't match the gene tree size or if
+    /// node_mapping contains indices out of bounds for the species tree.
     pub fn new(
         species_tree: Arc<FlatTree>,
         gene_tree: FlatTree,
@@ -64,6 +65,16 @@ impl RecTree {
             event_mapping.len(),
             "event_mapping must have same length as gene_tree nodes"
         );
+        let sp_len = species_tree.nodes.len();
+        for (i, mapping) in node_mapping.iter().enumerate() {
+            if let Some(sp_idx) = mapping {
+                assert!(
+                    *sp_idx < sp_len,
+                    "node_mapping[{}] = {} is out of bounds for species tree with {} nodes",
+                    i, sp_idx, sp_len
+                );
+            }
+        }
 
         RecTree {
             species_tree,
@@ -77,7 +88,8 @@ impl RecTree {
     /// Creates a new RecTree with DTL events.
     ///
     /// # Panics
-    /// Panics if the mappings don't match the gene tree size.
+    /// Panics if the mappings don't match the gene tree size or if
+    /// node_mapping contains indices out of bounds for the species tree.
     pub fn with_dtl_events(
         species_tree: Arc<FlatTree>,
         gene_tree: FlatTree,
@@ -95,6 +107,16 @@ impl RecTree {
             event_mapping.len(),
             "event_mapping must have same length as gene_tree nodes"
         );
+        let sp_len = species_tree.nodes.len();
+        for (i, mapping) in node_mapping.iter().enumerate() {
+            if let Some(sp_idx) = mapping {
+                assert!(
+                    *sp_idx < sp_len,
+                    "node_mapping[{}] = {} is out of bounds for species tree with {} nodes",
+                    i, sp_idx, sp_len
+                );
+            }
+        }
 
         RecTree {
             species_tree,

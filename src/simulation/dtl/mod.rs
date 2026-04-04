@@ -24,7 +24,7 @@ pub use crate::io::save_dtl_events_to_csv as save_events_to_csv;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::newick::newick::parse_newick;
+    use crate::newick::parse_newick;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
