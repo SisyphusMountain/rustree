@@ -301,7 +301,21 @@ pub fn extract_extant_subtree(tree: &FlatTree) -> Option<(FlatTree, Vec<Option<u
 ///
 /// # Returns
 /// The index of the LCA node (the deepest node that is an ancestor of both input nodes).
-pub fn compute_lca(tree: &FlatTree, node1_idx: usize, node2_idx: usize) -> usize {
+pub fn compute_lca(tree: &FlatTree, node1_idx: usize, node2_idx: usize) -> Result<usize, String> {
+    let n = tree.nodes.len();
+    if node1_idx >= n {
+        return Err(format!(
+            "node1_idx {} is out of bounds (tree has {} nodes)",
+            node1_idx, n
+        ));
+    }
+    if node2_idx >= n {
+        return Err(format!(
+            "node2_idx {} is out of bounds (tree has {} nodes)",
+            node2_idx, n
+        ));
+    }
+
     // Build path from node1 to root
     let mut path1 = HashSet::new();
     let mut current = node1_idx;
@@ -315,18 +329,18 @@ pub fn compute_lca(tree: &FlatTree, node1_idx: usize, node2_idx: usize) -> usize
     // Walk from node2 to root until we find a node in path1
     let mut current = node2_idx;
     if path1.contains(&current) {
-        return current;
+        return Ok(current);
     }
 
     while let Some(parent) = tree.nodes[current].parent {
         if path1.contains(&parent) {
-            return parent;
+            return Ok(parent);
         }
         current = parent;
     }
 
     // If we get here, return the root (should always be in path1)
-    tree.root
+    Ok(tree.root)
 }
 
 /// Gets all leaf names descended from a given node.
@@ -337,7 +351,15 @@ pub fn compute_lca(tree: &FlatTree, node1_idx: usize, node2_idx: usize) -> usize
 ///
 /// # Returns
 /// A vector of leaf names descended from this node.
-pub fn get_descendant_leaf_names(tree: &FlatTree, node_idx: usize) -> Vec<String> {
+pub fn get_descendant_leaf_names(tree: &FlatTree, node_idx: usize) -> Result<Vec<String>, String> {
+    if node_idx >= tree.nodes.len() {
+        return Err(format!(
+            "node_idx {} is out of bounds (tree has {} nodes)",
+            node_idx,
+            tree.nodes.len()
+        ));
+    }
+
     let mut leaves = Vec::new();
     let mut stack = vec![node_idx];
 
@@ -358,7 +380,7 @@ pub fn get_descendant_leaf_names(tree: &FlatTree, node_idx: usize) -> Vec<String
         }
     }
 
-    leaves
+    Ok(leaves)
 }
 
 /// Builds a mapping from all pairs of leaf names to their LCA node index.
@@ -379,7 +401,9 @@ pub fn build_leaf_pair_lca_map(tree: &FlatTree) -> HashMap<(String, String), usi
         for j in (i+1)..leaf_indices.len() {
             let leaf1 = &tree.nodes[leaf_indices[i]];
             let leaf2 = &tree.nodes[leaf_indices[j]];
-            let lca_idx = compute_lca(tree, leaf_indices[i], leaf_indices[j]);
+            // Safety: leaf_indices come from find_all_leaf_indices, so they are valid
+            let lca_idx = compute_lca(tree, leaf_indices[i], leaf_indices[j])
+                .expect("internal error: leaf indices from find_all_leaf_indices should be valid");
 
             // Store both orderings for easy lookup
             lca_map.insert((leaf1.name.clone(), leaf2.name.clone()), lca_idx);
@@ -425,7 +449,7 @@ pub fn build_sampled_to_original_mapping(
             mapping.insert(sampled_idx, original_idx);
         } else {
             // Internal node - use LCA-based lookup
-            let leaf_names = get_descendant_leaf_names(sampled_tree, sampled_idx);
+            let leaf_names = get_descendant_leaf_names(sampled_tree, sampled_idx)?;
 
             if leaf_names.len() >= 2 {
                 // Use first two leaves to identify this internal node

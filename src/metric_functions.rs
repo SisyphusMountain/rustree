@@ -491,6 +491,20 @@ impl FlatTree {
     /// # Returns
     /// The index of the lowest common ancestor.
     pub fn find_lca(&self, node_a: usize, node_b: usize) -> Result<usize, String> {
+        let n = self.nodes.len();
+        if node_a >= n {
+            return Err(format!(
+                "node_a index {} is out of bounds (tree has {} nodes)",
+                node_a, n
+            ));
+        }
+        if node_b >= n {
+            return Err(format!(
+                "node_b index {} is out of bounds (tree has {} nodes)",
+                node_b, n
+            ));
+        }
+
         // Collect ancestors of node_a (including itself)
         let mut ancestors_a = std::collections::HashSet::new();
         let mut current = Some(node_a);
