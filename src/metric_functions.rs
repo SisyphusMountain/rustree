@@ -563,7 +563,7 @@ impl FlatTree {
     /// LCA query, giving O(n^2) total instead of the naive O(n^2 * h) approach.
     ///
     /// This is used for efficient distance computation during assortative transfer selection.
-    /// The distance between two nodes A and B at time t is: 2 * (t - lca_depth[A][B])
+    /// The distance between two nodes A and B at time t is: `2 * (t - lca_depth[A][B])`
     ///
     /// # Panics
     ///

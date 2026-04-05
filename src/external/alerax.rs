@@ -115,7 +115,7 @@ pub struct TransferRow {
 pub struct AleRaxForestResult {
     /// Per-family results (family_name -> result)
     pub family_results: HashMap<String, AleRaxFamilyResult>,
-    /// Per-family mean species event counts (family_name -> Vec<SpeciesEventRow>)
+    /// Per-family mean species event counts (family_name -> `Vec<SpeciesEventRow>`)
     pub mean_species_event_counts: HashMap<String, Vec<SpeciesEventRow>>,
     /// Aggregate species event counts across all families
     pub total_species_event_counts: Vec<SpeciesEventRow>,

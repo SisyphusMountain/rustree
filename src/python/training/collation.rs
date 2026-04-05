@@ -219,12 +219,12 @@ fn collate_task_tensors(tensors: &[TaskTensors]) -> CollatedTask {
 /// mu_death : float    Extinction rate (must be >= 0).
 /// sp_seed : int       Seed for species tree simulation.
 /// n_gene_trees : int  Number of gene trees per batch.
-/// gt_seeds : list[int]  Per-gene-tree simulation seeds (length n_gene_trees).
+/// gt_seeds : list\[int\]  Per-gene-tree simulation seeds (length n_gene_trees).
 /// lambda_d/t/l : float  DTL rates for gene tree simulation.
 /// enable_event : bool   Include evt_* keys in returned dict.
 /// enable_root : bool    Include root_* keys in returned dict.
 /// sample_order : str    "random" or "bottom_up".
-/// map/evt/root_coloring_seeds : list[int]  Per-sample RNG seeds for tensor construction.
+/// map/evt/root_coloring_seeds : list\[int\]  Per-sample RNG seeds for tensor construction.
 /// min_gene_leaves : int   Minimum extant gene leaves required.
 /// max_gene_nodes : int    Maximum total gene nodes (0 = no limit).
 /// max_retries : int       Retry attempts per gene tree slot on simulation failure.
