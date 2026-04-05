@@ -109,6 +109,8 @@ mod tests {
 
     #[test]
     fn test_dtl_xml_export() {
+        use std::fs;
+
         let newick = "((A:1,B:1)AB:1,C:2)root:0;";
         let mut species_tree = parse_tree(newick);
         species_tree.assign_depths();
@@ -117,6 +119,8 @@ mod tests {
 
         // With mixed events
         let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 1.0, 0.5, 0.5, None, None, false, &mut rng).unwrap();
+
+        fs::create_dir_all("testdata").expect("Failed to create testdata directory");
 
         // Save events to CSV
         save_events_to_csv(&events, &species_tree, &rec_tree.gene_tree, "testdata/test_dtl_events.csv").expect("Failed to write events CSV");
@@ -132,7 +136,6 @@ mod tests {
         assert!(xml.contains("<branchLength>"));
 
         // Write to file for inspection
-        use std::fs;
         fs::write("testdata/test_dtl_output.xml", &xml).expect("Failed to write XML");
         println!("XML output written to testdata/test_dtl_output.xml");
     }
