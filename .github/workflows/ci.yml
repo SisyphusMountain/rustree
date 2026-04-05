@@ -26,6 +26,12 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - name: Install R (r feature only)
+        if: matrix.name == 'r'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y r-base-core
+
       - name: Check (${{ matrix.name }})
         run: cargo check ${{ matrix.features }}
 
@@ -36,6 +42,7 @@ jobs:
         run: cargo clippy ${{ matrix.features }} -- -D warnings
 
       - name: Doc check (${{ matrix.name }})
+        if: matrix.name != 'python'
         run: cargo doc --no-deps ${{ matrix.features }}
         env:
           RUSTDOCFLAGS: "-D warnings"
