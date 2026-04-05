@@ -242,7 +242,7 @@ pub(crate) fn finalize_simulation(
     let root_idx = final_gene_nodes
         .iter()
         .position(|n| n.parent.is_none())
-        .unwrap_or(0);
+        .expect("gene tree must have at least one root node (no parent)");
 
     let gene_tree = FlatTree {
         nodes: final_gene_nodes,

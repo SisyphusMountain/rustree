@@ -2,6 +2,7 @@
 
 use std::collections::{HashSet, HashMap};
 use crate::node::{FlatTree, FlatNode};
+use crate::error::RustreeError;
 
 /// Status of a node during induced subtree extraction.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -31,6 +32,7 @@ pub(crate) enum NodeMark {
 /// A new `FlatTree` containing only the induced subtree, or `None` if no leaves are kept.
 /// The returned `Vec<Option<usize>>` maps original node indices to new node indices
 /// (`old_to_new[old_idx] = Some(new_idx)` for kept nodes, `None` for discarded/collapsed nodes).
+#[must_use]
 pub fn extract_induced_subtree(tree: &FlatTree, keep_leaf_indices: &HashSet<usize>) -> Option<(FlatTree, Vec<Option<usize>>)> {
     if keep_leaf_indices.is_empty() {
         return None;
@@ -179,6 +181,7 @@ fn build_induced_tree(
 ///
 /// # Returns
 /// A HashSet of leaf indices matching the given names.
+#[must_use]
 pub fn find_leaf_indices_by_names(tree: &FlatTree, names: &[String]) -> HashSet<usize> {
     let name_set: HashSet<&str> = names.iter().map(|s| s.as_str()).collect();
 
@@ -195,6 +198,7 @@ pub fn find_leaf_indices_by_names(tree: &FlatTree, names: &[String]) -> HashSet<
 }
 
 /// Finds all leaf indices in the tree.
+#[must_use]
 pub fn find_all_leaf_indices(tree: &FlatTree) -> Vec<usize> {
     tree.nodes
         .iter()
@@ -214,6 +218,7 @@ pub fn find_all_leaf_indices(tree: &FlatTree) -> Vec<usize> {
 ///
 /// # Returns
 /// A new `FlatTree` containing only the induced subtree, or `None` if no matching leaves found.
+#[must_use]
 pub fn extract_induced_subtree_by_names(tree: &FlatTree, leaf_names: &[String]) -> Option<(FlatTree, Vec<Option<usize>>)> {
     let keep_indices = find_leaf_indices_by_names(tree, leaf_names);
     extract_induced_subtree(tree, &keep_indices)
@@ -230,6 +235,7 @@ pub fn extract_induced_subtree_by_names(tree: &FlatTree, leaf_names: &[String]) 
 ///
 /// # Returns
 /// A HashSet of indices of extant leaves.
+#[must_use]
 pub fn find_extant_leaf_indices(tree: &FlatTree) -> HashSet<usize> {
     use crate::bd::BDEvent;
 
@@ -287,6 +293,7 @@ pub fn find_extant_leaf_indices(tree: &FlatTree) -> HashSet<usize> {
 ///     .filter(|n| n.left_child.is_none() && n.right_child.is_none())
 ///     .count(), 20);
 /// ```
+#[must_use]
 pub fn extract_extant_subtree(tree: &FlatTree) -> Option<(FlatTree, Vec<Option<usize>>)> {
     let extant_indices = find_extant_leaf_indices(tree);
     let (extant_tree, mapping) = extract_induced_subtree(tree, &extant_indices)?;
@@ -303,19 +310,19 @@ pub fn extract_extant_subtree(tree: &FlatTree) -> Option<(FlatTree, Vec<Option<u
 ///
 /// # Returns
 /// The index of the LCA node (the deepest node that is an ancestor of both input nodes).
-pub fn compute_lca(tree: &FlatTree, node1_idx: usize, node2_idx: usize) -> Result<usize, String> {
+pub fn compute_lca(tree: &FlatTree, node1_idx: usize, node2_idx: usize) -> Result<usize, RustreeError> {
     let n = tree.nodes.len();
     if node1_idx >= n {
-        return Err(format!(
+        return Err(RustreeError::Index(format!(
             "node1_idx {} is out of bounds (tree has {} nodes)",
             node1_idx, n
-        ));
+        )));
     }
     if node2_idx >= n {
-        return Err(format!(
+        return Err(RustreeError::Index(format!(
             "node2_idx {} is out of bounds (tree has {} nodes)",
             node2_idx, n
-        ));
+        )));
     }
 
     // Build path from node1 to root
@@ -353,13 +360,13 @@ pub fn compute_lca(tree: &FlatTree, node1_idx: usize, node2_idx: usize) -> Resul
 ///
 /// # Returns
 /// A vector of leaf names descended from this node.
-pub fn get_descendant_leaf_names(tree: &FlatTree, node_idx: usize) -> Result<Vec<String>, String> {
+pub fn get_descendant_leaf_names(tree: &FlatTree, node_idx: usize) -> Result<Vec<String>, RustreeError> {
     if node_idx >= tree.nodes.len() {
-        return Err(format!(
+        return Err(RustreeError::Index(format!(
             "node_idx {} is out of bounds (tree has {} nodes)",
             node_idx,
             tree.nodes.len()
-        ));
+        )));
     }
 
     let mut leaves = Vec::new();
@@ -395,6 +402,7 @@ pub fn get_descendant_leaf_names(tree: &FlatTree, node_idx: usize) -> Result<Vec
 ///
 /// # Returns
 /// A HashMap mapping (leaf_name1, leaf_name2) pairs to LCA node indices.
+#[must_use]
 pub fn build_leaf_pair_lca_map(tree: &FlatTree) -> HashMap<(String, String), usize> {
     let leaf_indices = find_all_leaf_indices(tree);
     let mut lca_map = HashMap::new();
@@ -421,6 +429,7 @@ pub fn build_leaf_pair_lca_map(tree: &FlatTree) -> HashMap<(String, String), usi
 }
 
 /// Look up the LCA for a pair of leaf names in a canonical-ordered LCA map.
+#[must_use]
 pub fn lca_map_get(lca_map: &HashMap<(String, String), usize>, a: &str, b: &str) -> Option<usize> {
     let key = if a <= b {
         (a.to_string(), b.to_string())
@@ -447,7 +456,7 @@ pub fn build_sampled_to_original_mapping(
     original_tree: &FlatTree,
     _sampled_lca_map: &HashMap<(String, String), usize>,
     original_lca_map: &HashMap<(String, String), usize>,
-) -> Result<HashMap<usize, usize>, String> {
+) -> Result<HashMap<usize, usize>, RustreeError> {
     let mut mapping = HashMap::new();
 
     // For each node in sampled tree
@@ -458,10 +467,10 @@ pub fn build_sampled_to_original_mapping(
             // Leaf node - use name-based lookup
             let original_idx = original_tree.nodes.iter()
                 .position(|n| n.name == sampled_node.name)
-                .ok_or_else(|| format!(
+                .ok_or_else(|| RustreeError::Tree(format!(
                     "Sampled leaf '{}' (index {}) not found in original tree",
                     sampled_node.name, sampled_idx
-                ))?;
+                )))?;
             mapping.insert(sampled_idx, original_idx);
         } else {
             // Internal node - use LCA-based lookup
@@ -470,10 +479,10 @@ pub fn build_sampled_to_original_mapping(
             if leaf_names.len() >= 2 {
                 // Use first two leaves to identify this internal node
                 let original_idx = lca_map_get(original_lca_map, &leaf_names[0], &leaf_names[1])
-                    .ok_or_else(|| format!(
+                    .ok_or_else(|| RustreeError::Tree(format!(
                         "LCA for leaves ('{}', '{}') not found in original tree",
                         leaf_names[0], leaf_names[1]
-                    ))?;
+                    )))?;
                 mapping.insert(sampled_idx, original_idx);
             }
         }

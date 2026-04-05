@@ -41,15 +41,15 @@ pub use forest::{PyGeneForest, PyAleRaxForestResult};
 
 pub(crate) fn validate_dtl_rates(lambda_d: f64, lambda_t: f64, lambda_l: f64) -> PyResult<()> {
     crate::bindings_common::validate_dtl_rates(lambda_d, lambda_t, lambda_l)
-        .map_err(|e| PyValueError::new_err(e))
+        .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 pub(crate) fn validate_replacement_transfer(replacement_transfer: Option<f64>) -> PyResult<()> {
     crate::bindings_common::validate_replacement_transfer(replacement_transfer)
-        .map_err(|e| PyValueError::new_err(e))
+        .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
-pub(crate) fn extract_extant_gene_tree(rec_tree: &RecTree) -> Result<FlatTree, String> {
+pub(crate) fn extract_extant_gene_tree(rec_tree: &RecTree) -> Result<FlatTree, crate::error::RustreeError> {
     crate::bindings_common::extract_extant_gene_tree(rec_tree)
 }
 
@@ -63,7 +63,7 @@ pub(crate) fn is_leaf(node: &crate::node::FlatNode) -> bool {
 
 pub(crate) fn parse_distance_type(distance_type: &str) -> PyResult<crate::metric_functions::DistanceType> {
     crate::bindings_common::parse_distance_type(distance_type)
-        .map_err(|e| PyValueError::new_err(e))
+        .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 /// Import a Python module with a helpful error message if it's not installed.
@@ -109,7 +109,7 @@ fn simulate_species_tree(n: usize, lambda_: f64, mu: f64, seed: Option<u64>) -> 
     };
 
     let (mut tree, _events) = simulate_bd_tree_bwd(n, lambda_, mu, &mut rng)
-        .map_err(|e| PyValueError::new_err(e))?;
+        .map_err(PyValueError::new_err)?;
     tree.assign_depths();
 
     Ok(PySpeciesTree { tree: Arc::new(tree) })

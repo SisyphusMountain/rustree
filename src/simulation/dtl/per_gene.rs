@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 // Per-gene DTL (Duplication-Transfer-Loss) simulation
 //
 // This module contains the per-gene-copy model where DTL event rates scale

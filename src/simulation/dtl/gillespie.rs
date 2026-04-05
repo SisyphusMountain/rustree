@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 // Shared Gillespie-style DTL simulation loop
 // Both per-gene and per-species DTL models use the same chronological
 // event loop, differing only in how the total event rate is computed
@@ -34,10 +35,11 @@ pub(crate) enum DTLMode {
 /// - **PerGene**: total rate = n_copies × (λ_D + λ_T + λ_L), random copy is selected
 /// - **PerSpecies**: total rate = n_alive_species × (λ_D + λ_T + λ_L), random species
 ///   is selected then random gene in that species (event fails if species has no genes)
+///
 /// For now, rates are the same for all species in the tree. We can change it later if we want.
 /// Doing so will involve changing the rates at which events are proposed,
 /// as well as the probability of a given event affecting each gene or species at time t.
-/// We can have auxillary functions to flexibly handle the different generalizations without loss of performance.
+/// We can have auxiliary functions to flexibly handle the different generalizations without loss of performance.
 pub(crate) fn simulate_dtl_gillespie<R: Rng>(
     mode: DTLMode,
     species_tree: &Arc<FlatTree>,
@@ -225,7 +227,7 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
                 if let Some(recipient_species) = recipient {
                     // Replacement transfer: find and remove victim BEFORE adding transfer
                     let is_replacement = replacement_transfer
-                        .map_or(false, |p| p > 0.0 && rng.gen::<f64>() < p);
+                        .is_some_and(|p| p > 0.0 && rng.gen::<f64>() < p);
                     if is_replacement {
                         if let Some(victim) = state.random_gene_in_species(recipient_species, rng) {
                             state.handle_loss(victim, recipient_species, current_time);

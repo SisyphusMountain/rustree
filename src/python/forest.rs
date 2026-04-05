@@ -129,6 +129,7 @@ impl PyGeneForest {
     /// # Returns
     /// An AleRaxForestResult containing all reconciliation data.
     #[pyo3(signature = (output_dir=None, num_samples=100, model="PER-FAMILY".to_string(), gene_tree_rooting=None, seed=None, keep_output=false, alerax_path="alerax".to_string()))]
+    #[allow(clippy::too_many_arguments)]
     fn reconcile_with_alerax(
         &self,
         output_dir: Option<String>,

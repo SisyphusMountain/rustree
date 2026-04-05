@@ -1,7 +1,7 @@
 # Code Review Action Plan: rustree
 
 **Generated**: 2026-02-10
-**Last updated**: 2026-04-05 (Sprint 4 complete)
+**Last updated**: 2026-04-05 (Sprint 5 complete)
 **Source**: Aggregated findings from 8 parallel code review agents covering all modules
 **Scope**: All Rust source in `rustree/src/` plus integration tests in `rustree/tests/`
 
@@ -57,24 +57,10 @@ This pattern appears in **6 locations** across the codebase. If any depth or tim
 - **Why it matters**: NaN values from numerical edge cases will crash the library instead of being handled gracefully. This is the single most likely crash path in production use.
 - **Effort**: 30 minutes for all 6 locations.
 
-### 2.3 CRITICAL (STILL OPEN): Memory leak in XML indent function
+### 2.3 ~~CRITICAL~~ FIXED: Memory leak in XML indent function
 
-- **File**: `src/node/rectree.rs`, lines 238-251
-- **What is wrong**: `Box::leak(Box::new("\t".repeat(indent)))` intentionally leaks memory for deeply nested trees (indent >= 10). Each call allocates permanent memory.
-- **Fix**: Return `Cow<'static, str>` instead of `&'static str`:
-  ```rust
-  fn get_indent(indent: usize) -> Cow<'static, str> {
-      const INDENTS: [&str; 10] = [/* ... */];
-      if indent < INDENTS.len() {
-          Cow::Borrowed(INDENTS[indent])
-      } else {
-          Cow::Owned("\t".repeat(indent))
-      }
-  }
-  ```
-  Then update callers to accept `Cow<'static, str>` or use `.as_ref()`.
-- **Why it matters**: For long-running services or batch processing of many deep trees, memory accumulates with no way to reclaim it.
-- **Effort**: 30 minutes.
+- **File**: `src/node/rectree.rs`
+- ~~**What is wrong**: `Box::leak(Box::new("\t".repeat(indent)))` intentionally leaks memory for deeply nested trees (indent >= 10). Each call allocates permanent memory.~~ Fixed: `get_indent` now returns `Cow<'static, str>`, using `Cow::Borrowed` for cached indents and `Cow::Owned` for deeper levels. No more memory leak.
 
 ### 2.4 ~~CRITICAL~~ FIXED: `unwrap()` on seed parameter in R bindings crashes R
 
@@ -134,19 +120,10 @@ This pattern appears in **6 locations** across the codebase. If any depth or tim
 - **Why it matters**: Users who sample then analyze reconciliation events will get completely wrong results with no warning.
 - **Effort**: Option 2 = 30 minutes; Option 1 = 2-4 hours.
 
-### 2.8 HIGH: Silent data corruption with `unwrap_or()` defaults in R bindings
+### 2.8 ~~HIGH~~ FIXED: Silent data corruption with `unwrap_or()` defaults in R bindings
 
-- **File**: `src/r.rs`, line 861 -- `BDEvent::from_str(&event_types[i]).unwrap_or(BDEvent::Leaf)`
-- **File**: `src/r.rs`, lines 965-971 -- species name not found defaults to `species_tree.root`
-- **File**: `src/r.rs`, line 981 -- unknown event string defaults to `Event::Speciation`
-- **What is wrong**: Invalid input silently becomes valid-looking data. A misspelled event type like "Speciiation" silently becomes `Leaf` or `Speciation`.
-- **Fix**: Return errors for unrecognized values:
-  ```rust
-  let event = BDEvent::from_str(&event_types[i])
-      .ok_or_else(|| format!("Unknown event type '{}' at index {}", event_types[i], i))?;
-  ```
-- **Why it matters**: Data integrity -- users cannot trust results when inputs are silently corrected.
-- **Effort**: 30 minutes.
+- **File**: `src/r/` (formerly `src/r.rs`)
+- ~~**What is wrong**: Invalid input silently becomes valid-looking data. A misspelled event type like "Speciiation" silently becomes `Leaf` or `Speciation`.~~ Fixed: `BDEvent::from_str` now uses `FromStr` trait returning `Result`, unknown event strings now return errors. R bindings propagate errors instead of silently defaulting.
 
 ### 2.9 ~~HIGH~~ FIXED: `assert!()` in `simulate_bd_tree` and `validate_rates` (library panics on bad input)
 
@@ -155,13 +132,10 @@ This pattern appears in **6 locations** across the codebase. If any depth or tim
 - ~~**What is wrong**: Public API functions use `assert!` for input validation. These panic instead of returning errors.~~ `simulate_bd_tree_bwd` now returns `Result<(FlatTree, Vec<TreeEvent>), String>` with 4 early-return validations (n > 0, lambda finite+positive, mu finite+non-negative, lambda > mu). All callers updated: Python/R use `.map_err()`, tests/examples use `.unwrap()`.
 - **Effort**: 1-2 hours to change to Result types and propagate through call chain.
 
-### 2.10 HIGH: Depth values not recalculated in induced subtree
+### 2.10 ~~HIGH~~ FIXED: Depth values not recalculated in induced subtree
 
-- **File**: `src/sampling.rs`, line 142
-- **What is wrong**: When extracting an induced subtree, `depth: node.depth` copies the original depth. After collapsing intermediate nodes (and accumulating their branch lengths), the depth is no longer correct relative to the new tree structure.
-- **Fix**: Set `depth: None` and document that callers must call `assign_depths()` on the result, or recalculate during extraction.
-- **Why it matters**: Incorrect depths propagate to all downstream distance calculations, contemporaneity computations, and LTT plots.
-- **Effort**: 15 minutes for `depth: None` approach; 1 hour for recalculation during extraction.
+- **File**: `src/sampling.rs`
+- ~~**What is wrong**: When extracting an induced subtree, `depth: node.depth` copies the original depth. After collapsing intermediate nodes (and accumulating their branch lengths), the depth is no longer correct relative to the new tree structure.~~ Fixed: Induced subtree extraction now sets `depth: None`. Callers must call `assign_depths()` on the result.
 
 ---
 
@@ -284,12 +258,10 @@ Address in the next development iteration.
 - **Fix**: Implement `std::str::FromStr` trait.
 - **Effort**: 30 minutes.
 
-### 4.5 Add `#[must_use]` attributes to pure functions
+### 4.5 ~~Add `#[must_use]` attributes to pure functions~~ FIXED
 
-- **Files**: `src/node/conversion.rs`, `src/node/rectree.rs`
-- **Issue**: Functions like `to_node()`, `to_flat_tree()`, `to_xml()` return values that could be accidentally ignored.
-- **Fix**: Add `#[must_use]` annotations.
-- **Effort**: 15 minutes.
+- **Files**: `src/node/conversion.rs`, `src/node/rectree.rs`, `src/io/rectree_xml.rs`, `src/io/rectree_csv.rs`, `src/sampling.rs`, `src/robinson_foulds.rs`
+- ~~**Issue**: Functions like `to_node()`, `to_flat_tree()`, `to_xml()` return values that could be accidentally ignored.~~ Added `#[must_use]` to `to_node`, `to_flat_tree`, `to_xml`, `to_csv_string` (both), `extract_induced_subtree`, `find_leaf_indices_by_names`, `find_all_leaf_indices`, `extract_induced_subtree_by_names`, `find_extant_leaf_indices`, `extract_extant_subtree`, `build_leaf_pair_lca_map`, `lca_map_get`, `unrooted_robinson_foulds`, `true_unrooted_robinson_foulds`.
 
 ### 4.6 Reduce public field exposure
 
@@ -312,10 +284,11 @@ Address in the next development iteration.
 - **Fix**: Re-export from mod.rs: `pub use newick::*;` or move contents into mod.rs.
 - **Effort**: 15 minutes.
 
-### 4.9 Add comprehensive edge case tests
+### 4.9 Add comprehensive edge case tests (PARTIAL)
 
-- Missing tests for: empty trees, single-node trees, trees with NaN depths, very deep trees (stack overflow), SPR moves on root, all-species-extinct scenarios.
-- **Effort**: 4-6 hours.
+- ~~Missing tests for: empty trees, single-node trees,~~ trees with NaN depths, very deep trees (stack overflow), SPR moves on root, all-species-extinct scenarios.
+- Added `tests/edge_cases.rs` covering: single-node trees (construction, Newick, traversal, depth assignment), sampling edge cases (empty keep set, single leaf extraction, nonexistent names), Newick parsing edge cases (single leaf, deeply nested caterpillar, missing semicolon, unmatched paren, ternary rejection), conversion roundtrip, idempotent depth assignment.
+- **Effort**: Remaining items ~2-3 hours.
 
 ### 4.10 Snapshot/regression tests with deterministic seeds
 
@@ -349,17 +322,19 @@ Address in the next development iteration.
 
 **Recommendation**: Each instance should be evaluated individually. For parsing/deserialization, return errors. For internal computations where the value should always be valid, use `expect()` with a descriptive message during development, with a plan to convert to Result.
 
-### 5.3 Pattern: `println!`/`eprintln!` in library code
+### 5.3 ~~Pattern: `println!`/`eprintln!` in library code~~ FIXED
 
-**Prevalence**: Found in `newick.rs` (println), `surgery.rs` (eprintln), `recphyloxml.rs` (eprintln for polytomy warning).
+~~**Prevalence**: Found in `newick.rs` (println), `surgery.rs` (eprintln), `recphyloxml.rs` (eprintln for polytomy warning).~~
 
-**Recommendation**: Replace all with the `log` crate. Add `log` as a dependency and use `log::warn!()`, `log::error!()`. Consumers can then route log output as they see fit.
+**Status**: `log` crate (0.4) added as dependency. All `println!`/`eprintln!` in library code replaced with `log::warn!`, `log::info!`, or `log::debug!` as appropriate. Files updated: `src/surgery.rs`, `src/io/recphyloxml.rs`, `src/external/alerax.rs`, `src/python/training.rs`. Newick parser `println!` was previously converted to proper error propagation.
 
-### 5.4 Pattern: Inconsistent error types
+### 5.4 Pattern: Inconsistent error types (PARTIAL — unified type created, migration ongoing)
 
-**Current state**: Mix of `String` errors, `io::Error`, `PyErr`, `extendr` errors, raw panics. No unified error type.
+**Current state**: `RustreeError` unified error enum created in `src/error.rs` with 8 domain-specific variants: `Parse`, `Validation`, `Index`, `Tree`, `Simulation`, `Io`, `Xml`, `ExternalTool`. Implements `Display`, `Error`, `From<std::io::Error>`, `From<quick_xml::Error>`, `From<ParseError>`. Feature-gated `From` impls for `PyErr` (python) and `extendr_api::Error` (r).
 
-**Recommendation**: Define a `rustree::Error` enum (using `thiserror` crate) with variants for parse errors, validation errors, simulation errors, I/O errors. This is a larger refactor but would dramatically improve API quality.
+**Migrated modules**: `src/newick/parser.rs`, `src/sampling.rs`, `src/comparison.rs`, `src/node/rectree.rs`, `src/node/conversion.rs`, `src/bindings_common/mod.rs`, `src/induced_transfers.rs`. All Python and R binding callers updated.
+
+**Remaining**: ~50+ functions in simulation modules (`bd/simulation.rs`, `bd/events.rs`, `dtl/per_gene.rs`, `dtl/per_species.rs`, `dtl/stream.rs`, `dtl/gillespie.rs`), `surgery.rs`, `io/rectree_xml.rs`, `metric_functions.rs`, `node/gene_forest.rs`, `external/alerax.rs` still use `Result<_, String>`. These can be migrated incrementally.
 
 ---
 
@@ -418,11 +393,11 @@ The agent flagged `s == "NA"` as unreliable. However, when extendr converts R ch
 3. ~~Fix `println!` in Newick parser (2.5)~~ DONE (as part of newick unwrap fix)
 4. Fix Newick grammar: colon + whitespace (2.6) -- **STILL OPEN, moved to Sprint 2**
 5. ~~Fix R seed unwrap (2.4)~~ DONE
-6. Fix `Box::leak` memory leak (2.3) -- **STILL OPEN, moved to Sprint 2**
-7. Fix silent R defaults (2.8) -- **STILL OPEN, moved to Sprint 2**
+6. ~~Fix `Box::leak` memory leak (2.3)~~ DONE (Sprint 5)
+7. ~~Fix silent R defaults (2.8)~~ DONE (Sprint 5)
 8. ~~Fix test hardcoded paths (3.10)~~ DONE
 9. ~~Fix test file cleanup (3.11)~~ DONE
-10. Set depth to None in sampling (2.10) -- **STILL OPEN, moved to Sprint 2**
+10. ~~Set depth to None in sampling (2.10)~~ DONE (Sprint 5)
 
 **Additional fixes completed (not in original sprint plan):**
 - All newick parser unwraps replaced with Result propagation (#20)
@@ -473,3 +448,24 @@ The agent flagged `s == "NA"` as unreliable. However, when extendr converts R ch
 - `src/python.rs` (2,977 lines) → `src/python/` module directory with submodules: `mod.rs`, `species_tree.rs`, `gene_tree.rs`, `sim_iter.rs`, `types.rs` (plus existing `reconciliation.rs`, `alerax.rs`, `forest.rs`, `training.rs`)
 - `src/r.rs` (1,683 lines) → `src/r/` module directory: `mod.rs` + `conversions.rs`
 - New `src/bindings_common/mod.rs` with shared validation/utility logic
+
+**Sprint 5 (COMPLETED):**
+1. ~~Create `RustreeError` unified error type (5.4 partial)~~ DONE — `src/error.rs` with 8 variants, `pub use error::RustreeError` in lib.rs
+2. ~~Migrate core modules to `RustreeError`~~ DONE — newick/parser.rs, sampling.rs, comparison.rs, node/rectree.rs, node/conversion.rs, bindings_common/mod.rs, induced_transfers.rs
+3. ~~Adopt `log` crate (5.3)~~ DONE — `log = "0.4"` added, all eprintln!/println! replaced in library code
+4. ~~Add `#[must_use]` attributes (4.5)~~ DONE — 15 pure functions across 6 files
+5. ~~Convert `expect()`/`assert!()` to `Result` in public APIs~~ DONE — `name_internal_nodes`, `induced_transfers`, `ghost_lengths` now return `Result<_, RustreeError>`
+6. ~~Reduce lib.rs facade~~ DONE — trimmed re-exports from 30+ items to core types only
+7. ~~Fix silent `unwrap_or()` defaults in simulation code~~ DONE — `depth.unwrap_or(0.0)` → `.expect()`, `.position().unwrap_or(0)` → `.expect()`
+8. ~~Fix `Box::leak` memory leak (2.3)~~ DONE — `get_indent` returns `Cow<'static, str>`
+9. ~~Fix silent R defaults (2.8)~~ DONE — `BDEvent::from_str` uses `FromStr` returning `Result`
+10. ~~Set depth to None in induced subtree (2.10)~~ DONE
+11. ~~Add edge case tests (4.9 partial)~~ DONE — `tests/edge_cases.rs` with 13 tests covering single-node trees, sampling edge cases, Newick parsing edge cases, conversion roundtrips, idempotent depth assignment
+12. ~~Update Python/R binding callers for RustreeError~~ DONE — all `.map_err()` patterns updated across python/ and r/ submodules
+
+**Sprint 6 (COMPLETED):**
+1. ~~Migrate io modules to `RustreeError`~~ DONE — `rectree_xml.rs` 5 public functions migrated from `Result<_, String>` to `Result<_, RustreeError>`, callers updated
+2. ~~Split Python training module~~ DONE — `training.rs` (1990 lines) → `training/` directory: `mod.rs`, `extraction.rs` (~430 lines), `tensors.rs` (~510 lines), `collation.rs` (~540 lines)
+3. ~~Add API contract tests for Python + R parity~~ DONE — `tests/api_parity.rs` with 14 tests covering shared validation, distance type parsing, extant gene extraction, utilities, newick roundtrip, pairwise distances, name_internal_nodes, simulation
+4. ~~Create CONTRIBUTING.md~~ DONE — module size limits (1500 lines), ownership boundaries, coding conventions, PR checklist, binding parity requirements
+5. ~~Add perf regression benchmarks for comparison/sampling~~ DONE — `benches/comparison_sampling_benchmarks.rs` with criterion benchmarks for compare_nodes, compare_nodes_topology, extract_induced_subtree, extract_extant_subtree, build_leaf_pair_lca_map

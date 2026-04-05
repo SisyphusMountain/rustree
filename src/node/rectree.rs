@@ -3,6 +3,7 @@
 use super::{FlatNode, FlatTree};
 use std::sync::Arc;
 use crate::dtl::DTLEvent;
+use crate::error::RustreeError;
 
 /// Events that can occur during DTL reconciliation.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -155,16 +156,16 @@ impl RecTree {
     ///
     /// # Errors
     /// Returns an error if `gene_node_idx` is out of bounds.
-    pub fn species_node_for(&self, gene_node_idx: usize) -> Result<Option<usize>, String> {
+    pub fn species_node_for(&self, gene_node_idx: usize) -> Result<Option<usize>, RustreeError> {
         self.node_mapping
             .get(gene_node_idx)
             .copied()
             .ok_or_else(|| {
-                format!(
+                RustreeError::Index(format!(
                     "gene_node_idx {} is out of bounds (gene tree has {} nodes)",
                     gene_node_idx,
                     self.node_mapping.len()
-                )
+                ))
             })
     }
 
@@ -172,13 +173,13 @@ impl RecTree {
     ///
     /// # Errors
     /// Returns an error if `gene_node_idx` is out of bounds.
-    pub fn event_for(&self, gene_node_idx: usize) -> Result<&Event, String> {
+    pub fn event_for(&self, gene_node_idx: usize) -> Result<&Event, RustreeError> {
         self.event_mapping.get(gene_node_idx).ok_or_else(|| {
-            format!(
+            RustreeError::Index(format!(
                 "gene_node_idx {} is out of bounds (gene tree has {} nodes)",
                 gene_node_idx,
                 self.event_mapping.len()
-            )
+            ))
         })
     }
 
@@ -186,27 +187,27 @@ impl RecTree {
     ///
     /// # Errors
     /// Returns an error if `gene_node_idx` is out of bounds.
-    pub fn get_full_info(&self, gene_node_idx: usize) -> Result<(&FlatNode, Option<usize>, &Event), String> {
+    pub fn get_full_info(&self, gene_node_idx: usize) -> Result<(&FlatNode, Option<usize>, &Event), RustreeError> {
         let gene_node = self.gene_tree.nodes.get(gene_node_idx).ok_or_else(|| {
-            format!(
+            RustreeError::Index(format!(
                 "gene_node_idx {} is out of bounds (gene tree has {} nodes)",
                 gene_node_idx,
                 self.gene_tree.nodes.len()
-            )
+            ))
         })?;
         let species_idx = self.node_mapping.get(gene_node_idx).copied().ok_or_else(|| {
-            format!(
+            RustreeError::Index(format!(
                 "gene_node_idx {} is out of bounds for node_mapping (len {})",
                 gene_node_idx,
                 self.node_mapping.len()
-            )
+            ))
         })?;
         let event = self.event_mapping.get(gene_node_idx).ok_or_else(|| {
-            format!(
+            RustreeError::Index(format!(
                 "gene_node_idx {} is out of bounds for event_mapping (len {})",
                 gene_node_idx,
                 self.event_mapping.len()
-            )
+            ))
         })?;
         Ok((gene_node, species_idx, event))
     }

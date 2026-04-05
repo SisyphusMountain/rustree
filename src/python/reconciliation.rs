@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 //! Reconciliation comparison Python bindings.
 
 use pyo3::prelude::*;
@@ -64,10 +65,8 @@ impl PyReconciliationComparison {
             .map_err(|e| PyValueError::new_err(format!("Failed to write temp XML: {}", e)))?;
 
         // Write config file for styling
-        let conf_lines = vec![
-            format!("species_color:{}", species_color),
-            format!("species_police_size:{}", species_fontsize),
-        ];
+        let conf_lines = [format!("species_color:{}", species_color),
+            format!("species_police_size:{}", species_fontsize)];
         fs::write(&conf_path, conf_lines.join("\n"))
             .map_err(|e| PyValueError::new_err(format!("Failed to write config: {}", e)))?;
 
@@ -466,7 +465,7 @@ impl PyMultiSampleComparison {
 #[pyfunction]
 pub fn compare_reconciliations(truth: &PyGeneTree, inferred: &PyGeneTree) -> PyResult<PyReconciliationComparison> {
     let result = crate::comparison::compare_reconciliations(&truth.rec_tree, &inferred.rec_tree)
-        .map_err(|e| PyValueError::new_err(e))?;
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(PyReconciliationComparison {
         inner: result,
         trees: Some((truth.rec_tree.clone(), inferred.rec_tree.clone())),
@@ -487,6 +486,6 @@ pub fn compare_reconciliations(truth: &PyGeneTree, inferred: &PyGeneTree) -> PyR
 pub fn compare_reconciliations_multi(truth: &PyGeneTree, samples: Vec<PyGeneTree>) -> PyResult<PyMultiSampleComparison> {
     let sample_recs: Vec<_> = samples.iter().map(|s| s.rec_tree.clone()).collect();
     let result = crate::comparison::compare_reconciliations_multi(&truth.rec_tree, &sample_recs)
-        .map_err(|e| PyValueError::new_err(e))?;
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(PyMultiSampleComparison { inner: result })
 }

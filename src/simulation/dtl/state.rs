@@ -57,7 +57,8 @@ impl<'a> SimulationState<'a> {
 
     /// Update gene's branch length and depth up to the given time
     fn update_gene_to_time(&mut self, gene_idx: usize, current_time: f64) {
-        let gene_start = self.gene_nodes[gene_idx].depth.unwrap_or(0.0);
+        let gene_start = self.gene_nodes[gene_idx].depth
+            .expect("gene node should have depth set at creation time");
         self.gene_nodes[gene_idx].length = current_time - gene_start;
         self.gene_nodes[gene_idx].depth = Some(current_time);
     }

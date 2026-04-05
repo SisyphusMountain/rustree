@@ -1,10 +1,15 @@
 // rustree/src/lib.rs
 //! Phylogenetic tree simulation library.
 //!
-//! Error handling: this library uses `Result<_, String>` throughout for simplicity.
+//! Error handling: the library is migrating from `Result<_, String>` to
+//! `Result<_, RustreeError>`. Both forms coexist during the transition.
 
 #[macro_use]
 extern crate pest_derive;
+
+// Unified error type
+pub mod error;
+pub use error::RustreeError;
 
 // Core modules
 pub mod node;   // Tree data structures and traversal
@@ -41,22 +46,8 @@ pub mod python;
 #[cfg(feature = "r")]
 pub mod r;
 
-// Re-export key types for easier access
+// Re-export core types at crate root.
+// For other items, use qualified paths (e.g., `rustree::sampling::compute_lca`).
 pub use newick::parse_newick;
-pub use node::{Node, FlatNode, FlatTree, TraversalOrder, map_by_topology, rename_gene_tree};
+pub use node::{Node, FlatNode, FlatTree, TraversalOrder};
 pub use node::{RecTree, Event, GeneForest, parse_recphyloxml, parse_recphyloxml_file};
-pub use metric_functions::{DistanceType, PairwiseDistance, LcaTable};
-pub use sampling::{
-    extract_induced_subtree, extract_induced_subtree_by_names,
-    compute_lca, build_leaf_pair_lca_map, lca_map_get, build_sampled_to_original_mapping,
-    get_descendant_leaf_names, find_all_leaf_indices, find_leaf_indices_by_names,
-};
-pub use alerax::{
-    run_alerax, reconcile_forest, AleRaxConfig, AleRaxFamilyResult, AleRaxForestResult,
-    GeneFamily, ModelType, validate_inputs, SpeciesEventRow, TransferRow,
-};
-pub use robinson_foulds::{unrooted_robinson_foulds, true_unrooted_robinson_foulds};
-pub use comparison::{
-    compare_reconciliations, compare_reconciliations_multi,
-    ReconciliationComparison, MultiSampleComparison, NodeComparison,
-};

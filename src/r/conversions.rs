@@ -1,3 +1,4 @@
+#![allow(clippy::type_complexity)]
 //! R ↔ Rust conversion helpers for tree and event data structures.
 
 use std::str::FromStr;
@@ -24,7 +25,7 @@ pub(crate) fn flattree_to_rlist(tree: &FlatTree) -> List {
         .collect();
     let lengths: Vec<f64> = tree.nodes.iter().map(|n| n.length).collect();
     let depths: Vec<Rfloat> = tree.nodes.iter()
-        .map(|n| n.depth.map(|d| Rfloat::from(d)).unwrap_or(Rfloat::na()))
+        .map(|n| n.depth.map(Rfloat::from).unwrap_or(Rfloat::na()))
         .collect();
     // bd_event: convert Option<BDEvent> to Rstr for proper NA handling in R
     let bd_events: Vec<Rstr> = tree.nodes.iter()
@@ -152,7 +153,7 @@ pub(crate) fn rlist_to_bd_events(list: &List) -> Result<Vec<TreeEvent>> {
             })
         })
         .collect::<std::result::Result<Vec<TreeEvent>, String>>()
-        .map_err(|e| extendr_api::Error::Other(e))?;
+        .map_err(extendr_api::Error::Other)?;
 
     Ok(events)
 }
@@ -174,7 +175,7 @@ pub(crate) fn rectree_to_rlist(species_tree: &FlatTree, gene_tree: &FlatTree, no
         .collect();
     let lengths: Vec<f64> = gene_tree.nodes.iter().map(|n| n.length).collect();
     let depths: Vec<Rfloat> = gene_tree.nodes.iter()
-        .map(|n| n.depth.map(|d| Rfloat::from(d)).unwrap_or(Rfloat::na()))
+        .map(|n| n.depth.map(Rfloat::from).unwrap_or(Rfloat::na()))
         .collect();
 
     // Validate all node_mapping indices before using them
@@ -286,7 +287,7 @@ pub(crate) fn rlist_to_genetree(list: &List) -> Result<(FlatTree, FlatTree, Vec<
             }
         })
         .collect::<std::result::Result<Vec<Option<usize>>, String>>()
-        .map_err(|e| extendr_api::Error::Other(e))?;
+        .map_err(extendr_api::Error::Other)?;
 
     // Build event mapping
     let event_mapping: Vec<Event> = event_strs.iter()
@@ -303,7 +304,7 @@ pub(crate) fn rlist_to_genetree(list: &List) -> Result<(FlatTree, FlatTree, Vec<
             )),
         })
         .collect::<std::result::Result<Vec<Event>, String>>()
-        .map_err(|e| extendr_api::Error::Other(e))?;
+        .map_err(extendr_api::Error::Other)?;
 
     Ok((gene_tree, species_tree, node_mapping, event_mapping))
 }

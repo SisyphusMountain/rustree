@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 // Streaming DTL simulation iterator
 //
 // Provides DtlSimIter, a lazy iterator that generates one gene tree at a time
@@ -114,7 +115,7 @@ impl<'a, R: Rng> DtlSimIter<'a, R> {
         let width = digit_width(self.n_simulations);
         for (i, result) in self.enumerate() {
             let (rec_tree, _events) = result?;
-            let newick = rec_tree.gene_tree.to_newick()?;
+            let newick = rec_tree.gene_tree.to_newick().map_err(|e| e.to_string())?;
             let path = format!("{}/gene_{:0>width$}.nwk", dir, i, width = width);
             std::fs::write(&path, &newick).map_err(|e| e.to_string())?;
         }
@@ -159,7 +160,7 @@ impl<'a, R: Rng> Iterator for DtlSimIter<'a, R> {
         let mut attempts = 0;
 
         loop {
-            let lca_ref = self.lca_depths.as_ref().map(|v| v.as_slice());
+            let lca_ref = self.lca_depths.as_deref();
             let result = simulate_dtl_gillespie(
                 self.mode,
                 &self.species_arc,

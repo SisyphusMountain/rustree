@@ -9,6 +9,16 @@ jobs:
   rust:
     name: Rust
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - features: ""
+            name: "default"
+          - features: "--features python"
+            name: "python"
+          - features: "--features r"
+            name: "r"
     steps:
       - uses: actions/checkout@v4
 
@@ -19,17 +29,17 @@ jobs:
       - name: Format check
         run: cargo fmt --check
 
-      - name: Check
-        run: cargo check --features python
+      - name: Check (${{ matrix.name }})
+        run: cargo check ${{ matrix.features }}
 
-      - name: Test
-        run: cargo test
+      - name: Test (${{ matrix.name }})
+        run: cargo test ${{ matrix.features }}
 
-      - name: Clippy
-        run: cargo clippy --features python -- -D warnings
+      - name: Clippy (${{ matrix.name }})
+        run: cargo clippy ${{ matrix.features }} -- -D warnings
 
-      - name: Doc check
-        run: cargo doc --no-deps --features python
+      - name: Doc check (${{ matrix.name }})
+        run: cargo doc --no-deps ${{ matrix.features }}
         env:
           RUSTDOCFLAGS: "-D warnings"
 

@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 //! PySpeciesTree, PySpeciesNode, and PySpeciesTreeIter for Python bindings.
 
 use pyo3::prelude::*;
@@ -39,7 +40,7 @@ impl PySpeciesTree {
     /// Convert the species tree to Newick format.
     fn to_newick(&self) -> PyResult<String> {
         let nwk = self.tree.to_newick()
-            .map_err(|e| PyValueError::new_err(e))?;
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(nwk + ";")
     }
 
@@ -381,7 +382,7 @@ impl PySpeciesTree {
         let events = match eps {
             Some(eps) => generate_events_with_extinction(&self.tree, eps),
             None => generate_events_from_tree(&self.tree),
-        }.map_err(|e| PyValueError::new_err(e))?;
+        }.map_err(PyValueError::new_err)?;
 
         save_bd_events_to_csv(&events, &self.tree, filepath)
             .map_err(|e| PyValueError::new_err(format!("Failed to write CSV file: {}", e)))?;
@@ -398,7 +399,7 @@ impl PySpeciesTree {
         let events = match eps {
             Some(eps) => generate_events_with_extinction(&self.tree, eps),
             None => generate_events_from_tree(&self.tree),
-        }.map_err(|e| PyValueError::new_err(e))?;
+        }.map_err(PyValueError::new_err)?;
 
         let dict = PyDict::new(py);
 
@@ -434,7 +435,7 @@ impl PySpeciesTree {
         let mut events = match eps {
             Some(eps) => generate_events_with_extinction(&self.tree, eps),
             None => generate_events_from_tree(&self.tree),
-        }.map_err(|e| PyValueError::new_err(e))?;
+        }.map_err(PyValueError::new_err)?;
 
         events.sort_by(|a, b| a.time.total_cmp(&b.time));
 
@@ -516,7 +517,7 @@ impl PySpeciesTree {
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
         let (mut rec_tree, events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
-            .map_err(|e| PyValueError::new_err(e))?;
+            .map_err(PyValueError::new_err)?;
 
         rec_tree.species_tree = Arc::clone(&self.tree);
         rec_tree.dtl_events = Some(events);
@@ -542,11 +543,11 @@ impl PySpeciesTree {
             n,
             require_extant,
             &mut rng,
-        ).map_err(|e| PyValueError::new_err(e))?;
+        ).map_err(PyValueError::new_err)?;
 
         let gene_trees: Vec<RecTree> = rec_trees
             .into_iter()
-            .zip(all_events.into_iter())
+            .zip(all_events)
             .map(|(mut rec_tree, events)| {
                 rec_tree.species_tree = Arc::clone(&self.tree);
                 rec_tree.dtl_events = Some(events);
@@ -569,7 +570,7 @@ impl PySpeciesTree {
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
         let (mut rec_tree, events) = simulate_dtl_per_species(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
-            .map_err(|e| PyValueError::new_err(e))?;
+            .map_err(PyValueError::new_err)?;
 
         rec_tree.species_tree = Arc::clone(&self.tree);
         rec_tree.dtl_events = Some(events);
@@ -594,11 +595,11 @@ impl PySpeciesTree {
             n,
             require_extant,
             &mut rng,
-        ).map_err(|e| PyValueError::new_err(e))?;
+        ).map_err(PyValueError::new_err)?;
 
         let gene_trees: Vec<RecTree> = rec_trees
             .into_iter()
-            .zip(all_events.into_iter())
+            .zip(all_events)
             .map(|(mut rec_tree, events)| {
                 rec_tree.species_tree = Arc::clone(&self.tree);
                 rec_tree.dtl_events = Some(events);
@@ -631,7 +632,7 @@ impl PySpeciesTree {
 
         let species_arc = Arc::clone(&self.tree);
         let species_events = generate_events_from_tree(&self.tree)
-            .map_err(|e| PyValueError::new_err(e))?;
+            .map_err(PyValueError::new_err)?;
         let depths = self.tree.make_subdivision();
         let contemporaneity = self.tree.find_contemporaneity(&depths);
         let lca_depths = transfer_alpha.map(|_| {
@@ -675,7 +676,7 @@ impl PySpeciesTree {
 
         let species_arc = Arc::clone(&self.tree);
         let species_events = generate_events_from_tree(&self.tree)
-            .map_err(|e| PyValueError::new_err(e))?;
+            .map_err(PyValueError::new_err)?;
         let depths = self.tree.make_subdivision();
         let contemporaneity = self.tree.find_contemporaneity(&depths);
         let lca_depths = transfer_alpha.map(|_| {
@@ -760,7 +761,7 @@ impl PySpeciesTree {
         let (sampled_tree, ghosts) = ghost_lengths(
             &self.tree,
             &sampled_leaf_names,
-        );
+        ).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let node_index: Vec<usize> = (0..sampled_tree.nodes.len()).collect();
         let node_name: Vec<&str> = sampled_tree.nodes.iter().map(|n| n.name.as_str()).collect();

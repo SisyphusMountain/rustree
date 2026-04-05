@@ -2,19 +2,9 @@
 
 use rustree::bd::simulate_bd_tree_bwd;
 use rustree::dtl::{simulate_dtl, count_events, count_extant_genes};
-use rustree::newick::parse_newick;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::time::Instant;
-
-// Helper function to create a species tree from Newick
-fn create_species_tree(newick: &str) -> rustree::node::FlatTree {
-    let mut nodes = parse_newick(newick).unwrap();
-    let root = nodes.pop().expect("No tree found");
-    let mut tree = root.to_flat_tree();
-    tree.assign_depths();
-    tree
-}
 
 #[test]
 #[ignore] // Run with: cargo test --test dtl_benchmark benchmark_dtl_varying_rates -- --ignored --nocapture

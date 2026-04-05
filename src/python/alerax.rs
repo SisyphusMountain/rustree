@@ -94,6 +94,7 @@ impl PyAleRaxResult {
 /// ```
 #[pyfunction]
 #[pyo3(signature = (species_tree, gene_trees, output_dir=None, num_samples=100, model="PER-FAMILY".to_string(), gene_tree_rooting=None, seed=None, keep_output=false, alerax_path="alerax".to_string()))]
+#[allow(clippy::too_many_arguments)]
 pub fn reconcile_with_alerax(
     py: Python,
     species_tree: PyObject,
@@ -139,7 +140,7 @@ pub fn reconcile_with_alerax(
         })?;
 
     let species_tree_newick = species_tree_obj.tree.to_newick()
-        .map_err(|e| PyValueError::new_err(e))?;
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     // Parse gene trees — accepts PyGeneTree, PyGeneForest, list of PyGeneTree,
     // Newick string, file path, list of strings/paths, or dict of names→strings/paths.

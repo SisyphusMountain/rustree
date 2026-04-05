@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 // Per-species DTL (Duplication-Transfer-Loss) simulation (Zombi-style)
 //
 // This module contains the per-species model where DTL event rates are

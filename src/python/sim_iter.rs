@@ -80,7 +80,7 @@ impl PyDtlSimIter {
         }
 
         loop {
-            let lca_ref = self.lca_depths.as_ref().map(|v| v.as_slice());
+            let lca_ref = self.lca_depths.as_deref();
             let result = simulate_dtl_gillespie(
                 self.mode,
                 &self.species_arc,
@@ -246,7 +246,7 @@ impl PyDtlSimIter {
                 Some(Ok(mut rec_tree)) => {
                     rec_tree.species_tree = species_arc;
                     let newick = rec_tree.gene_tree.to_newick()
-                        .map_err(|e| PyValueError::new_err(e))?;
+                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
                     let path = format!("{}/gene_{:0>width$}.nwk", dir, idx, width = width);
                     fs::write(&path, format!("{};", newick))
                         .map_err(|e| PyValueError::new_err(format!("Failed to write {}: {}", path, e)))?;

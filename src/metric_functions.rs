@@ -190,8 +190,8 @@ impl LcaTable {
         let mut sparse = vec![vec![0usize; m]; max_k];
 
         // Base case: each element is its own minimum
-        for i in 0..m {
-            sparse[0][i] = i;
+        for (i, slot) in sparse[0].iter_mut().enumerate() {
+            *slot = i;
         }
 
         // Fill larger ranges by combining two halves
@@ -350,7 +350,7 @@ impl FlatTree {
         let mut depths: Vec<f64> = self.nodes.iter().filter_map(|node| node.depth).collect();
         depths.sort_by(|a, b| a.total_cmp(b));
         depths.dedup();
-        return depths;
+        depths
     }
     /// Computes the vector of time interval durations from the tree's depth subdivision.
     ///
@@ -380,7 +380,7 @@ impl FlatTree {
         for i in 0..depths.len() - 1 {
             intervals.push(depths[i + 1] - depths[i]);
         }
-        return intervals;
+        intervals
     }
     /// Finds the index in `depths` whose value is closest to `value`.
     ///
@@ -476,8 +476,8 @@ impl FlatTree {
             let end_index = self.find_closest_index(depths, end_time);
 
             // We don't count the start index because the node is not alive on the interval that ends at the start index.
-            for j in (start_index + 1)..=end_index {
-                contemporaneity[j].push(i);
+            for slot in &mut contemporaneity[(start_index + 1)..=end_index] {
+                slot.push(i);
             }
         }
         contemporaneity
@@ -556,8 +556,8 @@ impl FlatTree {
         let lca_table = LcaTable::new(self);
         let mut lca_depths = vec![vec![0.0; n]; n];
 
-        for i in 0..n {
-            for j in i..n {
+        for (i, row) in lca_depths.iter_mut().enumerate() {
+            for (j, cell) in row.iter_mut().enumerate().skip(i) {
                 let lca = lca_table.lca(i, j);
                 let depth = self.nodes[lca].depth.ok_or_else(|| {
                     format!(
@@ -565,8 +565,15 @@ impl FlatTree {
                         lca
                     )
                 })?;
-                lca_depths[i][j] = depth;
-                lca_depths[j][i] = depth; // Symmetric
+                *cell = depth;
+            }
+        }
+        // Fill symmetric lower triangle
+        #[allow(clippy::needless_range_loop)]
+        for i in 1..n {
+            for j in 0..i {
+                let val = lca_depths[j][i];
+                lca_depths[i][j] = val;
             }
         }
 
@@ -709,11 +716,17 @@ impl FlatTree {
         let n = self.nodes.len();
         let mut matrix = vec![vec![0.0; n]; n];
 
-        for i in 0..n {
-            for j in i..n {
-                let dist = self.distance_between(i, j, distance_type)?;
-                matrix[i][j] = dist;
-                matrix[j][i] = dist; // Symmetric
+        for (i, row) in matrix.iter_mut().enumerate() {
+            for (j, cell) in row.iter_mut().enumerate().skip(i) {
+                *cell = self.distance_between(i, j, distance_type)?;
+            }
+        }
+        // Fill symmetric lower triangle
+        #[allow(clippy::needless_range_loop)]
+        for i in 1..n {
+            for j in 0..i {
+                let val = matrix[j][i];
+                matrix[i][j] = val;
             }
         }
 

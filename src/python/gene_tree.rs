@@ -58,7 +58,7 @@ impl PyGeneTree {
     /// Convert the gene tree to Newick format.
     fn to_newick(&self) -> PyResult<String> {
         let nwk = self.rec_tree.gene_tree.to_newick()
-            .map_err(|e| PyValueError::new_err(e))?;
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(nwk + ";")
     }
 
@@ -160,7 +160,7 @@ impl PyGeneTree {
             &sampled_gene_tree, &gene_old_to_new,
             &self.rec_tree.node_mapping, &self.rec_tree.event_mapping,
             &species_old_to_new,
-        ).map_err(|e| PyValueError::new_err(e))?;
+        ).map_err(PyValueError::new_err)?;
 
         Ok(PyGeneTree {
             rec_tree: RecTree::new(
@@ -198,7 +198,7 @@ impl PyGeneTree {
             &sampled_tree, &gene_old_to_new,
             &self.rec_tree.node_mapping, &self.rec_tree.event_mapping,
             &species_identity,
-        ).map_err(|e| PyValueError::new_err(e))?;
+        ).map_err(PyValueError::new_err)?;
 
         Ok(PyGeneTree {
             rec_tree: RecTree::new(
@@ -264,7 +264,7 @@ impl PyGeneTree {
             &sampled_tree, &gene_old_to_new,
             &self.rec_tree.node_mapping, &self.rec_tree.event_mapping,
             &species_identity,
-        ).map_err(|e| PyValueError::new_err(e))?;
+        ).map_err(PyValueError::new_err)?;
 
         Ok(PyGeneTree {
             rec_tree: RecTree::new(
@@ -700,7 +700,7 @@ impl PyGeneTree {
             &self.rec_tree.species_tree,
             &sampled_leaf_names,
             events,
-        );
+        ).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let time: Vec<f64> = induced.iter().map(|t| t.time).collect();
         let gene_id: Vec<usize> = induced.iter().map(|t| t.gene_id).collect();
@@ -725,7 +725,7 @@ impl PyGeneTree {
     /// Compare this reconciliation (truth) against another (inferred).
     fn compare_reconciliation(&self, other: &PyGeneTree) -> PyResult<PyReconciliationComparison> {
         let result = crate::comparison::compare_reconciliations(&self.rec_tree, &other.rec_tree)
-            .map_err(|e| PyValueError::new_err(e))?;
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(PyReconciliationComparison {
             inner: result,
             trees: Some((self.rec_tree.clone(), other.rec_tree.clone())),
@@ -736,7 +736,7 @@ impl PyGeneTree {
     fn compare_reconciliation_multi(&self, samples: Vec<PyGeneTree>) -> PyResult<PyMultiSampleComparison> {
         let sample_recs: Vec<_> = samples.iter().map(|s| s.rec_tree.clone()).collect();
         let result = crate::comparison::compare_reconciliations_multi(&self.rec_tree, &sample_recs)
-            .map_err(|e| PyValueError::new_err(e))?;
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(PyMultiSampleComparison { inner: result })
     }
 
@@ -744,9 +744,9 @@ impl PyGeneTree {
     #[pyo3(signature = (other, rooted=false))]
     fn rf_distance(&self, other: &PyGeneTree, rooted: bool) -> PyResult<usize> {
         let tree1 = extract_extant_gene_tree(&self.rec_tree)
-            .map_err(|e| PyValueError::new_err(e))?;
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let tree2 = extract_extant_gene_tree(&other.rec_tree)
-            .map_err(|e| PyValueError::new_err(e))?;
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         if rooted {
             Ok(crate::robinson_foulds::unrooted_robinson_foulds(&tree1, &tree2))

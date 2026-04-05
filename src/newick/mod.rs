@@ -1,5 +1,5 @@
 // rustree/src/newick/mod.rs
 
-mod newick;
+mod parser;
 
-pub use newick::parse_newick;
+pub use parser::parse_newick;

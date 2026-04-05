@@ -165,7 +165,7 @@ fn test_parse_malformed_newick_unmatched_paren() {
 fn test_parse_ternary_tree_rejected() {
     let result = parse_newick("(A:1,B:1,C:1):0;");
     assert!(result.is_err(), "Ternary node should be rejected");
-    let err = result.unwrap_err();
+    let err = result.unwrap_err().to_string();
     assert!(err.contains("Non-binary") || err.contains("3 children"),
         "Error should mention non-binary: {}", err);
 }

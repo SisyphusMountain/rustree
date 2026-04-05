@@ -15,6 +15,7 @@ pest = "2.7.4"
 pest_derive = "2.7.4"
 rand = "0.8.5"
 rayon = "1.10"
+log = "0.4"
 quick-xml = "0.31"
 tempfile = "3.8"
 
@@ -43,6 +44,10 @@ harness = false
 
 [[bench]]
 name = "bench_plot"
+harness = false
+
+[[bench]]
+name = "comparison_sampling_benchmarks"
 harness = false
 
 [profile.release]
