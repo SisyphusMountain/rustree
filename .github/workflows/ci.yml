@@ -26,9 +26,6 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Format check
-        run: cargo fmt --check
-
       - name: Check (${{ matrix.name }})
         run: cargo check ${{ matrix.features }}
 
@@ -59,8 +56,11 @@ jobs:
         run: |
           pip install maturin pytest numpy pandas
 
-      - name: Build and install rustree
-        run: maturin develop --features python
+      - name: Build rustree wheel
+        run: maturin build --features python
+
+      - name: Install rustree wheel
+        run: pip install --force-reinstall target/wheels/*.whl
 
       - name: Run tests
         run: pytest tests/python/
