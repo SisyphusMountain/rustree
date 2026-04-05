@@ -1,12 +1,12 @@
 #![allow(clippy::type_complexity)]
 //! R ↔ Rust conversion helpers for tree and event data structures.
 
-use std::str::FromStr;
 use extendr_api::prelude::*;
+use std::str::FromStr;
 
 use crate::bd::{BDEvent, TreeEvent};
 use crate::dtl::DTLEvent;
-use crate::node::{FlatTree, FlatNode, Event};
+use crate::node::{Event, FlatNode, FlatTree};
 
 // ============================================================================
 // FlatTree ↔ R list
@@ -14,21 +14,39 @@ use crate::node::{FlatTree, FlatNode, Event};
 
 pub(crate) fn flattree_to_rlist(tree: &FlatTree) -> List {
     let names: Vec<String> = tree.nodes.iter().map(|n| n.name.clone()).collect();
-    let parents: Vec<Rint> = tree.nodes.iter()
+    let parents: Vec<Rint> = tree
+        .nodes
+        .iter()
         .map(|n| n.parent.map(|p| Rint::from(p as i32)).unwrap_or(Rint::na()))
         .collect();
-    let left_children: Vec<Rint> = tree.nodes.iter()
-        .map(|n| n.left_child.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
+    let left_children: Vec<Rint> = tree
+        .nodes
+        .iter()
+        .map(|n| {
+            n.left_child
+                .map(|c| Rint::from(c as i32))
+                .unwrap_or(Rint::na())
+        })
         .collect();
-    let right_children: Vec<Rint> = tree.nodes.iter()
-        .map(|n| n.right_child.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
+    let right_children: Vec<Rint> = tree
+        .nodes
+        .iter()
+        .map(|n| {
+            n.right_child
+                .map(|c| Rint::from(c as i32))
+                .unwrap_or(Rint::na())
+        })
         .collect();
     let lengths: Vec<f64> = tree.nodes.iter().map(|n| n.length).collect();
-    let depths: Vec<Rfloat> = tree.nodes.iter()
+    let depths: Vec<Rfloat> = tree
+        .nodes
+        .iter()
         .map(|n| n.depth.map(Rfloat::from).unwrap_or(Rfloat::na()))
         .collect();
     // bd_event: convert Option<BDEvent> to Rstr for proper NA handling in R
-    let bd_events: Vec<Rstr> = tree.nodes.iter()
+    let bd_events: Vec<Rstr> = tree
+        .nodes
+        .iter()
         .map(|n| match n.bd_event {
             Some(e) => Rstr::from(e.as_str()),
             None => Rstr::na(),
@@ -48,20 +66,36 @@ pub(crate) fn flattree_to_rlist(tree: &FlatTree) -> List {
 }
 
 pub(crate) fn rlist_to_flattree(list: &List) -> Result<FlatTree> {
-    let names: Vec<String> = list.dollar("name")?.as_str_vector()
+    let names: Vec<String> = list
+        .dollar("name")?
+        .as_str_vector()
         .ok_or("Failed to get name column")?
-        .iter().map(|s| s.to_string()).collect();
-    let parents: Vec<i32> = list.dollar("parent")?.as_integer_vector()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let parents: Vec<i32> = list
+        .dollar("parent")?
+        .as_integer_vector()
         .ok_or("Failed to get parent column")?;
-    let left_children: Vec<i32> = list.dollar("left_child")?.as_integer_vector()
+    let left_children: Vec<i32> = list
+        .dollar("left_child")?
+        .as_integer_vector()
         .ok_or("Failed to get left_child column")?;
-    let right_children: Vec<i32> = list.dollar("right_child")?.as_integer_vector()
+    let right_children: Vec<i32> = list
+        .dollar("right_child")?
+        .as_integer_vector()
         .ok_or("Failed to get right_child column")?;
-    let lengths: Vec<f64> = list.dollar("length")?.as_real_vector()
+    let lengths: Vec<f64> = list
+        .dollar("length")?
+        .as_real_vector()
         .ok_or("Failed to get length column")?;
-    let depths: Vec<f64> = list.dollar("depth")?.as_real_vector()
+    let depths: Vec<f64> = list
+        .dollar("depth")?
+        .as_real_vector()
         .ok_or("Failed to get depth column")?;
-    let root: i32 = list.dollar("root")?.as_integer()
+    let root: i32 = list
+        .dollar("root")?
+        .as_integer()
         .ok_or("Failed to get root")?;
 
     // Try to get bd_event (optional, for backward compatibility)
@@ -87,11 +121,27 @@ pub(crate) fn rlist_to_flattree(list: &List) -> Result<FlatTree> {
             });
             FlatNode {
                 name: names[i].clone(),
-                parent: if parents[i].is_na() { None } else { Some(parents[i] as usize) },
-                left_child: if left_children[i].is_na() { None } else { Some(left_children[i] as usize) },
-                right_child: if right_children[i].is_na() { None } else { Some(right_children[i] as usize) },
+                parent: if parents[i].is_na() {
+                    None
+                } else {
+                    Some(parents[i] as usize)
+                },
+                left_child: if left_children[i].is_na() {
+                    None
+                } else {
+                    Some(left_children[i] as usize)
+                },
+                right_child: if right_children[i].is_na() {
+                    None
+                } else {
+                    Some(right_children[i] as usize)
+                },
                 length: lengths[i],
-                depth: if depths[i].is_na() { None } else { Some(depths[i]) },
+                depth: if depths[i].is_na() {
+                    None
+                } else {
+                    Some(depths[i])
+                },
                 bd_event,
             }
         })
@@ -110,11 +160,16 @@ pub(crate) fn rlist_to_flattree(list: &List) -> Result<FlatTree> {
 pub(crate) fn bd_events_to_rlist(events: &[TreeEvent]) -> List {
     let times: Vec<f64> = events.iter().map(|e| e.time).collect();
     let node_ids: Vec<i32> = events.iter().map(|e| e.node_id as i32).collect();
-    let event_types: Vec<String> = events.iter().map(|e| e.event_type.as_str().to_string()).collect();
-    let child1s: Vec<Rint> = events.iter()
+    let event_types: Vec<String> = events
+        .iter()
+        .map(|e| e.event_type.as_str().to_string())
+        .collect();
+    let child1s: Vec<Rint> = events
+        .iter()
         .map(|e| e.child1.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
         .collect();
-    let child2s: Vec<Rint> = events.iter()
+    let child2s: Vec<Rint> = events
+        .iter()
         .map(|e| e.child2.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
         .collect();
 
@@ -128,28 +183,48 @@ pub(crate) fn bd_events_to_rlist(events: &[TreeEvent]) -> List {
 }
 
 pub(crate) fn rlist_to_bd_events(list: &List) -> Result<Vec<TreeEvent>> {
-    let times: Vec<f64> = list.dollar("time")?.as_real_vector()
+    let times: Vec<f64> = list
+        .dollar("time")?
+        .as_real_vector()
         .ok_or("Failed to get time column")?;
-    let node_ids: Vec<i32> = list.dollar("node_id")?.as_integer_vector()
+    let node_ids: Vec<i32> = list
+        .dollar("node_id")?
+        .as_integer_vector()
         .ok_or("Failed to get node_id column")?;
-    let event_types: Vec<String> = list.dollar("event_type")?.as_str_vector()
+    let event_types: Vec<String> = list
+        .dollar("event_type")?
+        .as_str_vector()
         .ok_or("Failed to get event_type column")?
-        .iter().map(|s| s.to_string()).collect();
-    let child1s: Vec<i32> = list.dollar("child1")?.as_integer_vector()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let child1s: Vec<i32> = list
+        .dollar("child1")?
+        .as_integer_vector()
         .ok_or("Failed to get child1 column")?;
-    let child2s: Vec<i32> = list.dollar("child2")?.as_integer_vector()
+    let child2s: Vec<i32> = list
+        .dollar("child2")?
+        .as_integer_vector()
         .ok_or("Failed to get child2 column")?;
 
     let events: Vec<TreeEvent> = (0..times.len())
         .map(|i| {
-            let event_type = BDEvent::from_str(&event_types[i])
-                .map_err(|e| format!("At index {}: {}", i, e))?;
+            let event_type =
+                BDEvent::from_str(&event_types[i]).map_err(|e| format!("At index {}: {}", i, e))?;
             Ok(TreeEvent {
                 time: times[i],
                 node_id: node_ids[i] as usize,
                 event_type,
-                child1: if child1s[i].is_na() { None } else { Some(child1s[i] as usize) },
-                child2: if child2s[i].is_na() { None } else { Some(child2s[i] as usize) },
+                child1: if child1s[i].is_na() {
+                    None
+                } else {
+                    Some(child1s[i] as usize)
+                },
+                child2: if child2s[i].is_na() {
+                    None
+                } else {
+                    Some(child2s[i] as usize)
+                },
             })
         })
         .collect::<std::result::Result<Vec<TreeEvent>, String>>()
@@ -162,19 +237,40 @@ pub(crate) fn rlist_to_bd_events(list: &List) -> Result<Vec<TreeEvent>> {
 // RecTree (gene tree + reconciliation) ↔ R list
 // ============================================================================
 
-pub(crate) fn rectree_to_rlist(species_tree: &FlatTree, gene_tree: &FlatTree, node_mapping: &[Option<usize>], event_mapping: &[Event]) -> Result<List> {
+pub(crate) fn rectree_to_rlist(
+    species_tree: &FlatTree,
+    gene_tree: &FlatTree,
+    node_mapping: &[Option<usize>],
+    event_mapping: &[Event],
+) -> Result<List> {
     let names: Vec<String> = gene_tree.nodes.iter().map(|n| n.name.clone()).collect();
-    let parents: Vec<Rint> = gene_tree.nodes.iter()
+    let parents: Vec<Rint> = gene_tree
+        .nodes
+        .iter()
         .map(|n| n.parent.map(|p| Rint::from(p as i32)).unwrap_or(Rint::na()))
         .collect();
-    let left_children: Vec<Rint> = gene_tree.nodes.iter()
-        .map(|n| n.left_child.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
+    let left_children: Vec<Rint> = gene_tree
+        .nodes
+        .iter()
+        .map(|n| {
+            n.left_child
+                .map(|c| Rint::from(c as i32))
+                .unwrap_or(Rint::na())
+        })
         .collect();
-    let right_children: Vec<Rint> = gene_tree.nodes.iter()
-        .map(|n| n.right_child.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
+    let right_children: Vec<Rint> = gene_tree
+        .nodes
+        .iter()
+        .map(|n| {
+            n.right_child
+                .map(|c| Rint::from(c as i32))
+                .unwrap_or(Rint::na())
+        })
         .collect();
     let lengths: Vec<f64> = gene_tree.nodes.iter().map(|n| n.length).collect();
-    let depths: Vec<Rfloat> = gene_tree.nodes.iter()
+    let depths: Vec<Rfloat> = gene_tree
+        .nodes
+        .iter()
         .map(|n| n.depth.map(Rfloat::from).unwrap_or(Rfloat::na()))
         .collect();
 
@@ -190,14 +286,16 @@ pub(crate) fn rectree_to_rlist(species_tree: &FlatTree, gene_tree: &FlatTree, no
         }
     }
 
-    let species_nodes: Vec<String> = node_mapping.iter()
+    let species_nodes: Vec<String> = node_mapping
+        .iter()
         .map(|opt_idx| match opt_idx {
             Some(idx) => species_tree.nodes[*idx].name.clone(),
             None => "NA".to_string(),
         })
         .collect();
 
-    let events: Vec<String> = event_mapping.iter()
+    let events: Vec<String> = event_mapping
+        .iter()
         .map(|e| match e {
             Event::Speciation => "Speciation".to_string(),
             Event::Duplication => "Duplication".to_string(),
@@ -224,32 +322,60 @@ pub(crate) fn rectree_to_rlist(species_tree: &FlatTree, gene_tree: &FlatTree, no
     ))
 }
 
-pub(crate) fn rlist_to_genetree(list: &List) -> Result<(FlatTree, FlatTree, Vec<Option<usize>>, Vec<Event>)> {
+pub(crate) fn rlist_to_genetree(
+    list: &List,
+) -> Result<(FlatTree, FlatTree, Vec<Option<usize>>, Vec<Event>)> {
     // Get gene tree data
-    let names: Vec<String> = list.dollar("name")?.as_str_vector()
+    let names: Vec<String> = list
+        .dollar("name")?
+        .as_str_vector()
         .ok_or("Failed to get name column")?
-        .iter().map(|s| s.to_string()).collect();
-    let parents: Vec<i32> = list.dollar("parent")?.as_integer_vector()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let parents: Vec<i32> = list
+        .dollar("parent")?
+        .as_integer_vector()
         .ok_or("Failed to get parent column")?;
-    let left_children: Vec<i32> = list.dollar("left_child")?.as_integer_vector()
+    let left_children: Vec<i32> = list
+        .dollar("left_child")?
+        .as_integer_vector()
         .ok_or("Failed to get left_child column")?;
-    let right_children: Vec<i32> = list.dollar("right_child")?.as_integer_vector()
+    let right_children: Vec<i32> = list
+        .dollar("right_child")?
+        .as_integer_vector()
         .ok_or("Failed to get right_child column")?;
-    let lengths: Vec<f64> = list.dollar("length")?.as_real_vector()
+    let lengths: Vec<f64> = list
+        .dollar("length")?
+        .as_real_vector()
         .ok_or("Failed to get length column")?;
-    let depths: Vec<f64> = list.dollar("depth")?.as_real_vector()
+    let depths: Vec<f64> = list
+        .dollar("depth")?
+        .as_real_vector()
         .ok_or("Failed to get depth column")?;
-    let species_node_names: Vec<String> = list.dollar("species_node")?.as_str_vector()
+    let species_node_names: Vec<String> = list
+        .dollar("species_node")?
+        .as_str_vector()
         .ok_or("Failed to get species_node column")?
-        .iter().map(|s| s.to_string()).collect();
-    let event_strs: Vec<String> = list.dollar("event")?.as_str_vector()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let event_strs: Vec<String> = list
+        .dollar("event")?
+        .as_str_vector()
         .ok_or("Failed to get event column")?
-        .iter().map(|s| s.to_string()).collect();
-    let root: i32 = list.dollar("root")?.as_integer()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let root: i32 = list
+        .dollar("root")?
+        .as_integer()
         .ok_or("Failed to get root")?;
 
     // Get species tree
-    let species_tree_list: List = list.dollar("species_tree")?.try_into()
+    let species_tree_list: List = list
+        .dollar("species_tree")?
+        .try_into()
         .map_err(|_| "Failed to get species_tree")?;
     let species_tree = rlist_to_flattree(&species_tree_list)?;
 
@@ -257,11 +383,27 @@ pub(crate) fn rlist_to_genetree(list: &List) -> Result<(FlatTree, FlatTree, Vec<
     let gene_nodes: Vec<FlatNode> = (0..names.len())
         .map(|i| FlatNode {
             name: names[i].clone(),
-            parent: if parents[i].is_na() { None } else { Some(parents[i] as usize) },
-            left_child: if left_children[i].is_na() { None } else { Some(left_children[i] as usize) },
-            right_child: if right_children[i].is_na() { None } else { Some(right_children[i] as usize) },
+            parent: if parents[i].is_na() {
+                None
+            } else {
+                Some(parents[i] as usize)
+            },
+            left_child: if left_children[i].is_na() {
+                None
+            } else {
+                Some(left_children[i] as usize)
+            },
+            right_child: if right_children[i].is_na() {
+                None
+            } else {
+                Some(right_children[i] as usize)
+            },
             length: lengths[i],
-            depth: if depths[i].is_na() { None } else { Some(depths[i]) },
+            depth: if depths[i].is_na() {
+                None
+            } else {
+                Some(depths[i])
+            },
             bd_event: None,
         })
         .collect();
@@ -272,18 +414,24 @@ pub(crate) fn rlist_to_genetree(list: &List) -> Result<(FlatTree, FlatTree, Vec<
     };
 
     // Build node mapping (find species node index by name)
-    let node_mapping: Vec<Option<usize>> = species_node_names.iter()
+    let node_mapping: Vec<Option<usize>> = species_node_names
+        .iter()
         .enumerate()
         .map(|(i, name)| {
             if name == "NA" || name.is_empty() {
                 Ok(None)
             } else {
-                species_tree.nodes.iter().position(|n| &n.name == name)
+                species_tree
+                    .nodes
+                    .iter()
+                    .position(|n| &n.name == name)
                     .map(Some)
-                    .ok_or_else(|| format!(
+                    .ok_or_else(|| {
+                        format!(
                         "Species node name '{}' (at gene node index {}) not found in species tree",
                         name, i
-                    ))
+                    )
+                    })
             }
         })
         .collect::<std::result::Result<Vec<Option<usize>>, String>>()
@@ -333,7 +481,12 @@ pub(crate) fn dtl_events_to_rlist(events: &[DTLEvent], species_tree: &FlatTree) 
 
     for event in events {
         match event {
-            DTLEvent::Speciation { time, gene_id, species_id, .. } => {
+            DTLEvent::Speciation {
+                time,
+                gene_id,
+                species_id,
+                ..
+            } => {
                 event_types.push("Speciation".to_string());
                 times.push(*time);
                 gene_ids.push(*gene_id as i32);
@@ -341,7 +494,12 @@ pub(crate) fn dtl_events_to_rlist(events: &[DTLEvent], species_tree: &FlatTree) 
                 from_species.push(Rstr::na());
                 to_species.push(Rstr::na());
             }
-            DTLEvent::Duplication { time, gene_id, species_id, .. } => {
+            DTLEvent::Duplication {
+                time,
+                gene_id,
+                species_id,
+                ..
+            } => {
                 event_types.push("Duplication".to_string());
                 times.push(*time);
                 gene_ids.push(*gene_id as i32);
@@ -349,7 +507,14 @@ pub(crate) fn dtl_events_to_rlist(events: &[DTLEvent], species_tree: &FlatTree) 
                 from_species.push(Rstr::na());
                 to_species.push(Rstr::na());
             }
-            DTLEvent::Transfer { time, gene_id, species_id, from_species: from_sp, to_species: to_sp, .. } => {
+            DTLEvent::Transfer {
+                time,
+                gene_id,
+                species_id,
+                from_species: from_sp,
+                to_species: to_sp,
+                ..
+            } => {
                 event_types.push("Transfer".to_string());
                 times.push(*time);
                 gene_ids.push(*gene_id as i32);
@@ -357,7 +522,11 @@ pub(crate) fn dtl_events_to_rlist(events: &[DTLEvent], species_tree: &FlatTree) 
                 from_species.push(Rstr::from(sp_name(*from_sp)));
                 to_species.push(Rstr::from(sp_name(*to_sp)));
             }
-            DTLEvent::Loss { time, gene_id, species_id } => {
+            DTLEvent::Loss {
+                time,
+                gene_id,
+                species_id,
+            } => {
                 event_types.push("Loss".to_string());
                 times.push(*time);
                 gene_ids.push(*gene_id as i32);
@@ -365,7 +534,11 @@ pub(crate) fn dtl_events_to_rlist(events: &[DTLEvent], species_tree: &FlatTree) 
                 from_species.push(Rstr::na());
                 to_species.push(Rstr::na());
             }
-            DTLEvent::Leaf { time, gene_id, species_id } => {
+            DTLEvent::Leaf {
+                time,
+                gene_id,
+                species_id,
+            } => {
                 event_types.push("Leaf".to_string());
                 times.push(*time);
                 gene_ids.push(*gene_id as i32);
@@ -387,36 +560,61 @@ pub(crate) fn dtl_events_to_rlist(events: &[DTLEvent], species_tree: &FlatTree) 
 }
 
 /// Deserialize an R DTL events list back to Vec<DTLEvent>.
-pub(crate) fn rlist_to_dtl_events(events_list: &List, species_tree: &FlatTree) -> Result<Vec<DTLEvent>> {
-    let event_types: Vec<String> = events_list.dollar("event_type")?.as_str_vector()
+pub(crate) fn rlist_to_dtl_events(
+    events_list: &List,
+    species_tree: &FlatTree,
+) -> Result<Vec<DTLEvent>> {
+    let event_types: Vec<String> = events_list
+        .dollar("event_type")?
+        .as_str_vector()
         .ok_or("Failed to get event_type column")?
-        .iter().map(|s| s.to_string()).collect();
-    let times: Vec<f64> = events_list.dollar("time")?.as_real_vector()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let times: Vec<f64> = events_list
+        .dollar("time")?
+        .as_real_vector()
         .ok_or("Failed to get time column")?;
-    let gene_ids: Vec<i32> = events_list.dollar("gene_id")?.as_integer_vector()
+    let gene_ids: Vec<i32> = events_list
+        .dollar("gene_id")?
+        .as_integer_vector()
         .ok_or("Failed to get gene_id column")?;
-    let species_names: Vec<String> = events_list.dollar("species")?.as_str_vector()
+    let species_names: Vec<String> = events_list
+        .dollar("species")?
+        .as_str_vector()
         .ok_or("Failed to get species column")?
-        .iter().map(|s| s.to_string()).collect();
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     // from_species and to_species may contain NAs
     let from_species_robj = events_list.dollar("from_species")?;
     let to_species_robj = events_list.dollar("to_species")?;
-    let from_species_strs: Vec<String> = from_species_robj.as_str_vector()
+    let from_species_strs: Vec<String> = from_species_robj
+        .as_str_vector()
         .ok_or("Failed to get from_species column")?
-        .iter().map(|s| s.to_string()).collect();
-    let to_species_strs: Vec<String> = to_species_robj.as_str_vector()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let to_species_strs: Vec<String> = to_species_robj
+        .as_str_vector()
         .ok_or("Failed to get to_species column")?
-        .iter().map(|s| s.to_string()).collect();
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     // Build name→index map
-    let name_to_idx: std::collections::HashMap<&str, usize> = species_tree.nodes.iter()
+    let name_to_idx: std::collections::HashMap<&str, usize> = species_tree
+        .nodes
+        .iter()
         .enumerate()
         .map(|(i, n)| (n.name.as_str(), i))
         .collect();
 
     let resolve = |name: &str| -> Result<usize> {
-        name_to_idx.get(name).copied()
+        name_to_idx
+            .get(name)
+            .copied()
             .ok_or_else(|| Error::Other(format!("Species '{}' not found in tree", name)))
     };
 
@@ -452,7 +650,7 @@ pub(crate) fn rlist_to_dtl_events(events_list: &List, species_tree: &FlatTree) -
                     donor_child: 0,
                     recipient_child: 0,
                 }
-            },
+            }
             "Loss" => DTLEvent::Loss {
                 time: times[i],
                 gene_id: gene_ids[i] as usize,

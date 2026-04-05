@@ -1,8 +1,8 @@
 // Benchmark: Profile where CPU time is spent in DTL simulation
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use rustree::bd::simulate_bd_tree_bwd;
 use rustree::dtl::simulate_dtl;
-use rand::{Rng, SeedableRng};
-use rand::rngs::StdRng;
 use std::time::Instant;
 
 fn main() {
@@ -29,12 +29,15 @@ fn main() {
         let (rec_tree, events) = simulate_dtl(
             &species_tree,
             species_tree.root,
-            0.2, 0.2, 0.1,
+            0.2,
+            0.2,
+            0.1,
             None,
             None,
             false,
             &mut rng,
-        ).unwrap();
+        )
+        .unwrap();
         total_nodes += rec_tree.gene_tree.nodes.len();
         total_events += events.len();
     }
@@ -66,7 +69,11 @@ fn main() {
     }
 
     let rng_time = start.elapsed().as_secs_f64();
-    println!("  Time: {:.3}s ({:.1}% of total)", rng_time, 100.0 * rng_time / full_time);
+    println!(
+        "  Time: {:.3}s ({:.1}% of total)",
+        rng_time,
+        100.0 * rng_time / full_time
+    );
     println!("  Dummy sum (prevent optimization): {}", dummy);
 
     // 2. Species tree lookups
@@ -92,7 +99,11 @@ fn main() {
     }
 
     let lookup_time = start.elapsed().as_secs_f64();
-    println!("  Time: {:.3}s ({:.1}% of total)", lookup_time, 100.0 * lookup_time / full_time);
+    println!(
+        "  Time: {:.3}s ({:.1}% of total)",
+        lookup_time,
+        100.0 * lookup_time / full_time
+    );
     println!("  Lookups performed: {}", lookup_count);
 
     // 3. Vector allocations and operations
@@ -113,7 +124,11 @@ fn main() {
     }
 
     let vec_time = start.elapsed().as_secs_f64();
-    println!("  Time: {:.3}s ({:.1}% of total)", vec_time, 100.0 * vec_time / full_time);
+    println!(
+        "  Time: {:.3}s ({:.1}% of total)",
+        vec_time,
+        100.0 * vec_time / full_time
+    );
 
     // 4. Tree node creation (struct instantiation)
     println!("\n4. FlatNode struct creation overhead:");
@@ -139,7 +154,11 @@ fn main() {
     }
 
     let struct_time = start.elapsed().as_secs_f64();
-    println!("  Time: {:.3}s ({:.1}% of total)", struct_time, 100.0 * struct_time / full_time);
+    println!(
+        "  Time: {:.3}s ({:.1}% of total)",
+        struct_time,
+        100.0 * struct_time / full_time
+    );
 
     // Summary
     println!("\n=== Overhead Breakdown ===\n");
@@ -147,12 +166,36 @@ fn main() {
     let simulation_logic = full_time - measured_overhead;
 
     println!("Measured components:");
-    println!("  RNG:              {:.3}s ({:.1}%)", rng_time, 100.0 * rng_time / full_time);
-    println!("  Tree lookups:     {:.3}s ({:.1}%)", lookup_time, 100.0 * lookup_time / full_time);
-    println!("  Vector ops:       {:.3}s ({:.1}%)", vec_time, 100.0 * vec_time / full_time);
-    println!("  Struct creation:  {:.3}s ({:.1}%)", struct_time, 100.0 * struct_time / full_time);
-    println!("  Subtotal:         {:.3}s ({:.1}%)", measured_overhead, 100.0 * measured_overhead / full_time);
-    println!("\nSimulation logic:   {:.3}s ({:.1}%)", simulation_logic, 100.0 * simulation_logic / full_time);
+    println!(
+        "  RNG:              {:.3}s ({:.1}%)",
+        rng_time,
+        100.0 * rng_time / full_time
+    );
+    println!(
+        "  Tree lookups:     {:.3}s ({:.1}%)",
+        lookup_time,
+        100.0 * lookup_time / full_time
+    );
+    println!(
+        "  Vector ops:       {:.3}s ({:.1}%)",
+        vec_time,
+        100.0 * vec_time / full_time
+    );
+    println!(
+        "  Struct creation:  {:.3}s ({:.1}%)",
+        struct_time,
+        100.0 * struct_time / full_time
+    );
+    println!(
+        "  Subtotal:         {:.3}s ({:.1}%)",
+        measured_overhead,
+        100.0 * measured_overhead / full_time
+    );
+    println!(
+        "\nSimulation logic:   {:.3}s ({:.1}%)",
+        simulation_logic,
+        100.0 * simulation_logic / full_time
+    );
     println!("  (DTL event decisions, tree building logic, etc.)");
 
     println!("\n=== Conclusion ===\n");

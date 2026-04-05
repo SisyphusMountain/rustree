@@ -20,11 +20,13 @@ use rand::SeedableRng;
 use std::fs;
 use std::process::Command;
 
-use crate::bd::{simulate_bd_tree_bwd, generate_events_from_tree};
-use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch};
+use crate::bd::{generate_events_from_tree, simulate_bd_tree_bwd};
+use crate::dtl::{
+    simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch,
+};
 use crate::dtl::{simulate_dtl_iter, simulate_dtl_per_species_iter};
 use crate::induced_transfers::induced_transfers;
-use crate::node::{FlatTree, Event, RecTree, GeneForest, remap_gene_tree_indices};
+use crate::node::{remap_gene_tree_indices, Event, FlatTree, GeneForest, RecTree};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names};
 
 // ---------------------------------------------------------------------------
@@ -119,7 +121,9 @@ mod tests {
     fn parse_newick_valid_simple_tree() {
         let tree = parse_newick_to_flattree("(A:1,B:1);").unwrap();
         assert_eq!(tree.nodes.len(), 3);
-        let leaf_names: Vec<&str> = tree.nodes.iter()
+        let leaf_names: Vec<&str> = tree
+            .nodes
+            .iter()
             .filter(|n| n.left_child.is_none() && n.right_child.is_none())
             .map(|n| n.name.as_str())
             .collect();
@@ -130,7 +134,9 @@ mod tests {
     #[test]
     fn parse_newick_valid_three_taxa() {
         let tree = parse_newick_to_flattree("((A:1,B:1):0.5,C:1.5);").unwrap();
-        let leaf_count = tree.nodes.iter()
+        let leaf_count = tree
+            .nodes
+            .iter()
             .filter(|n| n.left_child.is_none() && n.right_child.is_none())
             .count();
         assert_eq!(leaf_count, 3);
@@ -172,7 +178,11 @@ mod tests {
     fn parse_newick_depths_assigned() {
         let tree = parse_newick_to_flattree("(A:1,B:1):0;").unwrap();
         for node in &tree.nodes {
-            assert!(node.depth.is_some(), "All nodes should have depth assigned, but '{}' does not", node.name);
+            assert!(
+                node.depth.is_some(),
+                "All nodes should have depth assigned, but '{}' does not",
+                node.name
+            );
         }
     }
 

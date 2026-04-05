@@ -45,10 +45,7 @@ impl PyEventCounts {
     fn __repr__(&self) -> String {
         format!(
             "EventCounts(S={:.1}, D={:.1}, T={:.1}, L={:.1})",
-            self.speciations,
-            self.duplications,
-            self.transfers,
-            self.losses
+            self.speciations, self.duplications, self.transfers, self.losses
         )
     }
 }
@@ -75,7 +72,9 @@ pub struct PyReconciliationStatistics {
 #[pymethods]
 impl PyReconciliationStatistics {
     fn __repr__(&self) -> String {
-        let total_transfers: f64 = self.mean_transfers.values()
+        let total_transfers: f64 = self
+            .mean_transfers
+            .values()
             .flat_map(|dests| dests.values())
             .sum();
         format!(

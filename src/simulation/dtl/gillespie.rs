@@ -5,19 +5,18 @@
 // and how the affected gene copy is selected.
 
 use crate::bd::{BDEvent, TreeEvent};
-use crate::node::{FlatTree, Event, RecTree};
+use crate::node::{Event, FlatTree, RecTree};
 use rand::Rng;
 use std::sync::Arc;
 
-use super::DTLConfig;
 use super::event::DTLEvent;
 use super::state::SimulationState;
-use crate::simulation::utils::draw_waiting_time;
 use super::utils::{
-    find_time_index,
-    select_transfer_recipient, select_transfer_recipient_assortative,
-    finalize_simulation,
+    finalize_simulation, find_time_index, select_transfer_recipient,
+    select_transfer_recipient_assortative,
 };
+use super::DTLConfig;
+use crate::simulation::utils::draw_waiting_time;
 
 /// Determines how DTL event rates scale with the simulation state.
 #[derive(Clone, Copy)]
@@ -51,7 +50,6 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
     config: &DTLConfig,
     rng: &mut R,
 ) -> Result<(RecTree, Vec<DTLEvent>), String> {
-
     let lambda_d = config.lambda_d;
     let lambda_t = config.lambda_t;
     let lambda_l = config.lambda_l;
@@ -59,16 +57,27 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
     let replacement_transfer = config.replacement_transfer;
 
     let total_dtl_rate = lambda_d + lambda_t + lambda_l;
-    let dup_threshold = if total_dtl_rate > 0.0 { lambda_d / total_dtl_rate } else { 0.0 };
-    let transfer_threshold = if total_dtl_rate > 0.0 { (lambda_d + lambda_t) / total_dtl_rate } else { 0.0 };
+    let dup_threshold = if total_dtl_rate > 0.0 {
+        lambda_d / total_dtl_rate
+    } else {
+        0.0
+    };
+    let transfer_threshold = if total_dtl_rate > 0.0 {
+        (lambda_d + lambda_t) / total_dtl_rate
+    } else {
+        0.0
+    };
     // Preallocate as many gene nodes as species nodes (for default case where there are no transfers, no duplications, no losses)
     let estimated_capacity = species_tree.nodes.len();
     let mut state = SimulationState::new(estimated_capacity, species_tree);
 
     // Find when origin species starts (beginning of its branch)
-    let origin_start_time = species_tree.nodes[origin_species].depth
-        .ok_or_else(|| format!("Species node {} has no assigned depth. Call assign_depths() first.", origin_species))?
-        - species_tree.nodes[origin_species].length;
+    let origin_start_time = species_tree.nodes[origin_species].depth.ok_or_else(|| {
+        format!(
+            "Species node {} has no assigned depth. Call assign_depths() first.",
+            origin_species
+        )
+    })? - species_tree.nodes[origin_species].length;
 
     let mut current_time = origin_start_time;
 
@@ -81,17 +90,14 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
         species_event_idx += 1;
     }
 
-
-
-    // For more flexibility, maybe just create a function handle_origination in 
+    // For more flexibility, maybe just create a function handle_origination in
     // SimulationState that we can call here.
     // This would avoid hardcoding the logic, and would make the code more uniform.
     // Create initial gene at origin
-    // We don't have an "Origination" like in ALE_dated or ALE_undated, so we just use a speciation event with no parent, 
+    // We don't have an "Origination" like in ALE_dated or ALE_undated, so we just use a speciation event with no parent,
     // on the origination species.
-    let initial_gene_idx = state.create_gene_node(
-        None, origin_species, Event::Speciation, origin_start_time,
-    );
+    let initial_gene_idx =
+        state.create_gene_node(None, origin_species, Event::Speciation, origin_start_time);
     state.add_gene_to_species(origin_species, initial_gene_idx);
 
     // Nudge past origin so the rate computation sees the stem interval
@@ -103,8 +109,8 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
         // We can enter here and have species_event_idx be out of bounds. In this case, next event time will be infinity.
         // what does it mean to be out of bounds?
 
-
-        let next_species_event_time = species_events.get(species_event_idx)
+        let next_species_event_time = species_events
+            .get(species_event_idx)
             .map_or(f64::INFINITY, |e| e.time);
 
         // Check if all genes are lost
@@ -144,12 +150,26 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
 
             match sp_event.event_type {
                 BDEvent::Speciation => {
-                    let child1 = sp_event.child1.ok_or_else(|| format!("Speciation event for node {} has no child1", sp_event.node_id))?;
-                    let child2 = sp_event.child2.ok_or_else(|| format!("Speciation event for node {} has no child2", sp_event.node_id))?;
+                    let child1 = sp_event.child1.ok_or_else(|| {
+                        format!(
+                            "Speciation event for node {} has no child1",
+                            sp_event.node_id
+                        )
+                    })?;
+                    let child2 = sp_event.child2.ok_or_else(|| {
+                        format!(
+                            "Speciation event for node {} has no child2",
+                            sp_event.node_id
+                        )
+                    })?;
                     if let Some(genes) = state.take_genes_for_species(sp_event.node_id) {
                         for gene_idx in genes {
                             state.handle_speciation(
-                                gene_idx, sp_event.node_id, child1, child2, current_time,
+                                gene_idx,
+                                sp_event.node_id,
+                                child1,
+                                child2,
+                                current_time,
                             );
                         }
                     }
@@ -182,16 +202,18 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
 
             // Select affected gene based on mode
             let selection = match mode {
-                DTLMode::PerGene => {
-                    state.random_gene_copy(rng)
-                }
+                DTLMode::PerGene => state.random_gene_copy(rng),
                 DTLMode::PerSpecies => {
                     let time_idx = find_time_index(depths, current_time);
                     let alive_species = &contemporaneity[time_idx];
-                    if alive_species.is_empty() { None }
-                    else {
+                    if alive_species.is_empty() {
+                        None
+                    } else {
                         let species = alive_species[rng.gen_range(0..alive_species.len())];
-                        let gps = state.genes_per_species.as_ref().ok_or("Internal error: genes_per_species not initialized")?;
+                        let gps = state
+                            .genes_per_species
+                            .as_ref()
+                            .ok_or("Internal error: genes_per_species not initialized")?;
                         match gps.get(&species) {
                             Some(genes) if !genes.is_empty() => {
                                 let gene = genes[rng.gen_range(0..genes.len())];
@@ -217,24 +239,37 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
                 // Transfer
                 let recipient = match (transfer_alpha, lca_depths) {
                     (Some(alpha), Some(lca)) => select_transfer_recipient_assortative(
-                        depths, contemporaneity, lca, current_time, affected_species, alpha, rng,
+                        depths,
+                        contemporaneity,
+                        lca,
+                        current_time,
+                        affected_species,
+                        alpha,
+                        rng,
                     ),
                     _ => select_transfer_recipient(
-                        depths, contemporaneity, current_time, affected_species, rng,
+                        depths,
+                        contemporaneity,
+                        current_time,
+                        affected_species,
+                        rng,
                     ),
                 };
 
                 if let Some(recipient_species) = recipient {
                     // Replacement transfer: find and remove victim BEFORE adding transfer
-                    let is_replacement = replacement_transfer
-                        .is_some_and(|p| p > 0.0 && rng.gen::<f64>() < p);
+                    let is_replacement =
+                        replacement_transfer.is_some_and(|p| p > 0.0 && rng.gen::<f64>() < p);
                     if is_replacement {
                         if let Some(victim) = state.random_gene_in_species(recipient_species, rng) {
                             state.handle_loss(victim, recipient_species, current_time);
                         }
                     }
                     state.handle_transfer(
-                        affected_gene, affected_species, recipient_species, current_time,
+                        affected_gene,
+                        affected_species,
+                        recipient_species,
+                        current_time,
                     );
                 }
             } else {

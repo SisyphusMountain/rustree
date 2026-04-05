@@ -1,10 +1,10 @@
 //! CSV file writing utilities for tree events.
 
-use std::fs::File;
-use std::io::{self, Write, BufWriter};
 use crate::bd::TreeEvent;
 use crate::dtl::DTLEvent;
 use crate::node::FlatTree;
+use std::fs::File;
+use std::io::{self, BufWriter, Write};
 
 /// Save birth-death events to a CSV file.
 ///
@@ -15,12 +15,22 @@ use crate::node::FlatTree;
 ///
 /// # Returns
 /// Result indicating success or error
-pub fn save_bd_events_to_csv(events: &[TreeEvent], tree: &FlatTree, filename: &str) -> io::Result<()> {
+pub fn save_bd_events_to_csv(
+    events: &[TreeEvent],
+    tree: &FlatTree,
+    filename: &str,
+) -> io::Result<()> {
     let file = File::create(filename)?;
     let mut writer = BufWriter::new(file);
     writeln!(writer, "{}", TreeEvent::csv_header())?;
     for event in events {
-        writeln!(writer, "{}", event.to_csv_row(tree).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?)?;
+        writeln!(
+            writer,
+            "{}",
+            event
+                .to_csv_row(tree)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+        )?;
     }
     writer.flush()?;
     Ok(())
@@ -36,7 +46,12 @@ pub fn save_bd_events_to_csv(events: &[TreeEvent], tree: &FlatTree, filename: &s
 ///
 /// # Returns
 /// Result indicating success or IO error
-pub fn save_dtl_events_to_csv(events: &[DTLEvent], species_tree: &FlatTree, gene_tree: &FlatTree, filename: &str) -> io::Result<()> {
+pub fn save_dtl_events_to_csv(
+    events: &[DTLEvent],
+    species_tree: &FlatTree,
+    gene_tree: &FlatTree,
+    filename: &str,
+) -> io::Result<()> {
     let file = File::create(filename)?;
     let mut writer = BufWriter::new(file);
     writeln!(writer, "{}", DTLEvent::csv_header())?;

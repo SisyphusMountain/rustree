@@ -7,7 +7,12 @@ use rustree::bd::simulate_bd_tree_bwd;
 fn pilot_bd_events(n: usize, lambda: f64, mu: f64) -> u64 {
     let mut rng = StdRng::seed_from_u64(42);
     let total: usize = (0..10)
-        .map(|_| simulate_bd_tree_bwd(n, lambda, mu, &mut rng).unwrap().1.len())
+        .map(|_| {
+            simulate_bd_tree_bwd(n, lambda, mu, &mut rng)
+                .unwrap()
+                .1
+                .len()
+        })
         .sum();
     (total / 10) as u64
 }

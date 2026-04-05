@@ -1,9 +1,9 @@
 //! Reconciled tree structure for DTL (Duplication-Transfer-Loss) model.
 
 use super::{FlatNode, FlatTree};
-use std::sync::Arc;
 use crate::dtl::DTLEvent;
 use crate::error::RustreeError;
+use std::sync::Arc;
 
 /// Events that can occur during DTL reconciliation.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -72,7 +72,9 @@ impl RecTree {
                 assert!(
                     *sp_idx < sp_len,
                     "node_mapping[{}] = {} is out of bounds for species tree with {} nodes",
-                    i, sp_idx, sp_len
+                    i,
+                    sp_idx,
+                    sp_len
                 );
             }
         }
@@ -114,7 +116,9 @@ impl RecTree {
                 assert!(
                     *sp_idx < sp_len,
                     "node_mapping[{}] = {} is out of bounds for species tree with {} nodes",
-                    i, sp_idx, sp_len
+                    i,
+                    sp_idx,
+                    sp_len
                 );
             }
         }
@@ -137,7 +141,12 @@ impl RecTree {
         node_mapping: Vec<Option<usize>>,
         event_mapping: Vec<Event>,
     ) -> Self {
-        Self::new(Arc::new(species_tree), gene_tree, node_mapping, event_mapping)
+        Self::new(
+            Arc::new(species_tree),
+            gene_tree,
+            node_mapping,
+            event_mapping,
+        )
     }
 
     /// Creates a new RecTree with DTL events, wrapping the species tree in an Arc.
@@ -148,7 +157,13 @@ impl RecTree {
         event_mapping: Vec<Event>,
         dtl_events: Vec<DTLEvent>,
     ) -> Self {
-        Self::with_dtl_events(Arc::new(species_tree), gene_tree, node_mapping, event_mapping, dtl_events)
+        Self::with_dtl_events(
+            Arc::new(species_tree),
+            gene_tree,
+            node_mapping,
+            event_mapping,
+            dtl_events,
+        )
     }
 
     /// Gets the species tree node index for a given gene tree node.
@@ -187,7 +202,10 @@ impl RecTree {
     ///
     /// # Errors
     /// Returns an error if `gene_node_idx` is out of bounds.
-    pub fn get_full_info(&self, gene_node_idx: usize) -> Result<(&FlatNode, Option<usize>, &Event), RustreeError> {
+    pub fn get_full_info(
+        &self,
+        gene_node_idx: usize,
+    ) -> Result<(&FlatNode, Option<usize>, &Event), RustreeError> {
         let gene_node = self.gene_tree.nodes.get(gene_node_idx).ok_or_else(|| {
             RustreeError::Index(format!(
                 "gene_node_idx {} is out of bounds (gene tree has {} nodes)",
@@ -195,13 +213,17 @@ impl RecTree {
                 self.gene_tree.nodes.len()
             ))
         })?;
-        let species_idx = self.node_mapping.get(gene_node_idx).copied().ok_or_else(|| {
-            RustreeError::Index(format!(
-                "gene_node_idx {} is out of bounds for node_mapping (len {})",
-                gene_node_idx,
-                self.node_mapping.len()
-            ))
-        })?;
+        let species_idx = self
+            .node_mapping
+            .get(gene_node_idx)
+            .copied()
+            .ok_or_else(|| {
+                RustreeError::Index(format!(
+                    "gene_node_idx {} is out of bounds for node_mapping (len {})",
+                    gene_node_idx,
+                    self.node_mapping.len()
+                ))
+            })?;
         let event = self.event_mapping.get(gene_node_idx).ok_or_else(|| {
             RustreeError::Index(format!(
                 "gene_node_idx {} is out of bounds for event_mapping (len {})",
@@ -211,5 +233,4 @@ impl RecTree {
         })?;
         Ok((gene_node, species_idx, event))
     }
-
 }

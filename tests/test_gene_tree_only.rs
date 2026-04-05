@@ -1,4 +1,4 @@
-use rustree::{RecTree, Event, parse_newick};
+use rustree::{parse_newick, Event, RecTree};
 
 /// Test parsing gene-tree-only XML with <P> event tags
 #[test]
@@ -34,18 +34,34 @@ fn test_parse_gene_tree_only_with_p_tags() {
 </recGeneTree>"#;
 
     let result = RecTree::from_gene_tree_xml(gene_xml, species_tree);
-    assert!(result.is_ok(), "Failed to parse gene-tree-only XML: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to parse gene-tree-only XML: {:?}",
+        result.err()
+    );
 
     let rec_tree = result.unwrap();
 
     // Check gene tree structure
-    assert_eq!(rec_tree.gene_tree.nodes.len(), 3, "Should have 3 gene nodes");
+    assert_eq!(
+        rec_tree.gene_tree.nodes.len(),
+        3,
+        "Should have 3 gene nodes"
+    );
 
     // Check that <P> tags were parsed as Event::Leaf
-    let leaf_count = rec_tree.event_mapping.iter().filter(|e| **e == Event::Leaf).count();
+    let leaf_count = rec_tree
+        .event_mapping
+        .iter()
+        .filter(|e| **e == Event::Leaf)
+        .count();
     assert_eq!(leaf_count, 2, "Should have 2 leaf events from <P> tags");
 
-    let speciation_count = rec_tree.event_mapping.iter().filter(|e| **e == Event::Speciation).count();
+    let speciation_count = rec_tree
+        .event_mapping
+        .iter()
+        .filter(|e| **e == Event::Speciation)
+        .count();
     assert_eq!(speciation_count, 1, "Should have 1 speciation event");
 }
 
@@ -87,26 +103,44 @@ fn test_from_separate_files_simple() {
     fs::write(&gene_path, gene_xml).expect("Failed to write gene file");
 
     // Test from_separate_files
-    let result = RecTree::from_separate_files(
-        species_path.to_str().unwrap(),
-        gene_path.to_str().unwrap()
-    );
+    let result =
+        RecTree::from_separate_files(species_path.to_str().unwrap(), gene_path.to_str().unwrap());
 
     // Clean up
     let _ = fs::remove_file(&species_path);
     let _ = fs::remove_file(&gene_path);
 
-    assert!(result.is_ok(), "Failed to parse from separate files: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to parse from separate files: {:?}",
+        result.err()
+    );
 
     let rec_tree = result.unwrap();
-    assert_eq!(rec_tree.species_tree.nodes.len(), 5, "Species tree should have 5 nodes");
-    assert_eq!(rec_tree.gene_tree.nodes.len(), 3, "Gene tree should have 3 nodes");
+    assert_eq!(
+        rec_tree.species_tree.nodes.len(),
+        5,
+        "Species tree should have 5 nodes"
+    );
+    assert_eq!(
+        rec_tree.gene_tree.nodes.len(),
+        3,
+        "Gene tree should have 3 nodes"
+    );
 
     // Check events
-    let duplication_count = rec_tree.event_mapping.iter().filter(|e| **e == Event::Duplication).count();
+    let duplication_count = rec_tree
+        .event_mapping
+        .iter()
+        .filter(|e| **e == Event::Duplication)
+        .count();
     assert_eq!(duplication_count, 1, "Should have 1 duplication");
 
-    let leaf_count = rec_tree.event_mapping.iter().filter(|e| **e == Event::Leaf).count();
+    let leaf_count = rec_tree
+        .event_mapping
+        .iter()
+        .filter(|e| **e == Event::Leaf)
+        .count();
     assert_eq!(leaf_count, 2, "Should have 2 leaves");
 }
 
@@ -185,5 +219,8 @@ fn test_gene_tree_only_missing_species() {
 
     let result = RecTree::from_gene_tree_xml(gene_xml, species_tree);
     assert!(result.is_err(), "Should fail when species 'C' not found");
-    assert!(result.unwrap_err().to_string().contains("Species 'C' not found"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Species 'C' not found"));
 }

@@ -6,8 +6,7 @@ use std::collections::HashSet;
 use rustree::bd::simulate_bd_tree_bwd;
 use rustree::comparison::{compare_nodes, compare_nodes_topology};
 use rustree::sampling::{
-    extract_induced_subtree, find_all_leaf_indices, extract_extant_subtree,
-    build_leaf_pair_lca_map,
+    build_leaf_pair_lca_map, extract_extant_subtree, extract_induced_subtree, find_all_leaf_indices,
 };
 
 /// Build a species tree of size n with fixed seed.
@@ -57,7 +56,11 @@ fn bench_extract_induced_subtree(c: &mut Criterion) {
         let all_leaves = find_all_leaf_indices(&tree);
 
         // Sample half the leaves
-        let half: HashSet<usize> = all_leaves.iter().take(all_leaves.len() / 2).copied().collect();
+        let half: HashSet<usize> = all_leaves
+            .iter()
+            .take(all_leaves.len() / 2)
+            .copied()
+            .collect();
 
         group.bench_with_input(BenchmarkId::new("half_leaves", n), &n, |b, _| {
             b.iter(|| extract_induced_subtree(&tree, &half));

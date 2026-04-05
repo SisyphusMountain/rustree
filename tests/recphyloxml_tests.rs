@@ -1,4 +1,4 @@
-use rustree::{RecTree, Event};
+use rustree::{Event, RecTree};
 
 /// Test parsing a simple RecPhyloXML with minimal structure
 #[test]
@@ -51,23 +51,41 @@ fn test_parse_simple_recphyloxml() {
 </recPhylo>"#;
 
     let result = RecTree::from_xml(xml);
-    assert!(result.is_ok(), "Failed to parse simple XML: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to parse simple XML: {:?}",
+        result.err()
+    );
 
     let rec_tree = result.unwrap();
 
     // Check species tree
-    assert_eq!(rec_tree.species_tree.nodes.len(), 3, "Species tree should have 3 nodes");
-    assert_eq!(rec_tree.species_tree.nodes[rec_tree.species_tree.root].name, "Root");
+    assert_eq!(
+        rec_tree.species_tree.nodes.len(),
+        3,
+        "Species tree should have 3 nodes"
+    );
+    assert_eq!(
+        rec_tree.species_tree.nodes[rec_tree.species_tree.root].name,
+        "Root"
+    );
 
     // Check gene tree
-    assert_eq!(rec_tree.gene_tree.nodes.len(), 3, "Gene tree should have 3 nodes");
+    assert_eq!(
+        rec_tree.gene_tree.nodes.len(),
+        3,
+        "Gene tree should have 3 nodes"
+    );
 
     // Check mappings
     assert_eq!(rec_tree.node_mapping.len(), 3);
     assert_eq!(rec_tree.event_mapping.len(), 3);
 
     // Check event types
-    assert_eq!(rec_tree.event_mapping[rec_tree.gene_tree.root], Event::Speciation);
+    assert_eq!(
+        rec_tree.event_mapping[rec_tree.gene_tree.root],
+        Event::Speciation
+    );
 }
 
 /// Test parsing with missing branch lengths (should default to 0.0)
@@ -196,8 +214,14 @@ fn test_parse_all_event_types() {
     let rec_tree = result.unwrap();
 
     // Check that we have different event types
-    let has_duplication = rec_tree.event_mapping.iter().any(|e| *e == Event::Duplication);
-    let has_speciation = rec_tree.event_mapping.iter().any(|e| *e == Event::Speciation);
+    let has_duplication = rec_tree
+        .event_mapping
+        .iter()
+        .any(|e| *e == Event::Duplication);
+    let has_speciation = rec_tree
+        .event_mapping
+        .iter()
+        .any(|e| *e == Event::Speciation);
     let has_loss = rec_tree.event_mapping.iter().any(|e| *e == Event::Loss);
     let has_leaf = rec_tree.event_mapping.iter().any(|e| *e == Event::Leaf);
     let has_transfer = rec_tree.event_mapping.iter().any(|e| *e == Event::Transfer);
@@ -262,8 +286,14 @@ fn test_round_trip() {
     let rec_tree2 = RecTree::from_xml(&xml2).expect("Failed to parse second time");
 
     // Check that structure is preserved
-    assert_eq!(rec_tree1.species_tree.nodes.len(), rec_tree2.species_tree.nodes.len());
-    assert_eq!(rec_tree1.gene_tree.nodes.len(), rec_tree2.gene_tree.nodes.len());
+    assert_eq!(
+        rec_tree1.species_tree.nodes.len(),
+        rec_tree2.species_tree.nodes.len()
+    );
+    assert_eq!(
+        rec_tree1.gene_tree.nodes.len(),
+        rec_tree2.gene_tree.nodes.len()
+    );
     assert_eq!(rec_tree1.node_mapping.len(), rec_tree2.node_mapping.len());
     assert_eq!(rec_tree1.event_mapping.len(), rec_tree2.event_mapping.len());
 }
@@ -314,7 +344,10 @@ fn test_rectree_owned_methods() {
 
     // Test species_node_for
     let root_species_idx = rec_tree.species_node_for(rec_tree.gene_tree.root).unwrap();
-    assert_eq!(rec_tree.species_tree.nodes[root_species_idx.unwrap()].name, "Root");
+    assert_eq!(
+        rec_tree.species_tree.nodes[root_species_idx.unwrap()].name,
+        "Root"
+    );
 
     // Test event_for
     let root_event = rec_tree.event_for(rec_tree.gene_tree.root).unwrap();
@@ -323,7 +356,9 @@ fn test_rectree_owned_methods() {
     // Test get_full_info
     let (gene_node, species_idx, event) = rec_tree.get_full_info(rec_tree.gene_tree.root).unwrap();
     assert_eq!(gene_node.name, "NULL");
-    assert_eq!(rec_tree.species_tree.nodes[species_idx.unwrap()].name, "Root");
+    assert_eq!(
+        rec_tree.species_tree.nodes[species_idx.unwrap()].name,
+        "Root"
+    );
     assert_eq!(*event, Event::Speciation);
-
 }

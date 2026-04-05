@@ -1,14 +1,14 @@
 //! GeneForest and ALERax forest result Python bindings.
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::node::RecTree;
 
-use super::{PyGeneTree, PySpeciesTree, PyEventCounts, PyReconciliationStatistics};
 use super::alerax::PyAleRaxResult;
+use super::{PyEventCounts, PyGeneTree, PyReconciliationStatistics, PySpeciesTree};
 
 // ============================================================================
 // GeneForest
@@ -42,7 +42,8 @@ impl PyGeneForest {
     #[new]
     fn new(species_tree: &PySpeciesTree, gene_trees: Vec<PyGeneTree>) -> PyResult<Self> {
         let species_arc = Arc::clone(&species_tree.tree);
-        let rec_trees: Vec<RecTree> = gene_trees.into_iter()
+        let rec_trees: Vec<RecTree> = gene_trees
+            .into_iter()
             .map(|gt| {
                 let mut rt = gt.rec_tree;
                 rt.species_tree = Arc::clone(&species_arc);
@@ -62,9 +63,18 @@ impl PyGeneForest {
 
     /// Get a gene tree by index.
     fn __getitem__(&self, idx: usize) -> PyResult<PyGeneTree> {
-        self.forest.get(idx)
-            .map(|rt| PyGeneTree { rec_tree: rt.clone() })
-            .ok_or_else(|| PyValueError::new_err(format!("Index {} out of range (len={})", idx, self.forest.len())))
+        self.forest
+            .get(idx)
+            .map(|rt| PyGeneTree {
+                rec_tree: rt.clone(),
+            })
+            .ok_or_else(|| {
+                PyValueError::new_err(format!(
+                    "Index {} out of range (len={})",
+                    idx,
+                    self.forest.len()
+                ))
+            })
     }
 
     /// Get the species tree.
@@ -78,8 +88,12 @@ impl PyGeneForest {
     /// Get all gene trees.
     #[getter]
     fn gene_trees(&self) -> Vec<PyGeneTree> {
-        self.forest.gene_trees.iter()
-            .map(|rt| PyGeneTree { rec_tree: rt.clone() })
+        self.forest
+            .gene_trees
+            .iter()
+            .map(|rt| PyGeneTree {
+                rec_tree: rt.clone(),
+            })
             .collect()
     }
 
@@ -88,7 +102,9 @@ impl PyGeneForest {
     /// Keeps only gene tree leaves whose event is Leaf (i.e., extant genes).
     /// Gene trees with zero extant leaves are dropped.
     fn sample_extant(&self) -> PyResult<PyGeneForest> {
-        let sampled = self.forest.sample_extant()
+        let sampled = self
+            .forest
+            .sample_extant()
             .map_err(|e| PyValueError::new_err(format!("Failed to sample extant: {}", e)))?;
         Ok(PyGeneForest { forest: sampled })
     }
@@ -98,7 +114,9 @@ impl PyGeneForest {
     /// The target species tree's leaves must be a subset of this forest's
     /// species tree leaves. Returns a new GeneForest with pruned trees.
     fn prune_to_species_tree(&self, target: &PySpeciesTree) -> PyResult<PyGeneForest> {
-        let pruned = self.forest.prune_to_species_tree(&target.tree)
+        let pruned = self
+            .forest
+            .prune_to_species_tree(&target.tree)
             .map_err(|e| PyValueError::new_err(format!("Failed to prune: {}", e)))?;
         Ok(PyGeneForest { forest: pruned })
     }
@@ -108,7 +126,9 @@ impl PyGeneForest {
     /// # Arguments
     /// * `names` - List of species leaf names to keep
     fn sample_leaves(&self, names: Vec<String>) -> PyResult<PyGeneForest> {
-        let sampled = self.forest.sample_leaves(&names)
+        let sampled = self
+            .forest
+            .sample_leaves(&names)
             .map_err(|e| PyValueError::new_err(format!("Failed to sample: {}", e)))?;
         Ok(PyGeneForest { forest: sampled })
     }
@@ -146,9 +166,12 @@ impl PyGeneForest {
         let model_type = match model.to_uppercase().as_str() {
             "PER-FAMILY" | "PER_FAMILY" => ModelType::PerFamily,
             "GLOBAL" => ModelType::Global,
-            _ => return Err(PyValueError::new_err(format!(
-                "Invalid model type '{}'. Must be 'PER-FAMILY' or 'GLOBAL'", model
-            ))),
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "Invalid model type '{}'. Must be 'PER-FAMILY' or 'GLOBAL'",
+                    model
+                )))
+            }
         };
 
         let output_path = output_dir.map(PathBuf::from);
@@ -162,7 +185,8 @@ impl PyGeneForest {
             seed,
             &alerax_path,
             keep_output,
-        ).map_err(|e| PyValueError::new_err(format!("ALERax reconciliation failed: {}", e)))?;
+        )
+        .map_err(|e| PyValueError::new_err(format!("ALERax reconciliation failed: {}", e)))?;
 
         Ok(PyAleRaxForestResult::from_rust(result))
     }
@@ -175,7 +199,11 @@ impl PyGeneForest {
     }
 
     fn __repr__(&self) -> String {
-        let species_leaves = self.forest.species_tree().nodes.iter()
+        let species_leaves = self
+            .forest
+            .species_tree()
+            .nodes
+            .iter()
             .filter(|n| n.left_child.is_none() && n.right_child.is_none())
             .count();
         format!(
@@ -195,12 +223,16 @@ struct PyGeneForestIter {
 
 #[pymethods]
 impl PyGeneForestIter {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
 
     fn __next__(&mut self) -> Option<PyGeneTree> {
         let gt = self.forest.get(self.pos)?;
         self.pos += 1;
-        Some(PyGeneTree { rec_tree: gt.clone() })
+        Some(PyGeneTree {
+            rec_tree: gt.clone(),
+        })
     }
 }
 
@@ -227,7 +259,8 @@ impl PyAleRaxForestResult {
     fn from_rust(result: crate::alerax::AleRaxForestResult) -> Self {
         let mut py_family_results = HashMap::new();
         for (name, family_result) in result.family_results {
-            let py_gene_trees: Vec<PyGeneTree> = family_result.reconciled_trees
+            let py_gene_trees: Vec<PyGeneTree> = family_result
+                .reconciled_trees
                 .into_iter()
                 .map(|rt| PyGeneTree { rec_tree: rt })
                 .collect();
@@ -236,26 +269,34 @@ impl PyAleRaxForestResult {
                 speciations: family_result.statistics.mean_event_counts.speciations,
                 speciation_losses: family_result.statistics.mean_event_counts.speciation_losses,
                 duplications: family_result.statistics.mean_event_counts.duplications,
-                duplication_losses: family_result.statistics.mean_event_counts.duplication_losses,
+                duplication_losses: family_result
+                    .statistics
+                    .mean_event_counts
+                    .duplication_losses,
                 transfers: family_result.statistics.mean_event_counts.transfers,
                 transfer_losses: family_result.statistics.mean_event_counts.transfer_losses,
                 losses: family_result.statistics.mean_event_counts.losses,
                 leaves: family_result.statistics.mean_event_counts.leaves,
             };
 
-            let events_per_species: HashMap<String, PyEventCounts> = family_result.statistics.events_per_species
+            let events_per_species: HashMap<String, PyEventCounts> = family_result
+                .statistics
+                .events_per_species
                 .into_iter()
                 .map(|(species, counts)| {
-                    (species, PyEventCounts {
-                        speciations: counts.speciations,
-                        speciation_losses: counts.speciation_losses,
-                        duplications: counts.duplications,
-                        duplication_losses: counts.duplication_losses,
-                        transfers: counts.transfers,
-                        transfer_losses: counts.transfer_losses,
-                        losses: counts.losses,
-                        leaves: counts.leaves,
-                    })
+                    (
+                        species,
+                        PyEventCounts {
+                            speciations: counts.speciations,
+                            speciation_losses: counts.speciation_losses,
+                            duplications: counts.duplications,
+                            duplication_losses: counts.duplication_losses,
+                            transfers: counts.transfers,
+                            transfer_losses: counts.transfer_losses,
+                            losses: counts.losses,
+                            leaves: counts.leaves,
+                        },
+                    )
                 })
                 .collect();
 
@@ -265,14 +306,17 @@ impl PyAleRaxForestResult {
                 events_per_species,
             };
 
-            py_family_results.insert(name, PyAleRaxResult {
-                gene_trees: py_gene_trees,
-                duplication_rate: family_result.duplication_rate,
-                loss_rate: family_result.loss_rate,
-                transfer_rate: family_result.transfer_rate,
-                likelihood: family_result.likelihood,
-                statistics,
-            });
+            py_family_results.insert(
+                name,
+                PyAleRaxResult {
+                    gene_trees: py_gene_trees,
+                    duplication_rate: family_result.duplication_rate,
+                    loss_rate: family_result.loss_rate,
+                    transfer_rate: family_result.transfer_rate,
+                    likelihood: family_result.likelihood,
+                    statistics,
+                },
+            );
         }
 
         PyAleRaxForestResult {
@@ -326,10 +370,15 @@ impl PyAleRaxForestResult {
     /// Columns: species_label, speciations, duplications, losses, transfers,
     ///          presence, origination, copies, singletons, transfers_to
     fn mean_species_event_counts(&self, py: Python, family_name: &str) -> PyResult<PyObject> {
-        let rows = self.mean_species_event_counts.get(family_name)
-            .ok_or_else(|| PyValueError::new_err(format!(
-                "No mean species event counts for family '{}'", family_name
-            )))?;
+        let rows = self
+            .mean_species_event_counts
+            .get(family_name)
+            .ok_or_else(|| {
+                PyValueError::new_err(format!(
+                    "No mean species event counts for family '{}'",
+                    family_name
+                ))
+            })?;
         species_event_rows_to_df(py, rows)
     }
 
@@ -350,8 +399,16 @@ impl PyAleRaxForestResult {
         let pandas = super::import_pymodule(py, "pandas")?;
         let dict = pyo3::types::PyDict::new(py);
 
-        let sources: Vec<&str> = self.total_transfers_data.iter().map(|r| r.source.as_str()).collect();
-        let dests: Vec<&str> = self.total_transfers_data.iter().map(|r| r.destination.as_str()).collect();
+        let sources: Vec<&str> = self
+            .total_transfers_data
+            .iter()
+            .map(|r| r.source.as_str())
+            .collect();
+        let dests: Vec<&str> = self
+            .total_transfers_data
+            .iter()
+            .map(|r| r.destination.as_str())
+            .collect();
         let counts: Vec<f64> = self.total_transfers_data.iter().map(|r| r.count).collect();
 
         dict.set_item("source", sources)?;
@@ -375,4 +432,3 @@ impl PyAleRaxForestResult {
         )
     }
 }
-

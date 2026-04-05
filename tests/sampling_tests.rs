@@ -1,8 +1,8 @@
-use std::fs;
-use std::path::PathBuf;
 use rustree::comparison::compare_nodes;
 use rustree::newick::parse_newick;
 use rustree::sampling::{extract_induced_subtree, find_leaf_indices_by_names};
+use std::fs;
+use std::path::PathBuf;
 
 #[test]
 fn test_extract_induced_subtree_keep_cd() {
@@ -23,10 +23,8 @@ fn test_extract_induced_subtree_keep_cd() {
     let flat_tree = root_node.to_flat_tree();
 
     // Keep only leaves C and D
-    let leaves_to_keep = find_leaf_indices_by_names(
-        &flat_tree,
-        &["C".to_string(), "D".to_string()]
-    );
+    let leaves_to_keep =
+        find_leaf_indices_by_names(&flat_tree, &["C".to_string(), "D".to_string()]);
 
     // Extract induced subtree
     let (induced, _) = extract_induced_subtree(&flat_tree, &leaves_to_keep)
@@ -35,20 +33,31 @@ fn test_extract_induced_subtree_keep_cd() {
     // Reconstruct the tree
     let mut reconstructed_tree = induced.to_node();
     reconstructed_tree.assign_depths(0.0);
-    let newick_result = reconstructed_tree.to_newick().expect("Failed to convert to Newick") + ";";
+    let newick_result = reconstructed_tree
+        .to_newick()
+        .expect("Failed to convert to Newick")
+        + ";";
     println!("Resulting Newick string: {}", newick_result);
 
     // Read expected tree from test_tree_F.nwk
     let expected_path = PathBuf::from("tests/test_tree_F.nwk");
-    let expected_newick = fs::read_to_string(expected_path)
-        .expect("Failed to read expected Newick file");
+    let expected_newick =
+        fs::read_to_string(expected_path).expect("Failed to read expected Newick file");
     let mut expected_tree = parse_newick(&expected_newick)
-        .expect("Failed to parse expected Newick string").pop().unwrap();
+        .expect("Failed to parse expected Newick string")
+        .pop()
+        .unwrap();
     expected_tree.assign_depths(0.0);
 
     // Display both trees
-    let recon_newick = reconstructed_tree.to_newick().expect("Failed to convert to Newick") + ";";
-    let expected_recon_newick = expected_tree.to_newick().expect("Failed to convert to Newick") + ";";
+    let recon_newick = reconstructed_tree
+        .to_newick()
+        .expect("Failed to convert to Newick")
+        + ";";
+    let expected_recon_newick = expected_tree
+        .to_newick()
+        .expect("Failed to convert to Newick")
+        + ";";
     println!("Reconstructed Newick string: {}", recon_newick);
     println!("Expected Newick string: {}", expected_recon_newick);
 

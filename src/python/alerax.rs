@@ -1,12 +1,14 @@
 //! ALERax reconciliation Python bindings.
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::{PyGeneTree, PySpeciesTree, PyEventCounts, PyReconciliationStatistics, parse_species_tree};
 use super::forest::PyGeneForest;
+use super::{
+    parse_species_tree, PyEventCounts, PyGeneTree, PyReconciliationStatistics, PySpeciesTree,
+};
 
 /// Result of ALERax reconciliation for a gene family.
 ///
@@ -107,7 +109,7 @@ pub fn reconcile_with_alerax(
     keep_output: bool,
     alerax_path: String,
 ) -> PyResult<HashMap<String, PyAleRaxResult>> {
-    use crate::alerax::{run_alerax, AleRaxConfig, GeneFamily, ModelType, validate_inputs};
+    use crate::alerax::{run_alerax, validate_inputs, AleRaxConfig, GeneFamily, ModelType};
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -116,30 +118,35 @@ pub fn reconcile_with_alerax(
     let model_type = match model.to_uppercase().as_str() {
         "PER-FAMILY" | "PER_FAMILY" => ModelType::PerFamily,
         "GLOBAL" => ModelType::Global,
-        _ => return Err(PyValueError::new_err(format!(
-            "Invalid model type '{}'. Must be 'PER-FAMILY' or 'GLOBAL'", model
-        ))),
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "Invalid model type '{}'. Must be 'PER-FAMILY' or 'GLOBAL'",
+                model
+            )))
+        }
     };
 
     // Parse species tree
-    let species_tree_obj = species_tree.extract::<PySpeciesTree>(py)
-        .or_else(|_| {
-            // Try as string (Newick or file path)
-            let tree_str = species_tree.extract::<String>(py)?;
+    let species_tree_obj = species_tree.extract::<PySpeciesTree>(py).or_else(|_| {
+        // Try as string (Newick or file path)
+        let tree_str = species_tree.extract::<String>(py)?;
 
-            // Check if it's a file path
-            if PathBuf::from(&tree_str).exists() {
-                // Read file and parse
-                let content = fs::read_to_string(&tree_str)
-                    .map_err(|e| PyValueError::new_err(format!("Failed to read species tree file: {}", e)))?;
-                parse_species_tree(&content)
-            } else {
-                // Parse as Newick string
-                parse_species_tree(&tree_str)
-            }
-        })?;
+        // Check if it's a file path
+        if PathBuf::from(&tree_str).exists() {
+            // Read file and parse
+            let content = fs::read_to_string(&tree_str).map_err(|e| {
+                PyValueError::new_err(format!("Failed to read species tree file: {}", e))
+            })?;
+            parse_species_tree(&content)
+        } else {
+            // Parse as Newick string
+            parse_species_tree(&tree_str)
+        }
+    })?;
 
-    let species_tree_newick = species_tree_obj.tree.to_newick()
+    let species_tree_newick = species_tree_obj
+        .tree
+        .to_newick()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     // Parse gene trees — accepts PyGeneTree, PyGeneForest, list of PyGeneTree,
@@ -148,28 +155,33 @@ pub fn reconcile_with_alerax(
 
     // Try PyGeneTree objects first (single, list, or forest)
     if let Ok(single_gt) = gene_trees.extract::<PyGeneTree>(py) {
-        let newick = single_gt.rec_tree.gene_tree.to_newick()
-            .map_err(|e| PyValueError::new_err(format!("Failed to convert gene tree to Newick: {}", e)))?;
+        let newick = single_gt.rec_tree.gene_tree.to_newick().map_err(|e| {
+            PyValueError::new_err(format!("Failed to convert gene tree to Newick: {}", e))
+        })?;
         gene_tree_list.push(("family_0".to_string(), newick + ";"));
     } else if let Ok(gt_list) = gene_trees.extract::<Vec<PyGeneTree>>(py) {
         for (idx, gt) in gt_list.iter().enumerate() {
-            let newick = gt.rec_tree.gene_tree.to_newick()
-                .map_err(|e| PyValueError::new_err(format!("Failed to convert gene tree to Newick: {}", e)))?;
+            let newick = gt.rec_tree.gene_tree.to_newick().map_err(|e| {
+                PyValueError::new_err(format!("Failed to convert gene tree to Newick: {}", e))
+            })?;
             gene_tree_list.push((format!("family_{}", idx), newick + ";"));
         }
     } else if let Ok(forest) = gene_trees.extract::<PyGeneForest>(py) {
         for (idx, rec_tree) in forest.forest.gene_trees.iter().enumerate() {
-            let newick = rec_tree.gene_tree.to_newick()
-                .map_err(|e| PyValueError::new_err(format!("Failed to convert gene tree to Newick: {}", e)))?;
+            let newick = rec_tree.gene_tree.to_newick().map_err(|e| {
+                PyValueError::new_err(format!("Failed to convert gene tree to Newick: {}", e))
+            })?;
             gene_tree_list.push((format!("family_{}", idx), newick + ";"));
         }
     } else if let Ok(dict) = gene_trees.extract::<HashMap<String, String>>(py) {
         for (name, newick_or_path) in dict {
             let newick = if PathBuf::from(&newick_or_path).exists() {
-                fs::read_to_string(&newick_or_path)
-                    .map_err(|e| PyValueError::new_err(format!(
-                        "Failed to read gene tree file '{}': {}", newick_or_path, e
-                    )))?
+                fs::read_to_string(&newick_or_path).map_err(|e| {
+                    PyValueError::new_err(format!(
+                        "Failed to read gene tree file '{}': {}",
+                        newick_or_path, e
+                    ))
+                })?
             } else {
                 newick_or_path
             };
@@ -180,14 +192,17 @@ pub fn reconcile_with_alerax(
         for (idx, newick_or_path) in list.iter().enumerate() {
             let (name, newick) = if PathBuf::from(newick_or_path).exists() {
                 let path = PathBuf::from(newick_or_path);
-                let name = path.file_stem()
+                let name = path
+                    .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or(&format!("family_{}", idx))
                     .to_string();
-                let newick = fs::read_to_string(&path)
-                    .map_err(|e| PyValueError::new_err(format!(
-                        "Failed to read gene tree file '{}': {}", newick_or_path, e
-                    )))?;
+                let newick = fs::read_to_string(&path).map_err(|e| {
+                    PyValueError::new_err(format!(
+                        "Failed to read gene tree file '{}': {}",
+                        newick_or_path, e
+                    ))
+                })?;
                 (name, newick)
             } else {
                 (format!("family_{}", idx), newick_or_path.clone())
@@ -198,14 +213,14 @@ pub fn reconcile_with_alerax(
         // Single Newick string or file path
         let (name, newick) = if PathBuf::from(&single).exists() {
             let path = PathBuf::from(&single);
-            let name = path.file_stem()
+            let name = path
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("family_0")
                 .to_string();
-            let newick = fs::read_to_string(&path)
-                .map_err(|e| PyValueError::new_err(format!(
-                    "Failed to read gene tree file '{}': {}", single, e
-                )))?;
+            let newick = fs::read_to_string(&path).map_err(|e| {
+                PyValueError::new_err(format!("Failed to read gene tree file '{}': {}", single, e))
+            })?;
             (name, newick)
         } else {
             ("family_0".to_string(), single)
@@ -230,8 +245,9 @@ pub fn reconcile_with_alerax(
     let (output_path, _temp_dir) = if let Some(dir) = output_dir {
         (PathBuf::from(dir), None)
     } else {
-        let temp_dir = TempDir::new()
-            .map_err(|e| PyValueError::new_err(format!("Failed to create temp directory: {}", e)))?;
+        let temp_dir = TempDir::new().map_err(|e| {
+            PyValueError::new_err(format!("Failed to create temp directory: {}", e))
+        })?;
         let path = temp_dir.path().to_path_buf();
         (path, Some(temp_dir))
     };
@@ -245,13 +261,14 @@ pub fn reconcile_with_alerax(
     let families_file_path = input_dir.join("families.txt");
 
     // Prepare gene families
-    let families: Vec<GeneFamily> = gene_tree_list.iter().map(|(name, newick)| {
-        GeneFamily {
+    let families: Vec<GeneFamily> = gene_tree_list
+        .iter()
+        .map(|(name, newick)| GeneFamily {
             name: name.clone(),
             gene_tree_path: input_dir.join(format!("{}.newick", name)),
             gene_tree_newick: newick.clone(),
-        }
-    }).collect();
+        })
+        .collect();
 
     let alerax_output_dir = output_path.join("alerax_output");
 
@@ -279,14 +296,18 @@ pub fn reconcile_with_alerax(
         use crate::node::map_by_topology;
 
         // Get the ALERax species tree from the first parsed result
-        let first_result = results.values().next()
+        let first_result = results
+            .values()
+            .next()
             .ok_or_else(|| PyValueError::new_err("No ALERax results"))?;
         if let Some(first_rec) = first_result.reconciled_trees.first() {
             let alerax_species_tree = &first_rec.species_tree;
 
             // Build topology mapping: alerax_idx -> original_idx
             let topo_mapping = map_by_topology(&species_tree_obj.tree, alerax_species_tree)
-                .map_err(|e| PyValueError::new_err(format!("Failed to build topology mapping: {}", e)))?;
+                .map_err(|e| {
+                    PyValueError::new_err(format!("Failed to build topology mapping: {}", e))
+                })?;
 
             // Build name mapping: alerax_name -> original_name
             let mut alerax_to_original: HashMap<String, String> = HashMap::new();
@@ -317,7 +338,9 @@ pub fn reconcile_with_alerax(
                             if let Some(pos) = node.name.rfind('_') {
                                 let alerax_species = &node.name[..pos];
                                 let suffix = &node.name[pos..];
-                                if let Some(original_species) = alerax_to_original.get(alerax_species) {
+                                if let Some(original_species) =
+                                    alerax_to_original.get(alerax_species)
+                                {
                                     node.name = format!("{}{}", original_species, suffix);
                                 }
                             }
@@ -328,7 +351,8 @@ pub fn reconcile_with_alerax(
                 // Rename species keys in statistics
                 let old_eps = std::mem::take(&mut result.statistics.events_per_species);
                 for (species_name, counts) in old_eps {
-                    let renamed = alerax_to_original.get(&species_name)
+                    let renamed = alerax_to_original
+                        .get(&species_name)
                         .cloned()
                         .unwrap_or(species_name);
                     result.statistics.events_per_species.insert(renamed, counts);
@@ -336,17 +360,16 @@ pub fn reconcile_with_alerax(
 
                 let old_mt = std::mem::take(&mut result.statistics.mean_transfers);
                 for (source, dests) in old_mt {
-                    let renamed_source = alerax_to_original.get(&source)
-                        .cloned()
-                        .unwrap_or(source);
+                    let renamed_source = alerax_to_original.get(&source).cloned().unwrap_or(source);
                     let mut renamed_dests = HashMap::new();
                     for (dest, count) in dests {
-                        let renamed_dest = alerax_to_original.get(&dest)
-                            .cloned()
-                            .unwrap_or(dest);
+                        let renamed_dest = alerax_to_original.get(&dest).cloned().unwrap_or(dest);
                         renamed_dests.insert(renamed_dest, count);
                     }
-                    result.statistics.mean_transfers.insert(renamed_source, renamed_dests);
+                    result
+                        .statistics
+                        .mean_transfers
+                        .insert(renamed_source, renamed_dests);
                 }
             }
         }
@@ -364,9 +387,7 @@ pub fn reconcile_with_alerax(
                 let shared = Arc::clone(&rt.species_tree);
                 (shared, Some(PyGeneTree { rec_tree: rt }))
             }
-            None => {
-                (Arc::new(species_tree_obj.tree.as_ref().clone()), None)
-            }
+            None => (Arc::new(species_tree_obj.tree.as_ref().clone()), None),
         };
         let mut py_gene_trees: Vec<PyGeneTree> = first_py_gene_tree.into_iter().collect();
         py_gene_trees.extend(rec_trees_iter.map(|mut rec_tree| {
@@ -386,19 +407,24 @@ pub fn reconcile_with_alerax(
             leaves: result.statistics.mean_event_counts.leaves,
         };
 
-        let events_per_species: HashMap<String, PyEventCounts> = result.statistics.events_per_species
+        let events_per_species: HashMap<String, PyEventCounts> = result
+            .statistics
+            .events_per_species
             .into_iter()
             .map(|(species, counts)| {
-                (species, PyEventCounts {
-                    speciations: counts.speciations,
-                    speciation_losses: counts.speciation_losses,
-                    duplications: counts.duplications,
-                    duplication_losses: counts.duplication_losses,
-                    transfers: counts.transfers,
-                    transfer_losses: counts.transfer_losses,
-                    losses: counts.losses,
-                    leaves: counts.leaves,
-                })
+                (
+                    species,
+                    PyEventCounts {
+                        speciations: counts.speciations,
+                        speciation_losses: counts.speciation_losses,
+                        duplications: counts.duplications,
+                        duplication_losses: counts.duplication_losses,
+                        transfers: counts.transfers,
+                        transfer_losses: counts.transfer_losses,
+                        losses: counts.losses,
+                        leaves: counts.leaves,
+                    },
+                )
             })
             .collect();
 
@@ -408,14 +434,17 @@ pub fn reconcile_with_alerax(
             events_per_species,
         };
 
-        py_results.insert(family_name, PyAleRaxResult {
-            gene_trees: py_gene_trees,
-            duplication_rate: result.duplication_rate,
-            loss_rate: result.loss_rate,
-            transfer_rate: result.transfer_rate,
-            likelihood: result.likelihood,
-            statistics,
-        });
+        py_results.insert(
+            family_name,
+            PyAleRaxResult {
+                gene_trees: py_gene_trees,
+                duplication_rate: result.duplication_rate,
+                loss_rate: result.loss_rate,
+                transfer_rate: result.transfer_rate,
+                likelihood: result.likelihood,
+                statistics,
+            },
+        );
     }
 
     // Clean up temp directory if not keeping output

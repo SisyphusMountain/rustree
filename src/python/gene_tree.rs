@@ -1,18 +1,21 @@
 //! PyGeneTree and related types for Python bindings.
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::fs;
 use std::process::Command;
+use std::sync::Arc;
 
-use crate::node::{Event, RecTree, remap_gene_tree_indices};
 use crate::io::rectree_csv::RecTreeColumns;
-use crate::sampling::{extract_induced_subtree, extract_extant_subtree, find_leaf_indices_by_names, NodeMark, mark_nodes_postorder};
+use crate::node::{remap_gene_tree_indices, Event, RecTree};
+use crate::sampling::{
+    extract_extant_subtree, extract_induced_subtree, find_leaf_indices_by_names,
+    mark_nodes_postorder, NodeMark,
+};
 
+use super::reconciliation::{PyMultiSampleComparison, PyReconciliationComparison};
 use super::{extract_extant_gene_tree, parse_distance_type};
-use super::reconciliation::{PyReconciliationComparison, PyMultiSampleComparison};
 
 /// Convert RecTreeColumns to a pandas DataFrame.
 pub(crate) fn columns_to_dataframe(py: Python, cols: &RecTreeColumns) -> PyResult<PyObject> {
@@ -45,19 +48,49 @@ pub struct PyGeneTree {
 #[pymethods]
 impl PyGeneTree {
     fn __repr__(&self) -> String {
-        let n_leaves = self.rec_tree.gene_tree.nodes.iter()
+        let n_leaves = self
+            .rec_tree
+            .gene_tree
+            .nodes
+            .iter()
             .filter(|n| n.left_child.is_none() && n.right_child.is_none())
             .count();
-        let s = self.rec_tree.event_mapping.iter().filter(|e| **e == Event::Speciation).count();
-        let d = self.rec_tree.event_mapping.iter().filter(|e| **e == Event::Duplication).count();
-        let t = self.rec_tree.event_mapping.iter().filter(|e| **e == Event::Transfer).count();
-        let l = self.rec_tree.event_mapping.iter().filter(|e| **e == Event::Loss).count();
-        format!("GeneTree(leaves={}, events={{S:{}, D:{}, T:{}, L:{}}})", n_leaves, s, d, t, l)
+        let s = self
+            .rec_tree
+            .event_mapping
+            .iter()
+            .filter(|e| **e == Event::Speciation)
+            .count();
+        let d = self
+            .rec_tree
+            .event_mapping
+            .iter()
+            .filter(|e| **e == Event::Duplication)
+            .count();
+        let t = self
+            .rec_tree
+            .event_mapping
+            .iter()
+            .filter(|e| **e == Event::Transfer)
+            .count();
+        let l = self
+            .rec_tree
+            .event_mapping
+            .iter()
+            .filter(|e| **e == Event::Loss)
+            .count();
+        format!(
+            "GeneTree(leaves={}, events={{S:{}, D:{}, T:{}, L:{}}})",
+            n_leaves, s, d, t, l
+        )
     }
 
     /// Convert the gene tree to Newick format.
     fn to_newick(&self) -> PyResult<String> {
-        let nwk = self.rec_tree.gene_tree.to_newick()
+        let nwk = self
+            .rec_tree
+            .gene_tree
+            .to_newick()
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(nwk + ";")
     }
@@ -80,12 +113,15 @@ impl PyGeneTree {
 
     /// Get the number of extant genes (leaves that survived, not losses).
     fn num_extant(&self) -> usize {
-        self.rec_tree.gene_tree.nodes.iter()
+        self.rec_tree
+            .gene_tree
+            .nodes
+            .iter()
             .enumerate()
             .filter(|(i, n)| {
                 n.left_child.is_none()
-                && n.right_child.is_none()
-                && self.rec_tree.event_mapping[*i] == Event::Leaf
+                    && n.right_child.is_none()
+                    && self.rec_tree.event_mapping[*i] == Event::Leaf
             })
             .count()
     }
@@ -114,12 +150,15 @@ impl PyGeneTree {
 
     /// Get names of extant genes (genes that survived to present).
     fn extant_gene_names(&self) -> Vec<String> {
-        self.rec_tree.gene_tree.nodes.iter()
+        self.rec_tree
+            .gene_tree
+            .nodes
+            .iter()
             .enumerate()
             .filter(|(i, n)| {
                 n.left_child.is_none()
-                && n.right_child.is_none()
-                && self.rec_tree.event_mapping[*i] == Event::Leaf
+                    && n.right_child.is_none()
+                    && self.rec_tree.event_mapping[*i] == Event::Leaf
             })
             .map(|(_, n)| n.name.clone())
             .collect()
@@ -131,12 +170,16 @@ impl PyGeneTree {
     /// If all genes are lost, returns None (represented as an error in Python).
     fn sample_extant(&self) -> PyResult<PyGeneTree> {
         // Find indices of extant genes (leaves with Event::Leaf)
-        let extant_indices: std::collections::HashSet<usize> = self.rec_tree.gene_tree.nodes.iter()
+        let extant_indices: std::collections::HashSet<usize> = self
+            .rec_tree
+            .gene_tree
+            .nodes
+            .iter()
             .enumerate()
             .filter(|(i, n)| {
                 n.left_child.is_none()
-                && n.right_child.is_none()
-                && self.rec_tree.event_mapping[*i] == Event::Leaf
+                    && n.right_child.is_none()
+                    && self.rec_tree.event_mapping[*i] == Event::Leaf
             })
             .map(|(i, _)| i)
             .collect();
@@ -146,21 +189,26 @@ impl PyGeneTree {
         }
 
         // Extract induced gene subtree
-        let (sampled_gene_tree, gene_old_to_new) = extract_induced_subtree(&self.rec_tree.gene_tree, &extant_indices)
-            .ok_or_else(|| PyValueError::new_err("Failed to extract induced subtree"))?;
+        let (sampled_gene_tree, gene_old_to_new) =
+            extract_induced_subtree(&self.rec_tree.gene_tree, &extant_indices)
+                .ok_or_else(|| PyValueError::new_err("Failed to extract induced subtree"))?;
 
         // Also prune the species tree to extant-only and get species_old_to_new mapping.
         // This ensures the returned gene tree's node_mapping references the pruned species tree,
         // which is consistent with what ALERax sees during reconciliation.
-        let (sampled_species_tree, species_old_to_new) = extract_extant_subtree(&self.rec_tree.species_tree)
-            .ok_or_else(|| PyValueError::new_err("Failed to extract extant species subtree"))?;
+        let (sampled_species_tree, species_old_to_new) =
+            extract_extant_subtree(&self.rec_tree.species_tree)
+                .ok_or_else(|| PyValueError::new_err("Failed to extract extant species subtree"))?;
 
         // Use the existing remap function to correctly translate both gene and species indices
         let (new_node_mapping, new_event_mapping) = remap_gene_tree_indices(
-            &sampled_gene_tree, &gene_old_to_new,
-            &self.rec_tree.node_mapping, &self.rec_tree.event_mapping,
+            &sampled_gene_tree,
+            &gene_old_to_new,
+            &self.rec_tree.node_mapping,
+            &self.rec_tree.event_mapping,
             &species_old_to_new,
-        ).map_err(PyValueError::new_err)?;
+        )
+        .map_err(PyValueError::new_err)?;
 
         Ok(PyGeneTree {
             rec_tree: RecTree::new(
@@ -186,8 +234,9 @@ impl PyGeneTree {
             return Err(PyValueError::new_err("No matching genes found"));
         }
 
-        let (sampled_tree, gene_old_to_new) = extract_induced_subtree(&self.rec_tree.gene_tree, &keep_indices)
-            .ok_or_else(|| PyValueError::new_err("Failed to extract induced subtree"))?;
+        let (sampled_tree, gene_old_to_new) =
+            extract_induced_subtree(&self.rec_tree.gene_tree, &keep_indices)
+                .ok_or_else(|| PyValueError::new_err("Failed to extract induced subtree"))?;
 
         // Species tree is unchanged, so build an identity species mapping
         let species_identity: Vec<Option<usize>> = (0..self.rec_tree.species_tree.nodes.len())
@@ -195,10 +244,13 @@ impl PyGeneTree {
             .collect();
 
         let (new_node_mapping, new_event_mapping) = remap_gene_tree_indices(
-            &sampled_tree, &gene_old_to_new,
-            &self.rec_tree.node_mapping, &self.rec_tree.event_mapping,
+            &sampled_tree,
+            &gene_old_to_new,
+            &self.rec_tree.node_mapping,
+            &self.rec_tree.event_mapping,
             &species_identity,
-        ).map_err(PyValueError::new_err)?;
+        )
+        .map_err(PyValueError::new_err)?;
 
         Ok(PyGeneTree {
             rec_tree: RecTree::new(
@@ -229,10 +281,15 @@ impl PyGeneTree {
     /// pruned_gene_tree = gene_tree.sample_by_species_names(sampled_names)
     /// ```
     fn sample_by_species_names(&self, species_names: Vec<String>) -> PyResult<PyGeneTree> {
-        let species_set: std::collections::HashSet<&str> = species_names.iter().map(|s| s.as_str()).collect();
+        let species_set: std::collections::HashSet<&str> =
+            species_names.iter().map(|s| s.as_str()).collect();
 
         // Find gene leaves whose species is in the set
-        let keep_indices: std::collections::HashSet<usize> = self.rec_tree.gene_tree.nodes.iter()
+        let keep_indices: std::collections::HashSet<usize> = self
+            .rec_tree
+            .gene_tree
+            .nodes
+            .iter()
             .enumerate()
             .filter(|(_, n)| {
                 if n.left_child.is_some() || n.right_child.is_some() {
@@ -249,11 +306,14 @@ impl PyGeneTree {
             .collect();
 
         if keep_indices.is_empty() {
-            return Err(PyValueError::new_err("No genes found for the specified species"));
+            return Err(PyValueError::new_err(
+                "No genes found for the specified species",
+            ));
         }
 
-        let (sampled_tree, gene_old_to_new) = extract_induced_subtree(&self.rec_tree.gene_tree, &keep_indices)
-            .ok_or_else(|| PyValueError::new_err("Failed to extract induced subtree"))?;
+        let (sampled_tree, gene_old_to_new) =
+            extract_induced_subtree(&self.rec_tree.gene_tree, &keep_indices)
+                .ok_or_else(|| PyValueError::new_err("Failed to extract induced subtree"))?;
 
         // Species tree is unchanged, so build an identity species mapping
         let species_identity: Vec<Option<usize>> = (0..self.rec_tree.species_tree.nodes.len())
@@ -261,10 +321,13 @@ impl PyGeneTree {
             .collect();
 
         let (new_node_mapping, new_event_mapping) = remap_gene_tree_indices(
-            &sampled_tree, &gene_old_to_new,
-            &self.rec_tree.node_mapping, &self.rec_tree.event_mapping,
+            &sampled_tree,
+            &gene_old_to_new,
+            &self.rec_tree.node_mapping,
+            &self.rec_tree.event_mapping,
             &species_identity,
-        ).map_err(PyValueError::new_err)?;
+        )
+        .map_err(PyValueError::new_err)?;
 
         Ok(PyGeneTree {
             rec_tree: RecTree::new(
@@ -347,8 +410,9 @@ impl PyGeneTree {
         // Write input file: Newick for gene_only, RecPhyloXML otherwise
         if gene_only {
             let nwk = self.to_newick()?;
-            fs::write(&input_path, &nwk)
-                .map_err(|e| PyValueError::new_err(format!("Failed to write temp Newick: {}", e)))?;
+            fs::write(&input_path, &nwk).map_err(|e| {
+                PyValueError::new_err(format!("Failed to write temp Newick: {}", e))
+            })?;
         } else {
             let xml = self.to_xml();
             fs::write(&input_path, &xml)
@@ -358,14 +422,23 @@ impl PyGeneTree {
         // Build thirdkind config file for styling options
         let mut conf_lines = Vec::new();
         if !gene_only {
-            if let Some(c) = species_color { conf_lines.push(format!("species_color:{}", c)); }
+            if let Some(c) = species_color {
+                conf_lines.push(format!("species_color:{}", c));
+            }
         }
         if let Some(c) = gene_colors {
             // single_gene_color applies when one color is given
-            conf_lines.push(format!("single_gene_color:{}", c.split(',').next().unwrap_or(c)));
+            conf_lines.push(format!(
+                "single_gene_color:{}",
+                c.split(',').next().unwrap_or(c)
+            ));
         }
-        if let Some(s) = species_fontsize { conf_lines.push(format!("species_police_size:{}", s)); }
-        if let Some(s) = gene_fontsize { conf_lines.push(format!("gene_police_size:{}", s)); }
+        if let Some(s) = species_fontsize {
+            conf_lines.push(format!("species_police_size:{}", s));
+        }
+        if let Some(s) = gene_fontsize {
+            conf_lines.push(format!("gene_police_size:{}", s));
+        }
 
         // Write transfer color config entries based on NodeMark
         if let Some(ref names) = sampled_species_names {
@@ -377,7 +450,7 @@ impl PyGeneTree {
 
                 let config_key = match color_by {
                     "donor" => "transfer_donor_color",
-                    _ => "transfer_color",  // "recipient" or any other value defaults to recipient
+                    _ => "transfer_color", // "recipient" or any other value defaults to recipient
                 };
                 for (idx, node) in species_tree.nodes.iter().enumerate() {
                     let color = match marks[idx] {
@@ -395,34 +468,62 @@ impl PyGeneTree {
 
         // Call thirdkind with config file + CLI-only flags
         let mut cmd = Command::new("thirdkind");
-        cmd.arg("-f").arg(&input_path)
-           .arg("-o").arg(&svg_path)
-           .arg("-c").arg(&conf_path);
+        cmd.arg("-f")
+            .arg(&input_path)
+            .arg("-o")
+            .arg(&svg_path)
+            .arg("-c")
+            .arg(&conf_path);
 
-        if open_browser { cmd.arg("-b"); }
-        if internal_gene_names { cmd.arg("-i"); }
-        if !gene_only {
-            if internal_species_names || marking_nodes { cmd.arg("-I"); }
-            if fill_species { cmd.arg("-P"); }
+        if open_browser {
+            cmd.arg("-b");
         }
-        if landscape { cmd.arg("-L"); }
+        if internal_gene_names {
+            cmd.arg("-i");
+        }
+        if !gene_only {
+            if internal_species_names || marking_nodes {
+                cmd.arg("-I");
+            }
+            if fill_species {
+                cmd.arg("-P");
+            }
+        }
+        if landscape {
+            cmd.arg("-L");
+        }
         // -C supports comma-separated multi-color (config only handles single)
-        if let Some(c) = gene_colors { cmd.arg("-C").arg(c); }
-        if let Some(t) = gene_thickness { cmd.arg("-z").arg(t.to_string()); }
-        if !gene_only {
-            if let Some(t) = species_thickness { cmd.arg("-Z").arg(t.to_string()); }
+        if let Some(c) = gene_colors {
+            cmd.arg("-C").arg(c);
         }
-        if let Some(s) = symbol_size { cmd.arg("-k").arg(s.to_string()); }
-        if let Some(c) = background { cmd.arg("-Q").arg(c); }
+        if let Some(t) = gene_thickness {
+            cmd.arg("-z").arg(t.to_string());
+        }
+        if !gene_only {
+            if let Some(t) = species_thickness {
+                cmd.arg("-Z").arg(t.to_string());
+            }
+        }
+        if let Some(s) = symbol_size {
+            cmd.arg("-k").arg(s.to_string());
+        }
+        if let Some(c) = background {
+            cmd.arg("-Q").arg(c);
+        }
 
-        let output = cmd.output()
-            .map_err(|e| PyValueError::new_err(format!(
-                "Failed to run thirdkind. Is it installed? (`cargo install thirdkind`)\nError: {}", e
-            )))?;
+        let output = cmd.output().map_err(|e| {
+            PyValueError::new_err(format!(
+                "Failed to run thirdkind. Is it installed? (`cargo install thirdkind`)\nError: {}",
+                e
+            ))
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(PyValueError::new_err(format!("thirdkind failed: {}", stderr)));
+            return Err(PyValueError::new_err(format!(
+                "thirdkind failed: {}",
+                stderr
+            )));
         }
 
         // Read SVG output
@@ -448,12 +549,7 @@ impl PyGeneTree {
                 if let Some(pos) = svg.find(&name_pattern) {
                     if let Some(class_start) = svg[..pos].rfind(&search) {
                         let class_end = class_start + search.len();
-                        svg = format!(
-                            "{}{}{}",
-                            &svg[..class_start],
-                            &new_attr,
-                            &svg[class_end..]
-                        );
+                        svg = format!("{}{}{}", &svg[..class_start], &new_attr, &svg[class_end..]);
                     }
                 }
             }
@@ -485,13 +581,19 @@ impl PyGeneTree {
                 if let Some(pos) = svg.find(&name_pattern) {
                     if let Some(tag_start) = svg[..pos].rfind("<text") {
                         let tag_content = &svg[tag_start..pos];
-                        if tag_content.contains("class=\"gene") || tag_content.contains("class=\"node_") {
+                        if tag_content.contains("class=\"gene")
+                            || tag_content.contains("class=\"node_")
+                        {
                             if let Some(class_rel) = tag_content.find("class=\"") {
                                 let class_abs = tag_start + class_rel;
                                 let class_val_start = class_abs + 7;
                                 if let Some(class_val_end) = svg[class_val_start..].find('"') {
-                                    let old_class = &svg[class_val_start..class_val_start + class_val_end];
-                                    let new_attr = format!("class=\"{}\" style=\"fill: {}\"", old_class, color);
+                                    let old_class =
+                                        &svg[class_val_start..class_val_start + class_val_end];
+                                    let new_attr = format!(
+                                        "class=\"{}\" style=\"fill: {}\"",
+                                        old_class, color
+                                    );
                                     let replace_start = class_abs;
                                     let replace_end = class_val_start + class_val_end + 1;
                                     svg = format!(
@@ -562,16 +664,25 @@ impl PyGeneTree {
         color_transfers_by: Option<&str>,
     ) -> PyResult<PyObject> {
         let svg = self.to_svg(
-            None, false,
-            gene_colors, species_color,
-            internal_gene_names, internal_species_names,
-            gene_fontsize, species_fontsize,
-            gene_thickness, species_thickness,
-            symbol_size, background,
-            landscape, fill_species,
+            None,
+            false,
+            gene_colors,
+            species_color,
+            internal_gene_names,
+            internal_species_names,
+            gene_fontsize,
+            species_fontsize,
+            gene_thickness,
+            species_thickness,
+            symbol_size,
+            background,
+            landscape,
+            fill_species,
             gene_only,
             sampled_species_names,
-            keep_color, has_descendant_color, discard_color,
+            keep_color,
+            has_descendant_color,
+            discard_color,
             color_transfers_by,
         )?;
 
@@ -637,11 +748,21 @@ impl PyGeneTree {
 
     /// Compute all pairwise distances between nodes in the gene tree.
     #[pyo3(signature = (distance_type, leaves_only=true))]
-    fn pairwise_distances(&self, py: Python, distance_type: &str, leaves_only: bool) -> PyResult<PyObject> {
+    fn pairwise_distances(
+        &self,
+        py: Python,
+        distance_type: &str,
+        leaves_only: bool,
+    ) -> PyResult<PyObject> {
         let dist_type = parse_distance_type(distance_type)?;
 
-        let distances = self.rec_tree.gene_tree.pairwise_distances(dist_type, leaves_only)
-            .map_err(|e| PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e)))?;
+        let distances = self
+            .rec_tree
+            .gene_tree
+            .pairwise_distances(dist_type, leaves_only)
+            .map_err(|e| {
+                PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e))
+            })?;
 
         let node1: Vec<&str> = distances.iter().map(|d| d.node1).collect();
         let node2: Vec<&str> = distances.iter().map(|d| d.node2).collect();
@@ -660,20 +781,32 @@ impl PyGeneTree {
 
     /// Save pairwise distances between nodes in the gene tree to a CSV file.
     #[pyo3(signature = (filepath, distance_type, leaves_only=true))]
-    fn save_pairwise_distances_csv(&self, filepath: &str, distance_type: &str, leaves_only: bool) -> PyResult<()> {
+    fn save_pairwise_distances_csv(
+        &self,
+        filepath: &str,
+        distance_type: &str,
+        leaves_only: bool,
+    ) -> PyResult<()> {
         use crate::metric_functions::{DistanceType, PairwiseDistance};
 
         let dist_type = match distance_type.to_lowercase().as_str() {
             "topological" | "topo" => DistanceType::Topological,
             "metric" | "branch" | "patristic" => DistanceType::Metric,
-            _ => return Err(PyValueError::new_err(format!(
-                "Invalid distance_type '{}'. Use 'topological' or 'metric'.",
-                distance_type
-            ))),
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "Invalid distance_type '{}'. Use 'topological' or 'metric'.",
+                    distance_type
+                )))
+            }
         };
 
-        let distances = self.rec_tree.gene_tree.pairwise_distances(dist_type, leaves_only)
-            .map_err(|e| PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e)))?;
+        let distances = self
+            .rec_tree
+            .gene_tree
+            .pairwise_distances(dist_type, leaves_only)
+            .map_err(|e| {
+                PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e))
+            })?;
 
         let mut csv = String::from(PairwiseDistance::csv_header());
         csv.push('\n');
@@ -689,24 +822,27 @@ impl PyGeneTree {
     }
 
     /// Compute induced transfers by projecting transfers onto a sampled species tree.
-    fn compute_induced_transfers(&self, py: Python, sampled_leaf_names: Vec<String>) -> PyResult<PyObject> {
-        let events = self.rec_tree.dtl_events.as_ref()
-            .ok_or_else(|| PyValueError::new_err(
-                "DTL events not available. Gene tree must be simulated (not parsed from file)."
-            ))?;
+    fn compute_induced_transfers(
+        &self,
+        py: Python,
+        sampled_leaf_names: Vec<String>,
+    ) -> PyResult<PyObject> {
+        let events = self.rec_tree.dtl_events.as_ref().ok_or_else(|| {
+            PyValueError::new_err(
+                "DTL events not available. Gene tree must be simulated (not parsed from file).",
+            )
+        })?;
 
         use crate::induced_transfers::induced_transfers;
-        let induced = induced_transfers(
-            &self.rec_tree.species_tree,
-            &sampled_leaf_names,
-            events,
-        ).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let induced = induced_transfers(&self.rec_tree.species_tree, &sampled_leaf_names, events)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let time: Vec<f64> = induced.iter().map(|t| t.time).collect();
         let gene_id: Vec<usize> = induced.iter().map(|t| t.gene_id).collect();
         let from_complete: Vec<usize> = induced.iter().map(|t| t.from_species_complete).collect();
         let to_complete: Vec<usize> = induced.iter().map(|t| t.to_species_complete).collect();
-        let from_sampled: Vec<Option<usize>> = induced.iter().map(|t| t.from_species_sampled).collect();
+        let from_sampled: Vec<Option<usize>> =
+            induced.iter().map(|t| t.from_species_sampled).collect();
         let to_sampled: Vec<Option<usize>> = induced.iter().map(|t| t.to_species_sampled).collect();
 
         let pandas = super::import_pymodule(py, "pandas")?;
@@ -733,7 +869,10 @@ impl PyGeneTree {
     }
 
     /// Compare this reconciliation (truth) against multiple inferred samples.
-    fn compare_reconciliation_multi(&self, samples: Vec<PyGeneTree>) -> PyResult<PyMultiSampleComparison> {
+    fn compare_reconciliation_multi(
+        &self,
+        samples: Vec<PyGeneTree>,
+    ) -> PyResult<PyMultiSampleComparison> {
         let sample_recs: Vec<_> = samples.iter().map(|s| s.rec_tree.clone()).collect();
         let result = crate::comparison::compare_reconciliations_multi(&self.rec_tree, &sample_recs)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -749,15 +888,22 @@ impl PyGeneTree {
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         if rooted {
-            Ok(crate::robinson_foulds::unrooted_robinson_foulds(&tree1, &tree2))
+            Ok(crate::robinson_foulds::unrooted_robinson_foulds(
+                &tree1, &tree2,
+            ))
         } else {
-            Ok(crate::robinson_foulds::true_unrooted_robinson_foulds(&tree1, &tree2))
+            Ok(crate::robinson_foulds::true_unrooted_robinson_foulds(
+                &tree1, &tree2,
+            ))
         }
     }
 
     /// Find the index of a gene node by its name.
     fn find_node_index(&self, name: &str) -> PyResult<usize> {
-        self.rec_tree.gene_tree.nodes.iter()
+        self.rec_tree
+            .gene_tree
+            .nodes
+            .iter()
             .position(|n| n.name == name)
             .ok_or_else(|| PyValueError::new_err(format!("Gene node '{}' not found", name)))
     }
@@ -795,10 +941,12 @@ pub struct PyInducedTransfer {
 #[pymethods]
 impl PyInducedTransfer {
     fn __repr__(&self) -> String {
-        let from_sampled = self.from_species_sampled
+        let from_sampled = self
+            .from_species_sampled
             .map(|i| i.to_string())
             .unwrap_or_else(|| "None".to_string());
-        let to_sampled = self.to_species_sampled
+        let to_sampled = self
+            .to_species_sampled
             .map(|i| i.to_string())
             .unwrap_or_else(|| "None".to_string());
         format!(

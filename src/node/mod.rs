@@ -7,14 +7,14 @@
 //! Both representations support traversal (pre-order, in-order, post-order)
 //! and can be converted between each other.
 
-mod iter;
-mod traits;
 mod conversion;
-pub mod rectree;
 pub mod gene_forest;
+mod iter;
+pub mod rectree;
+mod traits;
 
 // Re-export iterator types
-pub use iter::{NodeIter, FlatTreeIter, FlatTreeIndexIter, advance_flat_tree, FlatTreeState};
+pub use iter::{advance_flat_tree, FlatTreeIndexIter, FlatTreeIter, FlatTreeState, NodeIter};
 
 // Re-export traits
 pub use traits::HasName;
@@ -23,12 +23,14 @@ pub use traits::HasName;
 pub use conversion::{map_by_topology, rename_gene_tree};
 
 // Re-export reconciliation types
-pub use rectree::{Event, RecTree};
-pub use gene_forest::{GeneForest, remap_gene_tree_indices};
 pub use crate::io::rectree_csv::RecTreeColumns;
+pub use gene_forest::{remap_gene_tree_indices, GeneForest};
+pub use rectree::{Event, RecTree};
 
 // Re-export XML parsing functions (now in io module)
-pub use crate::io::recphyloxml::{parse_recphyloxml, parse_recphyloxml_file, parse_gene_tree_only, parse_gene_tree_only_file};
+pub use crate::io::recphyloxml::{
+    parse_gene_tree_only, parse_gene_tree_only_file, parse_recphyloxml, parse_recphyloxml_file,
+};
 
 // ============================================================================
 // Core Data Structures

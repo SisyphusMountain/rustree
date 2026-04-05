@@ -13,10 +13,15 @@ mod utils;
 
 // Re-export main types and functions
 pub use event::DTLEvent;
+pub use per_gene::{
+    simulate_dtl, simulate_dtl_batch, simulate_dtl_iter, simulate_dtl_iter_with_config,
+};
+pub use per_species::{
+    simulate_dtl_per_species, simulate_dtl_per_species_batch, simulate_dtl_per_species_iter,
+    simulate_dtl_per_species_iter_with_config,
+};
 pub use stream::DtlSimIter;
-pub use per_gene::{simulate_dtl, simulate_dtl_batch, simulate_dtl_iter, simulate_dtl_iter_with_config};
-pub use per_species::{simulate_dtl_per_species, simulate_dtl_per_species_batch, simulate_dtl_per_species_iter, simulate_dtl_per_species_iter_with_config};
-pub use utils::{count_extant_genes, count_events};
+pub use utils::{count_events, count_extant_genes};
 
 /// Configuration for DTL (Duplication-Transfer-Loss) simulation.
 #[derive(Clone, Debug)]
@@ -40,8 +45,8 @@ pub use crate::io::save_dtl_events_to_csv as save_events_to_csv;
 mod tests {
     use super::*;
     use crate::newick::parse_newick;
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     fn parse_tree(newick: &str) -> crate::node::FlatTree {
         let mut nodes = parse_newick(newick).unwrap();
@@ -59,10 +64,24 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         // With zero D/T/L rates, should get pure speciation
-        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 0.0, 0.0, None, None, false, &mut rng).unwrap();
+        let (rec_tree, events) = simulate_dtl(
+            &species_tree,
+            species_tree.root,
+            0.0,
+            0.0,
+            0.0,
+            None,
+            None,
+            false,
+            &mut rng,
+        )
+        .unwrap();
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
-        println!("Events: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
+        println!(
+            "Events: S={}, D={}, T={}, L={}, Leaves={}",
+            s, d, t, l, leaves
+        );
         println!("Total event count: {}", events.len());
 
         // Should have 3 extant genes (one per species leaf)
@@ -79,13 +98,30 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(123);
 
         // High duplication rate
-        let (rec_tree, _events) = simulate_dtl(&species_tree, species_tree.root, 2.0, 0.0, 0.0, None, None, false, &mut rng).unwrap();
+        let (rec_tree, _events) = simulate_dtl(
+            &species_tree,
+            species_tree.root,
+            2.0,
+            0.0,
+            0.0,
+            None,
+            None,
+            false,
+            &mut rng,
+        )
+        .unwrap();
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
-        println!("Events with duplication: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
+        println!(
+            "Events with duplication: S={}, D={}, T={}, L={}, Leaves={}",
+            s, d, t, l, leaves
+        );
 
         // Should have duplications
-        assert!(d > 0 || leaves >= 3, "Should have duplications or at least 3 leaves");
+        assert!(
+            d > 0 || leaves >= 3,
+            "Should have duplications or at least 3 leaves"
+        );
     }
 
     #[test]
@@ -97,10 +133,24 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(999);
 
         // High loss rate
-        let (rec_tree, _events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 0.0, 5.0, None, None, false, &mut rng).unwrap();
+        let (rec_tree, _events) = simulate_dtl(
+            &species_tree,
+            species_tree.root,
+            0.0,
+            0.0,
+            5.0,
+            None,
+            None,
+            false,
+            &mut rng,
+        )
+        .unwrap();
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
-        println!("Events with loss: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
+        println!(
+            "Events with loss: S={}, D={}, T={}, L={}, Leaves={}",
+            s, d, t, l, leaves
+        );
 
         // May have losses
         let extant = count_extant_genes(&rec_tree);
@@ -116,11 +166,29 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         // With mixed events
-        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 1.0, 0.5, 0.5, None, None, false, &mut rng).unwrap();
+        let (rec_tree, events) = simulate_dtl(
+            &species_tree,
+            species_tree.root,
+            1.0,
+            0.5,
+            0.5,
+            None,
+            None,
+            false,
+            &mut rng,
+        )
+        .unwrap();
 
-        // Save events to CSV
-        save_events_to_csv(&events, &species_tree, &rec_tree.gene_tree, "testdata/test_dtl_events.csv").expect("Failed to write events CSV");
-        println!("Events saved to testdata/test_dtl_events.csv");
+        // Save events to CSV in a temp directory
+        let tmp = tempfile::tempdir().unwrap();
+        let csv_path = tmp.path().join("test_dtl_events.csv");
+        save_events_to_csv(
+            &events,
+            &species_tree,
+            &rec_tree.gene_tree,
+            csv_path.to_str().unwrap(),
+        )
+        .expect("Failed to write events CSV");
 
         // Generate XML
         let xml = rec_tree.to_xml();
@@ -130,11 +198,6 @@ mod tests {
         assert!(xml.contains("<spTree>"));
         assert!(xml.contains("<recGeneTree>"));
         assert!(xml.contains("<branchLength>"));
-
-        // Write to file for inspection
-        use std::fs;
-        fs::write("testdata/test_dtl_output.xml", &xml).expect("Failed to write XML");
-        println!("XML output written to testdata/test_dtl_output.xml");
     }
 
     #[test]
@@ -146,10 +209,24 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(456);
 
         // High transfer rate (uniform)
-        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 2.0, 0.0, None, None, false, &mut rng).unwrap();
+        let (rec_tree, events) = simulate_dtl(
+            &species_tree,
+            species_tree.root,
+            0.0,
+            2.0,
+            0.0,
+            None,
+            None,
+            false,
+            &mut rng,
+        )
+        .unwrap();
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
-        println!("Events with transfer: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
+        println!(
+            "Events with transfer: S={}, D={}, T={}, L={}, Leaves={}",
+            s, d, t, l, leaves
+        );
         println!("Total event count: {}", events.len());
     }
 
@@ -162,14 +239,29 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(456);
 
         // High transfer rate with assortative selection (alpha=1.0)
-        let (rec_tree, events) = simulate_dtl(&species_tree, species_tree.root, 0.0, 2.0, 0.0, Some(1.0), None, false, &mut rng).unwrap();
+        let (rec_tree, events) = simulate_dtl(
+            &species_tree,
+            species_tree.root,
+            0.0,
+            2.0,
+            0.0,
+            Some(1.0),
+            None,
+            false,
+            &mut rng,
+        )
+        .unwrap();
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
-        println!("Events with assortative transfer: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
+        println!(
+            "Events with assortative transfer: S={}, D={}, T={}, L={}, Leaves={}",
+            s, d, t, l, leaves
+        );
         println!("Total event count: {}", events.len());
 
         // Verify LCA computation works
-        let lca_depths = species_tree.precompute_lca_depths()
+        let lca_depths = species_tree
+            .precompute_lca_depths()
             .expect("Failed to precompute LCA depths");
         assert!(lca_depths.len() > 0, "LCA depths should be computed");
     }
@@ -185,10 +277,24 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         // With zero D/T/L rates, should get pure speciation
-        let (rec_tree, events) = simulate_dtl_per_species(&species_tree, species_tree.root, 0.0, 0.0, 0.0, None, None, false, &mut rng).unwrap();
+        let (rec_tree, events) = simulate_dtl_per_species(
+            &species_tree,
+            species_tree.root,
+            0.0,
+            0.0,
+            0.0,
+            None,
+            None,
+            false,
+            &mut rng,
+        )
+        .unwrap();
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
-        println!("Per-species pure speciation: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
+        println!(
+            "Per-species pure speciation: S={}, D={}, T={}, L={}, Leaves={}",
+            s, d, t, l, leaves
+        );
         println!("Total event count: {}", events.len());
 
         // Should have 3 extant genes (one per species leaf)
@@ -205,13 +311,30 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(123);
 
         // High duplication rate
-        let (rec_tree, _events) = simulate_dtl_per_species(&species_tree, species_tree.root, 2.0, 0.0, 0.0, None, None, false, &mut rng).unwrap();
+        let (rec_tree, _events) = simulate_dtl_per_species(
+            &species_tree,
+            species_tree.root,
+            2.0,
+            0.0,
+            0.0,
+            None,
+            None,
+            false,
+            &mut rng,
+        )
+        .unwrap();
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
-        println!("Per-species with duplication: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
+        println!(
+            "Per-species with duplication: S={}, D={}, T={}, L={}, Leaves={}",
+            s, d, t, l, leaves
+        );
 
         // Should have duplications or at least the original 3 leaves
-        assert!(d > 0 || leaves >= 3, "Should have duplications or at least 3 leaves");
+        assert!(
+            d > 0 || leaves >= 3,
+            "Should have duplications or at least 3 leaves"
+        );
     }
 
     #[test]
@@ -223,10 +346,24 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(456);
 
         // High transfer rate (uniform)
-        let (rec_tree, events) = simulate_dtl_per_species(&species_tree, species_tree.root, 0.0, 2.0, 0.0, None, None, false, &mut rng).unwrap();
+        let (rec_tree, events) = simulate_dtl_per_species(
+            &species_tree,
+            species_tree.root,
+            0.0,
+            2.0,
+            0.0,
+            None,
+            None,
+            false,
+            &mut rng,
+        )
+        .unwrap();
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
-        println!("Per-species with transfer: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
+        println!(
+            "Per-species with transfer: S={}, D={}, T={}, L={}, Leaves={}",
+            s, d, t, l, leaves
+        );
         println!("Total event count: {}", events.len());
     }
 
@@ -245,8 +382,30 @@ mod tests {
             let mut rng1 = StdRng::seed_from_u64(seed);
             let mut rng2 = StdRng::seed_from_u64(seed);
 
-            let (rec1, _) = simulate_dtl(&species_tree, species_tree.root, 1.0, 0.5, 0.5, None, None, false, &mut rng1).unwrap();
-            let (rec2, _) = simulate_dtl_per_species(&species_tree, species_tree.root, 1.0, 0.5, 0.5, None, None, false, &mut rng2).unwrap();
+            let (rec1, _) = simulate_dtl(
+                &species_tree,
+                species_tree.root,
+                1.0,
+                0.5,
+                0.5,
+                None,
+                None,
+                false,
+                &mut rng1,
+            )
+            .unwrap();
+            let (rec2, _) = simulate_dtl_per_species(
+                &species_tree,
+                species_tree.root,
+                1.0,
+                0.5,
+                0.5,
+                None,
+                None,
+                false,
+                &mut rng2,
+            )
+            .unwrap();
 
             let (_, d1, t1, l1, _) = count_events(&rec1);
             let (_, d2, t2, l2, _) = count_events(&rec2);
@@ -272,11 +431,28 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(999);
 
         // High loss rate, but require extant genes
-        let (rec_tree, _events) = simulate_dtl_per_species(&species_tree, species_tree.root, 0.0, 0.0, 5.0, None, None, true, &mut rng).unwrap();
+        let (rec_tree, _events) = simulate_dtl_per_species(
+            &species_tree,
+            species_tree.root,
+            0.0,
+            0.0,
+            5.0,
+            None,
+            None,
+            true,
+            &mut rng,
+        )
+        .unwrap();
 
         let extant = count_extant_genes(&rec_tree);
-        assert!(extant > 0, "Should have at least one extant gene when require_extant=true");
-        println!("Per-species with high loss (require_extant=true): {} extant genes", extant);
+        assert!(
+            extant > 0,
+            "Should have at least one extant gene when require_extant=true"
+        );
+        println!(
+            "Per-species with high loss (require_extant=true): {} extant genes",
+            extant
+        );
     }
 
     // Tests for replacement transfers
@@ -291,12 +467,23 @@ mod tests {
 
         // High duplication + transfer rates with 100% replacement
         let (rec_tree, _events) = simulate_dtl_per_species(
-            &species_tree, species_tree.root,
-            1.0, 2.0, 0.0, None, Some(1.0), false, &mut rng
-        ).unwrap();
+            &species_tree,
+            species_tree.root,
+            1.0,
+            2.0,
+            0.0,
+            None,
+            Some(1.0),
+            false,
+            &mut rng,
+        )
+        .unwrap();
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
-        println!("Replacement per-species: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
+        println!(
+            "Replacement per-species: S={}, D={}, T={}, L={}, Leaves={}",
+            s, d, t, l, leaves
+        );
 
         // With replacement transfers, we should see loss events from replacements
         assert!(t > 0, "Should have transfers");
@@ -313,12 +500,23 @@ mod tests {
 
         // High duplication + transfer rates with 100% replacement
         let (rec_tree, _events) = simulate_dtl(
-            &species_tree, species_tree.root,
-            1.0, 2.0, 0.0, None, Some(1.0), false, &mut rng
-        ).unwrap();
+            &species_tree,
+            species_tree.root,
+            1.0,
+            2.0,
+            0.0,
+            None,
+            Some(1.0),
+            false,
+            &mut rng,
+        )
+        .unwrap();
 
         let (s, d, t, l, leaves) = count_events(&rec_tree);
-        println!("Replacement per-gene: S={}, D={}, T={}, L={}, Leaves={}", s, d, t, l, leaves);
+        println!(
+            "Replacement per-gene: S={}, D={}, T={}, L={}, Leaves={}",
+            s, d, t, l, leaves
+        );
 
         // With replacement transfers, we should see both transfer and loss events
         assert!(t > 0, "Should have transfers");
@@ -336,16 +534,35 @@ mod tests {
         let mut rng2 = StdRng::seed_from_u64(42);
 
         let (rec1, _) = simulate_dtl_per_species(
-            &species_tree, species_tree.root,
-            1.0, 1.0, 0.5, None, None, false, &mut rng1
-        ).unwrap();
+            &species_tree,
+            species_tree.root,
+            1.0,
+            1.0,
+            0.5,
+            None,
+            None,
+            false,
+            &mut rng1,
+        )
+        .unwrap();
         let (rec2, _) = simulate_dtl_per_species(
-            &species_tree, species_tree.root,
-            1.0, 1.0, 0.5, None, Some(0.0), false, &mut rng2
-        ).unwrap();
+            &species_tree,
+            species_tree.root,
+            1.0,
+            1.0,
+            0.5,
+            None,
+            Some(0.0),
+            false,
+            &mut rng2,
+        )
+        .unwrap();
 
         let events1 = count_events(&rec1);
         let events2 = count_events(&rec2);
-        assert_eq!(events1, events2, "None and Some(0.0) should produce identical results");
+        assert_eq!(
+            events1, events2,
+            "None and Some(0.0) should produce identical results"
+        );
     }
 }

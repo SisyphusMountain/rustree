@@ -1,6 +1,6 @@
 // birth-death simulation functions
 
-use crate::node::{FlatTree, FlatNode};
+use crate::node::{FlatNode, FlatTree};
 use crate::simulation::utils::draw_waiting_time;
 use rand::Rng;
 
@@ -86,7 +86,6 @@ fn handle_b_bwd<R: Rng>(
     parent_idx
 }
 
-
 /// Create `n` extant species as leaf nodes at present time (depth = 0).
 /// Populates `nodes`, `active_lineages`, and `events`.
 fn handle_initial_nodes(
@@ -146,18 +145,32 @@ fn handle_initial_nodes(
 /// # References
 /// Stadler, T. (2011). Simulating trees with a fixed number of extant species.
 /// Systematic Biology, 60(5), 676-684.
-pub fn simulate_bd_tree_bwd<R: Rng>(n: usize, lambda: f64, mu: f64, rng: &mut R) -> Result<(FlatTree, Vec<TreeEvent>), String> {
+pub fn simulate_bd_tree_bwd<R: Rng>(
+    n: usize,
+    lambda: f64,
+    mu: f64,
+    rng: &mut R,
+) -> Result<(FlatTree, Vec<TreeEvent>), String> {
     if n == 0 {
         return Err("Number of species must be positive".to_string());
     }
     if !lambda.is_finite() || lambda <= 0.0 {
-        return Err(format!("Speciation rate must be finite and positive, got {}", lambda));
+        return Err(format!(
+            "Speciation rate must be finite and positive, got {}",
+            lambda
+        ));
     }
     if !mu.is_finite() || mu < 0.0 {
-        return Err(format!("Extinction rate must be finite and non-negative, got {}", mu));
+        return Err(format!(
+            "Extinction rate must be finite and non-negative, got {}",
+            mu
+        ));
     }
     if lambda <= mu {
-        return Err(format!("Speciation rate ({}) must be strictly greater than extinction rate ({})", lambda, mu));
+        return Err(format!(
+            "Speciation rate ({}) must be strictly greater than extinction rate ({})",
+            lambda, mu
+        ));
     }
 
     // Start at present (time = 0) with n isolated vertices

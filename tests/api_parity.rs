@@ -21,8 +21,8 @@
 //   [x] Replacement transfer   — both via validate_replacement_transfer
 
 use rustree::bindings_common::{
-    validate_dtl_rates, validate_replacement_transfer, parse_distance_type,
-    extract_extant_gene_tree, is_leaf, digit_width, init_rng,
+    digit_width, extract_extant_gene_tree, init_rng, is_leaf, parse_distance_type,
+    validate_dtl_rates, validate_replacement_transfer,
 };
 use rustree::metric_functions::DistanceType;
 
@@ -68,13 +68,25 @@ fn test_validate_replacement_transfer_invalid() {
 #[test]
 fn test_parse_distance_type_aliases() {
     // Both bindings accept the same string aliases
-    assert_eq!(parse_distance_type("topological").unwrap(), DistanceType::Topological);
-    assert_eq!(parse_distance_type("topo").unwrap(), DistanceType::Topological);
+    assert_eq!(
+        parse_distance_type("topological").unwrap(),
+        DistanceType::Topological
+    );
+    assert_eq!(
+        parse_distance_type("topo").unwrap(),
+        DistanceType::Topological
+    );
     assert_eq!(parse_distance_type("metric").unwrap(), DistanceType::Metric);
     assert_eq!(parse_distance_type("branch").unwrap(), DistanceType::Metric);
-    assert_eq!(parse_distance_type("patristic").unwrap(), DistanceType::Metric);
+    assert_eq!(
+        parse_distance_type("patristic").unwrap(),
+        DistanceType::Metric
+    );
     // Case insensitive
-    assert_eq!(parse_distance_type("Topological").unwrap(), DistanceType::Topological);
+    assert_eq!(
+        parse_distance_type("Topological").unwrap(),
+        DistanceType::Topological
+    );
     assert_eq!(parse_distance_type("METRIC").unwrap(), DistanceType::Metric);
 }
 
@@ -90,8 +102,8 @@ fn test_parse_distance_type_invalid() {
 
 #[test]
 fn test_extract_extant_gene_tree() {
+    use rustree::node::{Event, FlatNode, FlatTree, RecTree};
     use rustree::parse_newick;
-    use rustree::node::{FlatTree, FlatNode, RecTree, Event};
     use std::sync::Arc;
 
     // Build a simple species tree: (A:1,B:1):0
@@ -102,16 +114,51 @@ fn test_extract_extant_gene_tree() {
     // Gene tree: (g1:1, (g2:0.5, loss:0.5):0.5):0
     let mut gene_tree = FlatTree {
         nodes: vec![
-            FlatNode { name: "root".into(), left_child: Some(1), right_child: Some(2),
-                       parent: None, depth: None, length: 0.0, bd_event: None },
-            FlatNode { name: "g1".into(), left_child: None, right_child: None,
-                       parent: Some(0), depth: None, length: 1.0, bd_event: None },
-            FlatNode { name: "int".into(), left_child: Some(3), right_child: Some(4),
-                       parent: Some(0), depth: None, length: 0.5, bd_event: None },
-            FlatNode { name: "g2".into(), left_child: None, right_child: None,
-                       parent: Some(2), depth: None, length: 0.5, bd_event: None },
-            FlatNode { name: "loss".into(), left_child: None, right_child: None,
-                       parent: Some(2), depth: None, length: 0.5, bd_event: None },
+            FlatNode {
+                name: "root".into(),
+                left_child: Some(1),
+                right_child: Some(2),
+                parent: None,
+                depth: None,
+                length: 0.0,
+                bd_event: None,
+            },
+            FlatNode {
+                name: "g1".into(),
+                left_child: None,
+                right_child: None,
+                parent: Some(0),
+                depth: None,
+                length: 1.0,
+                bd_event: None,
+            },
+            FlatNode {
+                name: "int".into(),
+                left_child: Some(3),
+                right_child: Some(4),
+                parent: Some(0),
+                depth: None,
+                length: 0.5,
+                bd_event: None,
+            },
+            FlatNode {
+                name: "g2".into(),
+                left_child: None,
+                right_child: None,
+                parent: Some(2),
+                depth: None,
+                length: 0.5,
+                bd_event: None,
+            },
+            FlatNode {
+                name: "loss".into(),
+                left_child: None,
+                right_child: None,
+                parent: Some(2),
+                depth: None,
+                length: 0.5,
+                bd_event: None,
+            },
         ],
         root: 0,
     };
@@ -119,12 +166,14 @@ fn test_extract_extant_gene_tree() {
 
     let node_mapping = vec![Some(0), Some(0), Some(0), Some(1), Some(1)];
     let event_mapping = vec![
-        Event::Speciation, Event::Leaf, Event::Speciation, Event::Leaf, Event::Loss,
+        Event::Speciation,
+        Event::Leaf,
+        Event::Speciation,
+        Event::Leaf,
+        Event::Loss,
     ];
 
-    let rec_tree = RecTree::new_owned(
-        (*sp_tree).clone(), gene_tree, node_mapping, event_mapping,
-    );
+    let rec_tree = RecTree::new_owned((*sp_tree).clone(), gene_tree, node_mapping, event_mapping);
 
     let extant = extract_extant_gene_tree(&rec_tree).unwrap();
     // Should have 2 extant leaves (g1, g2), not the loss node
@@ -160,12 +209,22 @@ fn test_init_rng_deterministic() {
 fn test_is_leaf() {
     use rustree::node::FlatNode;
     let leaf = FlatNode {
-        name: "leaf".into(), left_child: None, right_child: None,
-        parent: Some(0), depth: None, length: 1.0, bd_event: None,
+        name: "leaf".into(),
+        left_child: None,
+        right_child: None,
+        parent: Some(0),
+        depth: None,
+        length: 1.0,
+        bd_event: None,
     };
     let internal = FlatNode {
-        name: "int".into(), left_child: Some(1), right_child: Some(2),
-        parent: None, depth: None, length: 0.0, bd_event: None,
+        name: "int".into(),
+        left_child: Some(1),
+        right_child: Some(2),
+        parent: None,
+        depth: None,
+        length: 0.0,
+        bd_event: None,
     };
     assert!(is_leaf(&leaf));
     assert!(!is_leaf(&internal));
@@ -196,13 +255,15 @@ fn test_newick_roundtrip_parity() {
 #[test]
 fn test_pairwise_distances_parity() {
     // Both Python and R delegate to tree.pairwise_distances()
-    use rustree::parse_newick;
     use rustree::metric_functions::DistanceType;
+    use rustree::parse_newick;
 
     let nodes = parse_newick("((A:1.0,B:2.0):0.5,(C:1.5,D:2.5):0.3):0.0;").unwrap();
     let tree = nodes[0].to_flat_tree();
 
-    let topo = tree.pairwise_distances(DistanceType::Topological, true).unwrap();
+    let topo = tree
+        .pairwise_distances(DistanceType::Topological, true)
+        .unwrap();
     let metric = tree.pairwise_distances(DistanceType::Metric, true).unwrap();
 
     // 4 leaves → 6 pairs
@@ -224,28 +285,37 @@ fn test_name_internal_nodes_parity() {
     let mut tree = nodes[0].to_flat_tree();
     tree.name_internal_nodes().unwrap();
 
-    let internal_names: Vec<&str> = tree.nodes.iter()
+    let internal_names: Vec<&str> = tree
+        .nodes
+        .iter()
         .filter(|n| n.left_child.is_some())
         .map(|n| n.name.as_str())
         .collect();
 
     // All internal nodes should now have names starting with "internal"
     for name in &internal_names {
-        assert!(name.starts_with("internal"), "Expected 'internal*' got '{}'", name);
+        assert!(
+            name.starts_with("internal"),
+            "Expected 'internal*' got '{}'",
+            name
+        );
     }
 }
 
 #[test]
 fn test_species_tree_simulation_parity() {
     // Both Python and R delegate to simulate_bd_tree_bwd
-    use rustree::bd::simulate_bd_tree_bwd;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rustree::bd::simulate_bd_tree_bwd;
 
     let mut rng = StdRng::seed_from_u64(42);
     let (tree, events) = simulate_bd_tree_bwd(10, 1.0, 0.5, &mut rng).unwrap();
 
     // get_leaves() returns ALL leaves (extant + extinct); extant count >= n
-    assert!(tree.get_leaves().len() >= 10, "Tree should have at least 10 leaves");
+    assert!(
+        tree.get_leaves().len() >= 10,
+        "Tree should have at least 10 leaves"
+    );
     assert!(!events.is_empty());
 }

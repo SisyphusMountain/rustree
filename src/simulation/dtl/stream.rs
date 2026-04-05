@@ -10,10 +10,10 @@ use crate::node::{FlatTree, RecTree};
 use rand::Rng;
 use std::sync::Arc;
 
-use super::DTLConfig;
 use super::event::DTLEvent;
-use super::gillespie::{DTLMode, simulate_dtl_gillespie};
+use super::gillespie::{simulate_dtl_gillespie, DTLMode};
 use super::utils::count_extant_genes;
+use super::DTLConfig;
 
 /// Lazy iterator that generates DTL-simulated gene trees one at a time.
 ///
@@ -202,5 +202,9 @@ impl<'a, R: Rng> Iterator for DtlSimIter<'a, R> {
 
 /// Compute the number of digits needed to represent n (for zero-padded filenames).
 fn digit_width(n: usize) -> usize {
-    if n == 0 { 1 } else { ((n as f64).log10().floor() as usize) + 1 }
+    if n == 0 {
+        1
+    } else {
+        ((n as f64).log10().floor() as usize) + 1
+    }
 }

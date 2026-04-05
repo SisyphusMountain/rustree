@@ -2,8 +2,7 @@
 // The functions in this repo act on the branch lengths
 // and depths of nodes in phylogenetic trees.
 
-
-use crate::node::{Node, TraversalOrder, FlatTree};
+use crate::node::{FlatTree, Node, TraversalOrder};
 use std::str::FromStr;
 
 /// Type of distance to compute between nodes.
@@ -22,7 +21,10 @@ impl FromStr for DistanceType {
         match s {
             "topological" => Ok(DistanceType::Topological),
             "metric" => Ok(DistanceType::Metric),
-            _ => Err(format!("Unknown distance type '{}'. Valid values: topological, metric", s)),
+            _ => Err(format!(
+                "Unknown distance type '{}'. Valid values: topological, metric",
+                s
+            )),
         }
     }
 }
@@ -85,7 +87,12 @@ impl LcaTable {
         let (euler, euler_depth, first) = Self::euler_tour(tree);
         let sparse = Self::build_sparse_table(&euler_depth);
 
-        LcaTable { euler, euler_depth, first, sparse }
+        LcaTable {
+            euler,
+            euler_depth,
+            first,
+            sparse,
+        }
     }
 
     /// Find the lowest common ancestor of two nodes in O(1).
@@ -167,7 +174,7 @@ impl LcaTable {
                     }
                     // Done with this node
                 }
-                _ => unreachable!()
+                _ => unreachable!(),
             }
         }
 
@@ -204,7 +211,11 @@ impl LcaTable {
             for i in 0..=(m - range_size) {
                 let left = sparse[k - 1][i];
                 let right = sparse[k - 1][i + half];
-                sparse[k][i] = if depths[left] <= depths[right] { left } else { right };
+                sparse[k][i] = if depths[left] <= depths[right] {
+                    left
+                } else {
+                    right
+                };
             }
         }
 
@@ -220,7 +231,11 @@ impl LcaTable {
         let k = Self::floor_log2(len);
         let left = self.sparse[k][l];
         let right = self.sparse[k][r + 1 - (1 << k)];
-        if self.euler_depth[left] <= self.euler_depth[right] { left } else { right }
+        if self.euler_depth[left] <= self.euler_depth[right] {
+            left
+        } else {
+            right
+        }
     }
 
     /// Compute floor(log2(n)) using bit operations. Panics if n == 0.
@@ -305,9 +320,9 @@ impl FlatTree {
         let mut stack = vec![root_index];
 
         while let Some(node_index) = stack.pop() {
-            let current_depth = self.nodes[node_index]
-                .depth
-                .expect("depths must be assigned before calling this function - call assign_depths() first");
+            let current_depth = self.nodes[node_index].depth.expect(
+                "depths must be assigned before calling this function - call assign_depths() first",
+            );
 
             // Process left child
             if let Some(left_index) = self.nodes[node_index].left_child {
@@ -346,7 +361,6 @@ impl FlatTree {
     /// For the Newick tree `((A:1,B:2)C:1,D:5)R:0`, after assigning depths the node
     /// depths are `{R:0, C:1, A:2, B:3, D:5}`, so this returns `[0, 1, 2, 3, 5]`.
     pub fn make_subdivision(&self) -> Vec<f64> {
-
         let mut depths: Vec<f64> = self.nodes.iter().filter_map(|node| node.depth).collect();
         depths.sort_by(|a, b| a.total_cmp(b));
         depths.dedup();
@@ -491,7 +505,10 @@ impl FlatTree {
     /// # Returns
     /// A vector containing the number of species over each interval.
     pub fn number_of_species(&self, contemporaneity: &[Vec<usize>]) -> Vec<f64> {
-        contemporaneity.iter().map(|species| species.len() as f64).collect()
+        contemporaneity
+            .iter()
+            .map(|species| species.len() as f64)
+            .collect()
     }
 
     /// Finds the lowest common ancestor (LCA) of two nodes.
@@ -534,7 +551,10 @@ impl FlatTree {
             current = self.nodes[idx].parent;
         }
 
-        Err(format!("No common ancestor found for nodes {} and {}", node_a, node_b))
+        Err(format!(
+            "No common ancestor found for nodes {} and {}",
+            node_a, node_b
+        ))
     }
 
     /// Precomputes a matrix of LCA depths for all node pairs.
@@ -592,7 +612,9 @@ impl FlatTree {
         let mut path = vec![node_idx];
         let mut current = node_idx;
         while current != ancestor_idx {
-            current = self.nodes[current].parent.expect("Node should have parent on path to ancestor");
+            current = self.nodes[current]
+                .parent
+                .expect("Node should have parent on path to ancestor");
             path.push(current);
         }
         path
@@ -612,7 +634,12 @@ impl FlatTree {
     ///
     /// # Returns
     /// The distance between the two nodes.
-    pub fn distance_between(&self, node_a: usize, node_b: usize, distance_type: DistanceType) -> Result<f64, String> {
+    pub fn distance_between(
+        &self,
+        node_a: usize,
+        node_b: usize,
+        distance_type: DistanceType,
+    ) -> Result<f64, String> {
         if node_a == node_b {
             return Ok(0.0);
         }
@@ -671,10 +698,15 @@ impl FlatTree {
     /// let distances = tree.pairwise_distances(DistanceType::Metric, true);
     /// // Returns distances for: (A,B), (A,C), (B,C)  — upper triangle only
     /// ```
-    pub fn pairwise_distances(&self, distance_type: DistanceType, leaves_only: bool) -> Result<Vec<PairwiseDistance<'_>>, String> {
+    pub fn pairwise_distances(
+        &self,
+        distance_type: DistanceType,
+        leaves_only: bool,
+    ) -> Result<Vec<PairwiseDistance<'_>>, String> {
         let indices: Vec<usize> = if leaves_only {
             // Get only leaf node indices
-            self.nodes.iter()
+            self.nodes
+                .iter()
                 .enumerate()
                 .filter(|(_, node)| node.left_child.is_none() && node.right_child.is_none())
                 .map(|(idx, _)| idx)
@@ -712,7 +744,10 @@ impl FlatTree {
     ///
     /// # Returns
     /// A symmetric matrix where `result[i][j]` = distance between nodes i and j.
-    pub fn pairwise_distance_matrix(&self, distance_type: DistanceType) -> Result<Vec<Vec<f64>>, String> {
+    pub fn pairwise_distance_matrix(
+        &self,
+        distance_type: DistanceType,
+    ) -> Result<Vec<Vec<f64>>, String> {
         let n = self.nodes.len();
         let mut matrix = vec![vec![0.0; n]; n];
 
@@ -848,7 +883,10 @@ mod tests {
         assert_eq!(contemp.len(), 2);
 
         // contemporaneity[0] is always empty
-        assert!(contemp[0].is_empty(), "contemporaneity[0] should always be empty");
+        assert!(
+            contemp[0].is_empty(),
+            "contemporaneity[0] should always be empty"
+        );
 
         // Root (index 0) should not appear anywhere
         for (j, slot) in contemp.iter().enumerate() {
@@ -965,7 +1003,10 @@ mod tests {
                 assert!(
                     (lca_depths[i][j] - expected_depth).abs() < 1e-10,
                     "LCA depth mismatch for ({}, {}): matrix={}, find_lca={}",
-                    i, j, lca_depths[i][j], expected_depth
+                    i,
+                    j,
+                    lca_depths[i][j],
+                    expected_depth
                 );
             }
         }
@@ -984,7 +1025,10 @@ mod tests {
                 assert!(
                     (lca_depths[i][j] - expected_depth).abs() < 1e-10,
                     "LCA depth mismatch for ({}, {}): matrix={}, find_lca={}",
-                    i, j, lca_depths[i][j], expected_depth
+                    i,
+                    j,
+                    lca_depths[i][j],
+                    expected_depth
                 );
             }
         }
@@ -996,8 +1040,13 @@ mod tests {
         let tree = make_tree("(((A:1,B:1):1,(C:1,D:1):1):1,((E:1,F:1):1,(G:1,H:1):1):1):0;");
         let lca_table = LcaTable::new(&tree);
         let n = tree.nodes.len();
-        assert_eq!(lca_table.euler.len(), 2 * n - 1,
-            "Euler tour length should be 2n-1 = {}, got {}", 2 * n - 1, lca_table.euler.len());
+        assert_eq!(
+            lca_table.euler.len(),
+            2 * n - 1,
+            "Euler tour length should be 2n-1 = {}, got {}",
+            2 * n - 1,
+            lca_table.euler.len()
+        );
     }
 
     #[test]
@@ -1010,7 +1059,8 @@ mod tests {
         for node_idx in 0..tree.nodes.len() {
             assert_eq!(
                 lca_table.euler[lca_table.first[node_idx]], node_idx,
-                "first[{}] should point to {} in euler tour", node_idx, node_idx
+                "first[{}] should point to {} in euler tour",
+                node_idx, node_idx
             );
         }
     }

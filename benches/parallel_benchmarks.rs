@@ -22,7 +22,12 @@ fn make_species_tree(n: usize, seed: u64) -> FlatTree {
 fn pilot_bd_events(n: usize, lambda: f64, mu: f64) -> u64 {
     let mut rng = StdRng::seed_from_u64(42);
     let total: usize = (0..10)
-        .map(|_| simulate_bd_tree_bwd(n, lambda, mu, &mut rng).unwrap().1.len())
+        .map(|_| {
+            simulate_bd_tree_bwd(n, lambda, mu, &mut rng)
+                .unwrap()
+                .1
+                .len()
+        })
         .sum();
     (total / 10) as u64
 }
@@ -31,7 +36,12 @@ fn pilot_dtl_events(species_tree: &FlatTree, d: f64, t: f64, l: f64) -> u64 {
     let root = species_tree.root;
     let mut rng = StdRng::seed_from_u64(42);
     let total: usize = (0..10)
-        .map(|_| simulate_dtl(species_tree, root, d, t, l, None, None, false, &mut rng).unwrap().1.len())
+        .map(|_| {
+            simulate_dtl(species_tree, root, d, t, l, None, None, false, &mut rng)
+                .unwrap()
+                .1
+                .len()
+        })
         .sum();
     (total / 10).max(1) as u64
 }
@@ -124,9 +134,10 @@ fn dtl_parallel_pergene_scaling(c: &mut Criterion) {
             b.iter(|| {
                 (0..BATCH).into_par_iter().for_each(|i| {
                     let mut rng = StdRng::seed_from_u64(i as u64);
-                    std::hint::black_box(simulate_dtl(
-                        &species_tree, root, d, t, l, None, None, false, &mut rng,
-                    ).unwrap());
+                    std::hint::black_box(
+                        simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng)
+                            .unwrap(),
+                    );
                 });
             });
         });
@@ -148,9 +159,10 @@ fn dtl_parallel_vs_serial(c: &mut Criterion) {
         b.iter(|| {
             for i in 0..BATCH {
                 let mut rng = StdRng::seed_from_u64(i as u64);
-                std::hint::black_box(simulate_dtl(
-                    &species_tree, root, d, t, l, None, None, false, &mut rng,
-                ).unwrap());
+                std::hint::black_box(
+                    simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng)
+                        .unwrap(),
+                );
             }
         });
     });
@@ -159,9 +171,10 @@ fn dtl_parallel_vs_serial(c: &mut Criterion) {
         b.iter(|| {
             (0..BATCH).into_par_iter().for_each(|i| {
                 let mut rng = StdRng::seed_from_u64(i as u64);
-                std::hint::black_box(simulate_dtl(
-                    &species_tree, root, d, t, l, None, None, false, &mut rng,
-                ).unwrap());
+                std::hint::black_box(
+                    simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng)
+                        .unwrap(),
+                );
             });
         });
     });
@@ -186,9 +199,20 @@ fn dtl_parallel_perspecies_scaling(c: &mut Criterion) {
             b.iter(|| {
                 (0..BATCH).into_par_iter().for_each(|i| {
                     let mut rng = StdRng::seed_from_u64(i as u64);
-                    std::hint::black_box(simulate_dtl_per_species(
-                        &species_tree, root, d, t, l, None, None, false, &mut rng,
-                    ).unwrap());
+                    std::hint::black_box(
+                        simulate_dtl_per_species(
+                            &species_tree,
+                            root,
+                            d,
+                            t,
+                            l,
+                            None,
+                            None,
+                            false,
+                            &mut rng,
+                        )
+                        .unwrap(),
+                    );
                 });
             });
         });
@@ -206,7 +230,9 @@ fn bd_thread_scaling(c: &mut Criterion) {
     let n = 1000;
     let avg_events = pilot_bd_events(n, lambda, mu);
     let total_events = avg_events * BATCH as u64;
-    let max_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let max_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
 
     let mut group = c.benchmark_group("bd_thread_scaling");
     group.throughput(Throughput::Elements(total_events));
@@ -219,20 +245,18 @@ fn bd_thread_scaling(c: &mut Criterion) {
             .num_threads(threads)
             .build()
             .unwrap();
-        group.bench_with_input(
-            BenchmarkId::new("threads", threads),
-            &threads,
-            |b, _| {
-                b.iter(|| {
-                    pool.install(|| {
-                        (0..BATCH).into_par_iter().for_each(|i| {
-                            let mut rng = StdRng::seed_from_u64(i as u64);
-                            std::hint::black_box(simulate_bd_tree_bwd(n, lambda, mu, &mut rng).unwrap());
-                        });
+        group.bench_with_input(BenchmarkId::new("threads", threads), &threads, |b, _| {
+            b.iter(|| {
+                pool.install(|| {
+                    (0..BATCH).into_par_iter().for_each(|i| {
+                        let mut rng = StdRng::seed_from_u64(i as u64);
+                        std::hint::black_box(
+                            simulate_bd_tree_bwd(n, lambda, mu, &mut rng).unwrap(),
+                        );
                     });
                 });
-            },
-        );
+            });
+        });
     }
 
     group.finish();

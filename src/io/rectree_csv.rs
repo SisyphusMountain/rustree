@@ -1,9 +1,9 @@
 //! CSV export for reconciled trees (RecTree/RecTreeColumns).
 
-use crate::node::RecTree;
 use crate::node::rectree::Event;
-use std::io::{self, Write, BufWriter};
+use crate::node::RecTree;
 use std::fs::File;
+use std::io::{self, BufWriter, Write};
 
 // ============================================================================
 // RecTreeColumns — structured column data for CSV/DataFrame export
@@ -44,11 +44,18 @@ impl RecTreeColumns {
         for i in 0..n {
             csv.push_str(&format!(
                 "{},{},{},{},{},{},{},{:.6},{},{},{},{},{}\n",
-                self.node_id[i], self.name[i], self.parent[i],
-                self.left_child[i], self.left_child_name[i],
-                self.right_child[i], self.right_child_name[i],
-                self.length[i], self.depth[i],
-                self.species_node[i], self.species_node_left[i], self.species_node_right[i],
+                self.node_id[i],
+                self.name[i],
+                self.parent[i],
+                self.left_child[i],
+                self.left_child_name[i],
+                self.right_child[i],
+                self.right_child_name[i],
+                self.length[i],
+                self.depth[i],
+                self.species_node[i],
+                self.species_node_left[i],
+                self.species_node_right[i],
                 self.event[i],
             ));
         }
@@ -64,11 +71,18 @@ impl RecTreeColumns {
             writeln!(
                 writer,
                 "{},{},{},{},{},{},{},{:.6},{},{},{},{},{}",
-                self.node_id[i], self.name[i], self.parent[i],
-                self.left_child[i], self.left_child_name[i],
-                self.right_child[i], self.right_child_name[i],
-                self.length[i], self.depth[i],
-                self.species_node[i], self.species_node_left[i], self.species_node_right[i],
+                self.node_id[i],
+                self.name[i],
+                self.parent[i],
+                self.left_child[i],
+                self.left_child_name[i],
+                self.right_child[i],
+                self.right_child_name[i],
+                self.length[i],
+                self.depth[i],
+                self.species_node[i],
+                self.species_node_left[i],
+                self.species_node_right[i],
                 self.event[i],
             )?;
         }
@@ -83,7 +97,10 @@ impl RecTreeColumns {
 impl RecTreeColumns {
     /// Filter to only keep rows matching the given event string.
     pub fn filter_by_event(&self, event_name: &str) -> RecTreeColumns {
-        let indices: Vec<usize> = self.event.iter().enumerate()
+        let indices: Vec<usize> = self
+            .event
+            .iter()
+            .enumerate()
             .filter(|(_, e)| e.as_str() == event_name)
             .map(|(i, _)| i)
             .collect();
@@ -92,15 +109,36 @@ impl RecTreeColumns {
             node_id: indices.iter().map(|&i| self.node_id[i]).collect(),
             name: indices.iter().map(|&i| self.name[i].clone()).collect(),
             parent: indices.iter().map(|&i| self.parent[i].clone()).collect(),
-            left_child: indices.iter().map(|&i| self.left_child[i].clone()).collect(),
-            left_child_name: indices.iter().map(|&i| self.left_child_name[i].clone()).collect(),
-            right_child: indices.iter().map(|&i| self.right_child[i].clone()).collect(),
-            right_child_name: indices.iter().map(|&i| self.right_child_name[i].clone()).collect(),
+            left_child: indices
+                .iter()
+                .map(|&i| self.left_child[i].clone())
+                .collect(),
+            left_child_name: indices
+                .iter()
+                .map(|&i| self.left_child_name[i].clone())
+                .collect(),
+            right_child: indices
+                .iter()
+                .map(|&i| self.right_child[i].clone())
+                .collect(),
+            right_child_name: indices
+                .iter()
+                .map(|&i| self.right_child_name[i].clone())
+                .collect(),
             length: indices.iter().map(|&i| self.length[i]).collect(),
             depth: indices.iter().map(|&i| self.depth[i].clone()).collect(),
-            species_node: indices.iter().map(|&i| self.species_node[i].clone()).collect(),
-            species_node_left: indices.iter().map(|&i| self.species_node_left[i].clone()).collect(),
-            species_node_right: indices.iter().map(|&i| self.species_node_right[i].clone()).collect(),
+            species_node: indices
+                .iter()
+                .map(|&i| self.species_node[i].clone())
+                .collect(),
+            species_node_left: indices
+                .iter()
+                .map(|&i| self.species_node_left[i].clone())
+                .collect(),
+            species_node_right: indices
+                .iter()
+                .map(|&i| self.species_node_right[i].clone())
+                .collect(),
             event: indices.iter().map(|&i| self.event[i].clone()).collect(),
         }
     }
@@ -131,29 +169,43 @@ impl RecTree {
         for (i, node) in nodes.iter().enumerate() {
             cols.node_id.push(i);
             cols.name.push(node.name.clone());
-            cols.parent.push(node.parent.map_or(String::new(), |p| p.to_string()));
-            cols.left_child.push(node.left_child.map_or(String::new(), |c| c.to_string()));
-            cols.left_child_name.push(node.left_child.map_or(String::new(), |c| nodes[c].name.clone()));
-            cols.right_child.push(node.right_child.map_or(String::new(), |c| c.to_string()));
-            cols.right_child_name.push(node.right_child.map_or(String::new(), |c| nodes[c].name.clone()));
+            cols.parent
+                .push(node.parent.map_or(String::new(), |p| p.to_string()));
+            cols.left_child
+                .push(node.left_child.map_or(String::new(), |c| c.to_string()));
+            cols.left_child_name.push(
+                node.left_child
+                    .map_or(String::new(), |c| nodes[c].name.clone()),
+            );
+            cols.right_child
+                .push(node.right_child.map_or(String::new(), |c| c.to_string()));
+            cols.right_child_name.push(
+                node.right_child
+                    .map_or(String::new(), |c| nodes[c].name.clone()),
+            );
             cols.length.push(node.length);
-            cols.depth.push(node.depth.map_or(String::new(), |d| format!("{:.6}", d)));
+            cols.depth
+                .push(node.depth.map_or(String::new(), |d| format!("{:.6}", d)));
             cols.species_node.push(match self.node_mapping[i] {
                 Some(idx) => self.species_tree.nodes[idx].name.clone(),
                 None => String::new(),
             });
-            cols.species_node_left.push(node.left_child.map_or(String::new(), |c| {
-                match self.node_mapping[c] {
-                    Some(idx) => self.species_tree.nodes[idx].name.clone(),
-                    None => String::new(),
-                }
-            }));
-            cols.species_node_right.push(node.right_child.map_or(String::new(), |c| {
-                match self.node_mapping[c] {
-                    Some(idx) => self.species_tree.nodes[idx].name.clone(),
-                    None => String::new(),
-                }
-            }));
+            cols.species_node_left
+                .push(
+                    node.left_child
+                        .map_or(String::new(), |c| match self.node_mapping[c] {
+                            Some(idx) => self.species_tree.nodes[idx].name.clone(),
+                            None => String::new(),
+                        }),
+                );
+            cols.species_node_right
+                .push(
+                    node.right_child
+                        .map_or(String::new(), |c| match self.node_mapping[c] {
+                            Some(idx) => self.species_tree.nodes[idx].name.clone(),
+                            None => String::new(),
+                        }),
+                );
             cols.event.push(match self.event_mapping[i] {
                 Event::Speciation => "Speciation".to_string(),
                 Event::Duplication => "Duplication".to_string(),
@@ -177,4 +229,3 @@ impl RecTree {
         self.to_columns().save_csv(filepath)
     }
 }
-

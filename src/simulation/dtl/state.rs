@@ -1,9 +1,9 @@
 // Unified simulation state for both per-gene and per-species DTL models
 
-use std::collections::BTreeMap;
-use rand::Rng;
-use crate::node::{FlatNode, FlatTree, Event};
 use super::event::DTLEvent;
+use crate::node::{Event, FlatNode, FlatTree};
+use rand::Rng;
+use std::collections::BTreeMap;
 
 /// Holds the mutable state during DTL simulation.
 ///
@@ -39,7 +39,13 @@ impl<'a> SimulationState<'a> {
     }
 
     /// Creates a new gene node and returns its index.
-    pub fn create_gene_node(&mut self, parent: Option<usize>, species_idx: usize, event: Event, time: f64) -> usize {
+    pub fn create_gene_node(
+        &mut self,
+        parent: Option<usize>,
+        species_idx: usize,
+        event: Event,
+        time: f64,
+    ) -> usize {
         let idx = self.gene_nodes.len();
         self.gene_nodes.push(FlatNode {
             name: format!("{}_{}", self.species_tree.nodes[species_idx].name, idx),
@@ -57,7 +63,8 @@ impl<'a> SimulationState<'a> {
 
     /// Update gene's branch length and depth up to the given time
     fn update_gene_to_time(&mut self, gene_idx: usize, current_time: f64) {
-        let gene_start = self.gene_nodes[gene_idx].depth
+        let gene_start = self.gene_nodes[gene_idx]
+            .depth
             .expect("gene node should have depth set at creation time");
         self.gene_nodes[gene_idx].length = current_time - gene_start;
         self.gene_nodes[gene_idx].depth = Some(current_time);
@@ -107,8 +114,18 @@ impl<'a> SimulationState<'a> {
         self.remove_gene_from_species(species_idx, parent_idx);
         self.event_mapping[parent_idx] = Event::Duplication;
 
-        let child1_idx = self.create_gene_node(Some(parent_idx), species_idx, Event::Duplication, event_time);
-        let child2_idx = self.create_gene_node(Some(parent_idx), species_idx, Event::Duplication, event_time);
+        let child1_idx = self.create_gene_node(
+            Some(parent_idx),
+            species_idx,
+            Event::Duplication,
+            event_time,
+        );
+        let child2_idx = self.create_gene_node(
+            Some(parent_idx),
+            species_idx,
+            Event::Duplication,
+            event_time,
+        );
 
         self.gene_nodes[parent_idx].left_child = Some(child1_idx);
         self.gene_nodes[parent_idx].right_child = Some(child2_idx);
@@ -139,8 +156,14 @@ impl<'a> SimulationState<'a> {
         self.remove_gene_from_species(donor_species, parent_idx);
         self.event_mapping[parent_idx] = Event::Transfer;
 
-        let donor_child_idx = self.create_gene_node(Some(parent_idx), donor_species, Event::Transfer, event_time);
-        let recipient_child_idx = self.create_gene_node(Some(parent_idx), recipient_species, Event::Transfer, event_time);
+        let donor_child_idx =
+            self.create_gene_node(Some(parent_idx), donor_species, Event::Transfer, event_time);
+        let recipient_child_idx = self.create_gene_node(
+            Some(parent_idx),
+            recipient_species,
+            Event::Transfer,
+            event_time,
+        );
 
         self.gene_nodes[parent_idx].left_child = Some(donor_child_idx);
         self.gene_nodes[parent_idx].right_child = Some(recipient_child_idx);
@@ -176,11 +199,7 @@ impl<'a> SimulationState<'a> {
 
     /// Picks a random gene in a species.
     /// Used by replacement transfers to find a victim gene before adding the transferred copy.
-    pub fn random_gene_in_species<R: Rng>(
-        &self,
-        species_idx: usize,
-        rng: &mut R,
-    ) -> Option<usize> {
+    pub fn random_gene_in_species<R: Rng>(&self, species_idx: usize, rng: &mut R) -> Option<usize> {
         if let Some(ref map) = self.genes_per_species {
             if let Some(genes) = map.get(&species_idx) {
                 if !genes.is_empty() {
@@ -197,7 +216,9 @@ impl<'a> SimulationState<'a> {
     /// single iteration to find the selected copy.
     pub fn random_gene_copy<R: Rng>(&self, rng: &mut R) -> Option<(usize, usize)> {
         let gps = self.genes_per_species.as_ref()?;
-        if self.total_gene_count == 0 { return None; }
+        if self.total_gene_count == 0 {
+            return None;
+        }
         let mut target = rng.gen_range(0..self.total_gene_count);
         for (&species, genes) in gps.iter() {
             if target < genes.len() {
@@ -238,8 +259,18 @@ impl<'a> SimulationState<'a> {
         self.update_gene_to_time(parent_idx, event_time);
         self.event_mapping[parent_idx] = Event::Speciation;
 
-        let left_gene_idx = self.create_gene_node(Some(parent_idx), left_species, Event::Speciation, event_time);
-        let right_gene_idx = self.create_gene_node(Some(parent_idx), right_species, Event::Speciation, event_time);
+        let left_gene_idx = self.create_gene_node(
+            Some(parent_idx),
+            left_species,
+            Event::Speciation,
+            event_time,
+        );
+        let right_gene_idx = self.create_gene_node(
+            Some(parent_idx),
+            right_species,
+            Event::Speciation,
+            event_time,
+        );
 
         self.gene_nodes[parent_idx].left_child = Some(left_gene_idx);
         self.gene_nodes[parent_idx].right_child = Some(right_gene_idx);

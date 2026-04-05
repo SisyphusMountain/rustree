@@ -12,9 +12,9 @@ pub mod error;
 pub use error::RustreeError;
 
 // Core modules
-pub mod node;   // Tree data structures and traversal
+pub mod io;
 pub mod newick; // Newick parsing
-pub mod io;     // I/O utilities (CSV export)
+pub mod node; // Tree data structures and traversal // I/O utilities (CSV export)
 
 // Simulation modules
 pub mod simulation;
@@ -22,12 +22,12 @@ pub use simulation::bd;
 pub use simulation::dtl;
 
 // Tree operations
-pub mod sampling;
-pub mod surgery;
 pub mod comparison;
+pub mod debug;
 pub mod metric_functions;
 pub mod robinson_foulds;
-pub mod debug;
+pub mod sampling;
+pub mod surgery;
 
 // Analysis
 pub mod induced_transfers;
@@ -49,5 +49,5 @@ pub mod r;
 // Re-export core types at crate root.
 // For other items, use qualified paths (e.g., `rustree::sampling::compute_lca`).
 pub use newick::parse_newick;
-pub use node::{Node, FlatNode, FlatTree, TraversalOrder};
-pub use node::{RecTree, Event, GeneForest, parse_recphyloxml, parse_recphyloxml_file};
+pub use node::{parse_recphyloxml, parse_recphyloxml_file, Event, GeneForest, RecTree};
+pub use node::{FlatNode, FlatTree, Node, TraversalOrder};

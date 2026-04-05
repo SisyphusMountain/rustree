@@ -1,10 +1,10 @@
 // Tests for birth-death tree simulation
 
-use rustree::bd::{simulate_bd_tree_bwd, save_events_to_csv, BDEvent};
+use rand::rngs::StdRng;
+use rand::SeedableRng;
+use rustree::bd::{save_events_to_csv, simulate_bd_tree_bwd, BDEvent};
 use rustree::node::TraversalOrder;
 use rustree::parse_newick;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use std::fs;
 
 #[test]
@@ -21,7 +21,9 @@ fn test_bd_tree_basic() {
     assert!(tree.root < tree.nodes.len());
 
     // Count leaf and internal nodes
-    let leaf_count = tree.nodes.iter()
+    let leaf_count = tree
+        .nodes
+        .iter()
         .filter(|node| node.left_child.is_none() && node.right_child.is_none())
         .count();
     let internal_count = tree.nodes.len() - leaf_count;
@@ -33,26 +35,45 @@ fn test_bd_tree_basic() {
         assert!(
             (has_left && has_right) || (!has_left && !has_right),
             "Node '{}' has unary branching (left={}, right={})",
-            node.name, has_left, has_right
+            node.name,
+            has_left,
+            has_right
         );
     }
 
     // Every internal node has exactly 2 children, so nodes = 2 * internal + 1
     // (for a full binary tree: leaves = internal + 1)
-    assert_eq!(leaf_count, internal_count + 1, "Binary tree must have leaves = internal + 1");
+    assert_eq!(
+        leaf_count,
+        internal_count + 1,
+        "Binary tree must have leaves = internal + 1"
+    );
 
     // Parent-child consistency: every child's parent points back
     for (i, node) in tree.nodes.iter().enumerate() {
         if let Some(left) = node.left_child {
-            assert_eq!(tree.nodes[left].parent, Some(i), "Left child's parent mismatch at node {}", i);
+            assert_eq!(
+                tree.nodes[left].parent,
+                Some(i),
+                "Left child's parent mismatch at node {}",
+                i
+            );
         }
         if let Some(right) = node.right_child {
-            assert_eq!(tree.nodes[right].parent, Some(i), "Right child's parent mismatch at node {}", i);
+            assert_eq!(
+                tree.nodes[right].parent,
+                Some(i),
+                "Right child's parent mismatch at node {}",
+                i
+            );
         }
     }
 
     // Root has no parent
-    assert!(tree.nodes[tree.root].parent.is_none(), "Root should have no parent");
+    assert!(
+        tree.nodes[tree.root].parent.is_none(),
+        "Root should have no parent"
+    );
 
     // Events should be non-empty
     assert!(!events.is_empty());
@@ -89,7 +110,9 @@ fn test_bd_tree_invalid_rates() {
     let mut rng = StdRng::seed_from_u64(999);
     let result = simulate_bd_tree_bwd(10, 0.5, 1.0, &mut rng);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("strictly greater than extinction rate"));
+    assert!(result
+        .unwrap_err()
+        .contains("strictly greater than extinction rate"));
 }
 
 #[test]
@@ -103,15 +126,22 @@ fn test_bd_tree_pure_birth() {
 
     // In a pure birth process, there should be no extinct lineages
     // So we should have exactly 2n-1 nodes (n leaves + n-1 internal nodes)
-    let leaf_count = tree.nodes.iter()
+    let leaf_count = tree
+        .nodes
+        .iter()
         .filter(|node| node.left_child.is_none() && node.right_child.is_none())
         .count();
 
-    let internal_count = tree.nodes.iter()
+    let internal_count = tree
+        .nodes
+        .iter()
         .filter(|node| node.left_child.is_some() || node.right_child.is_some())
         .count();
 
-    println!("Pure birth tree: {} leaves, {} internal nodes", leaf_count, internal_count);
+    println!(
+        "Pure birth tree: {} leaves, {} internal nodes",
+        leaf_count, internal_count
+    );
     println!("Number of events: {}", events.len());
 
     // Export tree to Newick format and save
@@ -129,7 +159,9 @@ fn test_bd_tree_pure_birth() {
 
     // For pure birth, all leaves should be extant (not extinct)
     // We should have n leaves numbered 0 to n-1
-    let extant_leaves = tree.nodes.iter()
+    let extant_leaves = tree
+        .nodes
+        .iter()
         .filter(|node| node.left_child.is_none() && node.right_child.is_none())
         .filter(|node| {
             if let Ok(id) = node.name.parse::<usize>() {
@@ -142,7 +174,9 @@ fn test_bd_tree_pure_birth() {
 
     assert_eq!(extant_leaves, n);
     // In pure birth, we should have only leaf and speciation events
-    assert!(events.iter().all(|e| e.event_type == BDEvent::Leaf || e.event_type == BDEvent::Speciation));
+    assert!(events
+        .iter()
+        .all(|e| e.event_type == BDEvent::Leaf || e.event_type == BDEvent::Speciation));
 
     // Cleanup test files
     let _ = std::fs::remove_file("bd_tree_pure_birth.nwk");
@@ -164,17 +198,27 @@ fn test_bd_newick_roundtrip() {
 
     // Convert back to FlatTree and compare structure
     let reparsed_tree = parsed_nodes[0].to_flat_tree();
-    assert_eq!(reparsed_tree.nodes.len(), tree.nodes.len(),
-        "Roundtrip should preserve node count");
+    assert_eq!(
+        reparsed_tree.nodes.len(),
+        tree.nodes.len(),
+        "Roundtrip should preserve node count"
+    );
 
     // Count leaves in both
-    let original_leaves = tree.nodes.iter()
+    let original_leaves = tree
+        .nodes
+        .iter()
         .filter(|n| n.left_child.is_none() && n.right_child.is_none())
         .count();
-    let reparsed_leaves = reparsed_tree.nodes.iter()
+    let reparsed_leaves = reparsed_tree
+        .nodes
+        .iter()
         .filter(|n| n.left_child.is_none() && n.right_child.is_none())
         .count();
-    assert_eq!(original_leaves, reparsed_leaves, "Roundtrip should preserve leaf count");
+    assert_eq!(
+        original_leaves, reparsed_leaves,
+        "Roundtrip should preserve leaf count"
+    );
 }
 
 #[test]

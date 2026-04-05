@@ -1,22 +1,29 @@
 #![allow(clippy::too_many_arguments)]
 //! PySpeciesTree, PySpeciesNode, and PySpeciesTreeIter for Python bindings.
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
-use std::sync::Arc;
+use pyo3::prelude::*;
 use std::fs;
 use std::process::Command;
+use std::sync::Arc;
 
 use crate::bd::generate_events_from_tree;
-use crate::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch};
+use crate::dtl::{
+    simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch,
+};
 use crate::node::{FlatTree, RecTree};
-use crate::sampling::{extract_induced_subtree_by_names, extract_extant_subtree, find_leaf_indices_by_names, NodeMark, mark_nodes_postorder};
+use crate::sampling::{
+    extract_extant_subtree, extract_induced_subtree_by_names, find_leaf_indices_by_names,
+    mark_nodes_postorder, NodeMark,
+};
 use crate::simulation::dtl::gillespie::DTLMode;
 
-use super::{validate_dtl_rates, validate_replacement_transfer, init_rng, is_leaf, parse_distance_type};
-use super::gene_tree::PyGeneTree;
 use super::forest::PyGeneForest;
+use super::gene_tree::PyGeneTree;
 use super::sim_iter::PyDtlSimIter;
+use super::{
+    init_rng, is_leaf, parse_distance_type, validate_dtl_rates, validate_replacement_transfer,
+};
 
 /// A species tree simulated under the birth-death process.
 #[pyclass]
@@ -28,18 +35,31 @@ pub struct PySpeciesTree {
 #[pymethods]
 impl PySpeciesTree {
     fn __repr__(&self) -> String {
-        let n_leaves = self.tree.nodes.iter()
+        let n_leaves = self
+            .tree
+            .nodes
+            .iter()
             .filter(|n| n.left_child.is_none() && n.right_child.is_none())
             .count();
-        let height = self.tree.nodes.iter()
+        let height = self
+            .tree
+            .nodes
+            .iter()
             .filter_map(|n| n.depth)
             .fold(0.0_f64, f64::max);
-        format!("SpeciesTree(leaves={}, nodes={}, height={:.4})", n_leaves, self.tree.nodes.len(), height)
+        format!(
+            "SpeciesTree(leaves={}, nodes={}, height={:.4})",
+            n_leaves,
+            self.tree.nodes.len(),
+            height
+        )
     }
 
     /// Convert the species tree to Newick format.
     fn to_newick(&self) -> PyResult<String> {
-        let nwk = self.tree.to_newick()
+        let nwk = self
+            .tree
+            .to_newick()
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(nwk + ";")
     }
@@ -56,7 +76,9 @@ impl PySpeciesTree {
 
     /// Get the total tree height (depth of deepest leaf).
     fn tree_height(&self) -> f64 {
-        self.tree.nodes.iter()
+        self.tree
+            .nodes
+            .iter()
             .filter_map(|n| n.depth)
             .fold(0.0, f64::max)
     }
@@ -68,7 +90,9 @@ impl PySpeciesTree {
 
     /// Get leaf names.
     fn leaf_names(&self) -> Vec<String> {
-        self.tree.nodes.iter()
+        self.tree
+            .nodes
+            .iter()
             .filter(|n| is_leaf(n))
             .map(|n| n.name.clone())
             .collect()
@@ -78,7 +102,9 @@ impl PySpeciesTree {
     fn get_node(&self, index: usize) -> PyResult<PySpeciesNode> {
         if index >= self.tree.nodes.len() {
             return Err(PyValueError::new_err(format!(
-                "Node index {} out of range (tree has {} nodes)", index, self.tree.nodes.len()
+                "Node index {} out of range (tree has {} nodes)",
+                index,
+                self.tree.nodes.len()
             )));
         }
         let node = &self.tree.nodes[index];
@@ -102,9 +128,11 @@ impl PySpeciesTree {
             "preorder" | "pre" => TraversalOrder::PreOrder,
             "inorder" | "in" => TraversalOrder::InOrder,
             "postorder" | "post" => TraversalOrder::PostOrder,
-            _ => return Err(PyValueError::new_err(
-                "order must be 'preorder', 'inorder', or 'postorder'"
-            )),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "order must be 'preorder', 'inorder', or 'postorder'",
+                ))
+            }
         };
         let indices: Vec<usize> = self.tree.iter_indices(traversal).collect();
         Ok(PySpeciesTreeIter {
@@ -127,7 +155,12 @@ impl PySpeciesTree {
 
     /// Uniformly sample leaf names from extant species in the tree.
     #[pyo3(signature = (n=None, fraction=None, seed=None))]
-    fn sample_leaf_names(&self, n: Option<usize>, fraction: Option<f64>, seed: Option<u64>) -> PyResult<Vec<String>> {
+    fn sample_leaf_names(
+        &self,
+        n: Option<usize>,
+        fraction: Option<f64>,
+        seed: Option<u64>,
+    ) -> PyResult<Vec<String>> {
         use rand::seq::SliceRandom;
 
         let extant_leaves = self.tree.get_extant_leaves();
@@ -141,16 +174,24 @@ impl PySpeciesTree {
                 (Some(n), None) => n,
                 (None, Some(f)) => {
                     if !(0.0..=1.0).contains(&f) {
-                        return Err(PyValueError::new_err("fraction must be between 0.0 and 1.0"));
+                        return Err(PyValueError::new_err(
+                            "fraction must be between 0.0 and 1.0",
+                        ));
                     }
                     (all_leaves.len() as f64 * f).round() as usize
                 }
-                _ => return Err(PyValueError::new_err("Exactly one of 'n' or 'fraction' must be provided")),
+                _ => {
+                    return Err(PyValueError::new_err(
+                        "Exactly one of 'n' or 'fraction' must be provided",
+                    ))
+                }
             };
             if count == 0 || count > all_leaves.len() {
-                return Err(PyValueError::new_err(
-                    format!("Cannot sample {} leaves from {} available", count, all_leaves.len())
-                ));
+                return Err(PyValueError::new_err(format!(
+                    "Cannot sample {} leaves from {} available",
+                    count,
+                    all_leaves.len()
+                )));
             }
             let mut rng = init_rng(seed);
             let names: Vec<String> = all_leaves
@@ -164,16 +205,24 @@ impl PySpeciesTree {
             (Some(n), None) => n,
             (None, Some(f)) => {
                 if !(0.0..=1.0).contains(&f) {
-                    return Err(PyValueError::new_err("fraction must be between 0.0 and 1.0"));
+                    return Err(PyValueError::new_err(
+                        "fraction must be between 0.0 and 1.0",
+                    ));
                 }
                 (extant_leaves.len() as f64 * f).round() as usize
             }
-            _ => return Err(PyValueError::new_err("Exactly one of 'n' or 'fraction' must be provided")),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "Exactly one of 'n' or 'fraction' must be provided",
+                ))
+            }
         };
         if count == 0 || count > extant_leaves.len() {
-            return Err(PyValueError::new_err(
-                format!("Cannot sample {} leaves from {} extant leaves", count, extant_leaves.len())
-            ));
+            return Err(PyValueError::new_err(format!(
+                "Cannot sample {} leaves from {} extant leaves",
+                count,
+                extant_leaves.len()
+            )));
         }
 
         let mut rng = init_rng(seed);
@@ -202,12 +251,13 @@ impl PySpeciesTree {
 
     /// Extract only extant species from the tree (remove extinct lineages).
     fn sample_extant(&self) -> PyResult<PySpeciesTree> {
-        let (extant_tree, _) = extract_extant_subtree(&self.tree)
-            .ok_or_else(|| PyValueError::new_err(
+        let (extant_tree, _) = extract_extant_subtree(&self.tree).ok_or_else(|| {
+            PyValueError::new_err(
                 "No extant species found in tree. Either all lineages went extinct, \
                  or the tree lacks bd_event annotations (trees from parse_species_tree \
-                 cannot be filtered by extinction status)."
-            ))?;
+                 cannot be filtered by extinction status).",
+            )
+        })?;
 
         Ok(PySpeciesTree {
             tree: Arc::new(extant_tree),
@@ -261,33 +311,59 @@ impl PySpeciesTree {
 
         // Build thirdkind config file
         let mut conf_lines = Vec::new();
-        if let Some(c) = color { conf_lines.push(format!("single_gene_color:{}", c)); }
-        if let Some(s) = fontsize { conf_lines.push(format!("gene_police_size:{}", s)); }
+        if let Some(c) = color {
+            conf_lines.push(format!("single_gene_color:{}", c));
+        }
+        if let Some(s) = fontsize {
+            conf_lines.push(format!("gene_police_size:{}", s));
+        }
         fs::write(&conf_path, conf_lines.join("\n"))
             .map_err(|e| PyValueError::new_err(format!("Failed to write config file: {}", e)))?;
 
         // Call thirdkind
         let mut cmd = Command::new("thirdkind");
-        cmd.arg("--input-file").arg(&nwk_path)
-           .arg("-o").arg(&svg_path)
-           .arg("-c").arg(&conf_path);
+        cmd.arg("--input-file")
+            .arg(&nwk_path)
+            .arg("-o")
+            .arg(&svg_path)
+            .arg("-c")
+            .arg(&conf_path);
 
-        if internal_names || marking_nodes { cmd.arg("-i"); }
-        if open_browser { cmd.arg("-b"); }
-        if landscape { cmd.arg("-L"); }
-        if let Some(c) = color { cmd.arg("-C").arg(c); }
-        if let Some(t) = thickness { cmd.arg("-z").arg(t.to_string()); }
-        if let Some(s) = symbol_size { cmd.arg("-k").arg(s.to_string()); }
-        if let Some(c) = background { cmd.arg("-Q").arg(c); }
+        if internal_names || marking_nodes {
+            cmd.arg("-i");
+        }
+        if open_browser {
+            cmd.arg("-b");
+        }
+        if landscape {
+            cmd.arg("-L");
+        }
+        if let Some(c) = color {
+            cmd.arg("-C").arg(c);
+        }
+        if let Some(t) = thickness {
+            cmd.arg("-z").arg(t.to_string());
+        }
+        if let Some(s) = symbol_size {
+            cmd.arg("-k").arg(s.to_string());
+        }
+        if let Some(c) = background {
+            cmd.arg("-Q").arg(c);
+        }
 
-        let output = cmd.output()
-            .map_err(|e| PyValueError::new_err(format!(
-                "Failed to run thirdkind. Is it installed? (`cargo install thirdkind`)\nError: {}", e
-            )))?;
+        let output = cmd.output().map_err(|e| {
+            PyValueError::new_err(format!(
+                "Failed to run thirdkind. Is it installed? (`cargo install thirdkind`)\nError: {}",
+                e
+            ))
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(PyValueError::new_err(format!("thirdkind failed: {}", stderr)));
+            return Err(PyValueError::new_err(format!(
+                "thirdkind failed: {}",
+                stderr
+            )));
         }
 
         let mut svg = fs::read_to_string(&svg_path)
@@ -311,12 +387,7 @@ impl PySpeciesTree {
                 if let Some(pos) = svg.find(&name_pattern) {
                     if let Some(class_start) = svg[..pos].rfind(search) {
                         let class_end = class_start + search.len();
-                        svg = format!(
-                            "{}{}{}",
-                            &svg[..class_start],
-                            &new_attr,
-                            &svg[class_end..]
-                        );
+                        svg = format!("{}{}{}", &svg[..class_start], &new_attr, &svg[class_end..]);
                     }
                 }
             }
@@ -359,11 +430,19 @@ impl PySpeciesTree {
         discard_color: &str,
     ) -> PyResult<PyObject> {
         let svg = self.to_svg(
-            None, false, internal_names,
-            color, fontsize, thickness,
-            symbol_size, background, landscape,
+            None,
+            false,
+            internal_names,
+            color,
+            fontsize,
+            thickness,
+            symbol_size,
+            background,
+            landscape,
             sampled_species_names,
-            keep_color, has_descendant_color, discard_color,
+            keep_color,
+            has_descendant_color,
+            discard_color,
         )?;
 
         let ipython_display = super::import_pymodule(py, "IPython.display")?;
@@ -382,7 +461,8 @@ impl PySpeciesTree {
         let events = match eps {
             Some(eps) => generate_events_with_extinction(&self.tree, eps),
             None => generate_events_from_tree(&self.tree),
-        }.map_err(PyValueError::new_err)?;
+        }
+        .map_err(PyValueError::new_err)?;
 
         save_bd_events_to_csv(&events, &self.tree, filepath)
             .map_err(|e| PyValueError::new_err(format!("Failed to write CSV file: {}", e)))?;
@@ -399,22 +479,30 @@ impl PySpeciesTree {
         let events = match eps {
             Some(eps) => generate_events_with_extinction(&self.tree, eps),
             None => generate_events_from_tree(&self.tree),
-        }.map_err(PyValueError::new_err)?;
+        }
+        .map_err(PyValueError::new_err)?;
 
         let dict = PyDict::new(py);
 
         let times: Vec<f64> = events.iter().map(|e| e.time).collect();
-        let node_names: Vec<String> = events.iter()
+        let node_names: Vec<String> = events
+            .iter()
             .map(|e| self.tree.nodes[e.node_id].name.clone())
             .collect();
-        let event_types: Vec<&str> = events.iter()
-            .map(|e| e.event_type.as_str())
+        let event_types: Vec<&str> = events.iter().map(|e| e.event_type.as_str()).collect();
+        let child1_names: Vec<String> = events
+            .iter()
+            .map(|e| {
+                e.child1
+                    .map_or(String::new(), |c| self.tree.nodes[c].name.clone())
+            })
             .collect();
-        let child1_names: Vec<String> = events.iter()
-            .map(|e| e.child1.map_or(String::new(), |c| self.tree.nodes[c].name.clone()))
-            .collect();
-        let child2_names: Vec<String> = events.iter()
-            .map(|e| e.child2.map_or(String::new(), |c| self.tree.nodes[c].name.clone()))
+        let child2_names: Vec<String> = events
+            .iter()
+            .map(|e| {
+                e.child2
+                    .map_or(String::new(), |c| self.tree.nodes[c].name.clone())
+            })
             .collect();
 
         dict.set_item("time", times)?;
@@ -435,14 +523,18 @@ impl PySpeciesTree {
         let mut events = match eps {
             Some(eps) => generate_events_with_extinction(&self.tree, eps),
             None => generate_events_from_tree(&self.tree),
-        }.map_err(PyValueError::new_err)?;
+        }
+        .map_err(PyValueError::new_err)?;
 
         events.sort_by(|a, b| a.time.total_cmp(&b.time));
 
         let mut times = Vec::new();
         let mut lineages = Vec::new();
 
-        let n_extant = self.tree.nodes.iter()
+        let n_extant = self
+            .tree
+            .nodes
+            .iter()
             .filter(|n| n.left_child.is_none() && n.right_child.is_none())
             .count();
 
@@ -489,9 +581,11 @@ impl PySpeciesTree {
         let plt = super::import_pymodule(py, "matplotlib.pyplot")?;
 
         let dict = ltt_data.downcast_bound::<pyo3::types::PyDict>(py)?;
-        let times = dict.get_item("times")?
+        let times = dict
+            .get_item("times")?
             .ok_or_else(|| PyValueError::new_err("Missing 'times' in LTT data"))?;
-        let lineages = dict.get_item("lineages")?
+        let lineages = dict
+            .get_item("lineages")?
             .ok_or_else(|| PyValueError::new_err("Missing 'lineages' in LTT data"))?;
 
         plt.call_method1("plot", (times, lineages))?;
@@ -511,13 +605,32 @@ impl PySpeciesTree {
 
     /// Simulate a gene tree along this species tree using the DTL model.
     #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
-    fn simulate_dtl(&self, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, replacement_transfer: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneTree> {
+    fn simulate_dtl(
+        &self,
+        lambda_d: f64,
+        lambda_t: f64,
+        lambda_l: f64,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+        require_extant: bool,
+        seed: Option<u64>,
+    ) -> PyResult<PyGeneTree> {
         validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
-        let (mut rec_tree, events) = simulate_dtl(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
-            .map_err(PyValueError::new_err)?;
+        let (mut rec_tree, events) = simulate_dtl(
+            &self.tree,
+            origin_species,
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            transfer_alpha,
+            replacement_transfer,
+            require_extant,
+            &mut rng,
+        )
+        .map_err(PyValueError::new_err)?;
 
         rec_tree.species_tree = Arc::clone(&self.tree);
         rec_tree.dtl_events = Some(events);
@@ -526,7 +639,17 @@ impl PySpeciesTree {
 
     /// Simulate multiple gene trees efficiently with shared pre-computed data.
     #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
-    fn simulate_dtl_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, replacement_transfer: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneForest> {
+    fn simulate_dtl_batch(
+        &self,
+        n: usize,
+        lambda_d: f64,
+        lambda_t: f64,
+        lambda_l: f64,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+        require_extant: bool,
+        seed: Option<u64>,
+    ) -> PyResult<PyGeneForest> {
         validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
@@ -543,7 +666,8 @@ impl PySpeciesTree {
             n,
             require_extant,
             &mut rng,
-        ).map_err(PyValueError::new_err)?;
+        )
+        .map_err(PyValueError::new_err)?;
 
         let gene_trees: Vec<RecTree> = rec_trees
             .into_iter()
@@ -557,20 +681,40 @@ impl PySpeciesTree {
 
         Ok(PyGeneForest {
             forest: crate::node::gene_forest::GeneForest::from_rec_trees(
-                Arc::clone(&self.tree), gene_trees,
+                Arc::clone(&self.tree),
+                gene_trees,
             ),
         })
     }
 
     /// Simulate a gene tree using the Zombi-style per-species DTL model.
     #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
-    fn simulate_dtl_per_species(&self, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, replacement_transfer: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneTree> {
+    fn simulate_dtl_per_species(
+        &self,
+        lambda_d: f64,
+        lambda_t: f64,
+        lambda_l: f64,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+        require_extant: bool,
+        seed: Option<u64>,
+    ) -> PyResult<PyGeneTree> {
         validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
         let origin_species = self.tree.root;
-        let (mut rec_tree, events) = simulate_dtl_per_species(&self.tree, origin_species, lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer, require_extant, &mut rng)
-            .map_err(PyValueError::new_err)?;
+        let (mut rec_tree, events) = simulate_dtl_per_species(
+            &self.tree,
+            origin_species,
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            transfer_alpha,
+            replacement_transfer,
+            require_extant,
+            &mut rng,
+        )
+        .map_err(PyValueError::new_err)?;
 
         rec_tree.species_tree = Arc::clone(&self.tree);
         rec_tree.dtl_events = Some(events);
@@ -579,7 +723,17 @@ impl PySpeciesTree {
 
     /// Simulate multiple gene trees using the Zombi-style per-species DTL model.
     #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
-    fn simulate_dtl_per_species_batch(&self, n: usize, lambda_d: f64, lambda_t: f64, lambda_l: f64, transfer_alpha: Option<f64>, replacement_transfer: Option<f64>, require_extant: bool, seed: Option<u64>) -> PyResult<PyGeneForest> {
+    fn simulate_dtl_per_species_batch(
+        &self,
+        n: usize,
+        lambda_d: f64,
+        lambda_t: f64,
+        lambda_l: f64,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+        require_extant: bool,
+        seed: Option<u64>,
+    ) -> PyResult<PyGeneForest> {
         validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
         validate_replacement_transfer(replacement_transfer)?;
         let mut rng = init_rng(seed);
@@ -595,7 +749,8 @@ impl PySpeciesTree {
             n,
             require_extant,
             &mut rng,
-        ).map_err(PyValueError::new_err)?;
+        )
+        .map_err(PyValueError::new_err)?;
 
         let gene_trees: Vec<RecTree> = rec_trees
             .into_iter()
@@ -609,7 +764,8 @@ impl PySpeciesTree {
 
         Ok(PyGeneForest {
             forest: crate::node::gene_forest::GeneForest::from_rec_trees(
-                Arc::clone(&self.tree), gene_trees,
+                Arc::clone(&self.tree),
+                gene_trees,
             ),
         })
     }
@@ -631,12 +787,13 @@ impl PySpeciesTree {
         validate_replacement_transfer(replacement_transfer)?;
 
         let species_arc = Arc::clone(&self.tree);
-        let species_events = generate_events_from_tree(&self.tree)
-            .map_err(PyValueError::new_err)?;
+        let species_events =
+            generate_events_from_tree(&self.tree).map_err(PyValueError::new_err)?;
         let depths = self.tree.make_subdivision();
         let contemporaneity = self.tree.find_contemporaneity(&depths);
         let lca_depths = transfer_alpha.map(|_| {
-            self.tree.precompute_lca_depths()
+            self.tree
+                .precompute_lca_depths()
                 .expect("Failed to precompute LCA depths")
         });
         let rng = init_rng(seed);
@@ -649,7 +806,13 @@ impl PySpeciesTree {
             contemporaneity,
             lca_depths,
             origin_species,
-            config: crate::dtl::DTLConfig { lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer },
+            config: crate::dtl::DTLConfig {
+                lambda_d,
+                lambda_t,
+                lambda_l,
+                transfer_alpha,
+                replacement_transfer,
+            },
             n_simulations: n,
             require_extant,
             mode: DTLMode::PerGene,
@@ -675,12 +838,13 @@ impl PySpeciesTree {
         validate_replacement_transfer(replacement_transfer)?;
 
         let species_arc = Arc::clone(&self.tree);
-        let species_events = generate_events_from_tree(&self.tree)
-            .map_err(PyValueError::new_err)?;
+        let species_events =
+            generate_events_from_tree(&self.tree).map_err(PyValueError::new_err)?;
         let depths = self.tree.make_subdivision();
         let contemporaneity = self.tree.find_contemporaneity(&depths);
         let lca_depths = transfer_alpha.map(|_| {
-            self.tree.precompute_lca_depths()
+            self.tree
+                .precompute_lca_depths()
                 .expect("Failed to precompute LCA depths")
         });
         let rng = init_rng(seed);
@@ -693,7 +857,13 @@ impl PySpeciesTree {
             contemporaneity,
             lca_depths,
             origin_species,
-            config: crate::dtl::DTLConfig { lambda_d, lambda_t, lambda_l, transfer_alpha, replacement_transfer },
+            config: crate::dtl::DTLConfig {
+                lambda_d,
+                lambda_t,
+                lambda_l,
+                transfer_alpha,
+                replacement_transfer,
+            },
             n_simulations: n,
             require_extant,
             mode: DTLMode::PerSpecies,
@@ -704,11 +874,20 @@ impl PySpeciesTree {
 
     /// Compute all pairwise distances between nodes in the species tree.
     #[pyo3(signature = (distance_type, leaves_only=true))]
-    fn pairwise_distances(&self, py: Python, distance_type: &str, leaves_only: bool) -> PyResult<PyObject> {
+    fn pairwise_distances(
+        &self,
+        py: Python,
+        distance_type: &str,
+        leaves_only: bool,
+    ) -> PyResult<PyObject> {
         let dist_type = parse_distance_type(distance_type)?;
 
-        let distances = self.tree.pairwise_distances(dist_type, leaves_only)
-            .map_err(|e| PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e)))?;
+        let distances = self
+            .tree
+            .pairwise_distances(dist_type, leaves_only)
+            .map_err(|e| {
+                PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e))
+            })?;
 
         let node1: Vec<&str> = distances.iter().map(|d| d.node1).collect();
         let node2: Vec<&str> = distances.iter().map(|d| d.node2).collect();
@@ -727,20 +906,31 @@ impl PySpeciesTree {
 
     /// Save pairwise distances between nodes to a CSV file.
     #[pyo3(signature = (filepath, distance_type, leaves_only=true))]
-    fn save_pairwise_distances_csv(&self, filepath: &str, distance_type: &str, leaves_only: bool) -> PyResult<()> {
+    fn save_pairwise_distances_csv(
+        &self,
+        filepath: &str,
+        distance_type: &str,
+        leaves_only: bool,
+    ) -> PyResult<()> {
         use crate::metric_functions::{DistanceType, PairwiseDistance};
 
         let dist_type = match distance_type.to_lowercase().as_str() {
             "topological" | "topo" => DistanceType::Topological,
             "metric" | "branch" | "patristic" => DistanceType::Metric,
-            _ => return Err(PyValueError::new_err(format!(
-                "Invalid distance_type '{}'. Use 'topological' or 'metric'.",
-                distance_type
-            ))),
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "Invalid distance_type '{}'. Use 'topological' or 'metric'.",
+                    distance_type
+                )))
+            }
         };
 
-        let distances = self.tree.pairwise_distances(dist_type, leaves_only)
-            .map_err(|e| PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e)))?;
+        let distances = self
+            .tree
+            .pairwise_distances(dist_type, leaves_only)
+            .map_err(|e| {
+                PyValueError::new_err(format!("Failed to compute pairwise distances: {}", e))
+            })?;
 
         let mut csv = String::from(PairwiseDistance::csv_header());
         csv.push('\n');
@@ -756,12 +946,14 @@ impl PySpeciesTree {
     }
 
     /// Compute ghost branch lengths for a sampled species tree.
-    fn compute_ghost_lengths(&self, py: Python, sampled_leaf_names: Vec<String>) -> PyResult<PyObject> {
+    fn compute_ghost_lengths(
+        &self,
+        py: Python,
+        sampled_leaf_names: Vec<String>,
+    ) -> PyResult<PyObject> {
         use crate::induced_transfers::ghost_lengths;
-        let (sampled_tree, ghosts) = ghost_lengths(
-            &self.tree,
-            &sampled_leaf_names,
-        ).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let (sampled_tree, ghosts) = ghost_lengths(&self.tree, &sampled_leaf_names)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let node_index: Vec<usize> = (0..sampled_tree.nodes.len()).collect();
         let node_name: Vec<&str> = sampled_tree.nodes.iter().map(|n| n.name.as_str()).collect();
@@ -780,8 +972,11 @@ impl PySpeciesTree {
     fn robinson_foulds(&self, other: &PySpeciesTree) -> PyResult<usize> {
         let rf = std::panic::catch_unwind(|| {
             crate::robinson_foulds::unrooted_robinson_foulds(&self.tree, &other.tree)
-        }).map_err(|e| {
-            let msg = e.downcast_ref::<String>().map(|s| s.as_str())
+        })
+        .map_err(|e| {
+            let msg = e
+                .downcast_ref::<String>()
+                .map(|s| s.as_str())
                 .or_else(|| e.downcast_ref::<&str>().copied())
                 .unwrap_or("Robinson-Foulds computation failed");
             PyValueError::new_err(msg.to_string())
@@ -793,8 +988,11 @@ impl PySpeciesTree {
     fn unrooted_robinson_foulds(&self, other: &PySpeciesTree) -> PyResult<usize> {
         let rf = std::panic::catch_unwind(|| {
             crate::robinson_foulds::true_unrooted_robinson_foulds(&self.tree, &other.tree)
-        }).map_err(|e| {
-            let msg = e.downcast_ref::<String>().map(|s| s.as_str())
+        })
+        .map_err(|e| {
+            let msg = e
+                .downcast_ref::<String>()
+                .map(|s| s.as_str())
                 .or_else(|| e.downcast_ref::<&str>().copied())
                 .unwrap_or("Robinson-Foulds computation failed");
             PyValueError::new_err(msg.to_string())
@@ -804,7 +1002,9 @@ impl PySpeciesTree {
 
     /// Find the index of a node by its name.
     fn find_node_index(&self, name: &str) -> PyResult<usize> {
-        self.tree.nodes.iter()
+        self.tree
+            .nodes
+            .iter()
             .position(|n| n.name == name)
             .ok_or_else(|| PyValueError::new_err(format!("Node '{}' not found", name)))
     }
@@ -831,27 +1031,43 @@ pub struct PySpeciesNode {
 #[pymethods]
 impl PySpeciesNode {
     #[getter]
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
     #[getter]
-    fn index(&self) -> usize { self.index }
+    fn index(&self) -> usize {
+        self.index
+    }
     #[getter]
-    fn depth(&self) -> Option<f64> { self.depth }
+    fn depth(&self) -> Option<f64> {
+        self.depth
+    }
     #[getter]
-    fn length(&self) -> f64 { self.length }
+    fn length(&self) -> f64 {
+        self.length
+    }
     #[getter]
-    fn left_child(&self) -> Option<usize> { self.left_child }
+    fn left_child(&self) -> Option<usize> {
+        self.left_child
+    }
     #[getter]
-    fn right_child(&self) -> Option<usize> { self.right_child }
+    fn right_child(&self) -> Option<usize> {
+        self.right_child
+    }
     #[getter]
-    fn parent(&self) -> Option<usize> { self.parent }
+    fn parent(&self) -> Option<usize> {
+        self.parent
+    }
     #[getter]
     fn bd_event(&self) -> Option<String> {
         self.bd_event.map(|e| format!("{:?}", e))
     }
 
     fn __repr__(&self) -> String {
-        format!("SpeciesNode(name='{}', index={}, depth={:?}, length={:.6})",
-            self.name, self.index, self.depth, self.length)
+        format!(
+            "SpeciesNode(name='{}', index={}, depth={:?}, length={:.6})",
+            self.name, self.index, self.depth, self.length
+        )
     }
 }
 
@@ -865,7 +1081,9 @@ pub struct PySpeciesTreeIter {
 
 #[pymethods]
 impl PySpeciesTreeIter {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
 
     fn __next__(&mut self) -> Option<PySpeciesNode> {
         if self.pos >= self.indices.len() {

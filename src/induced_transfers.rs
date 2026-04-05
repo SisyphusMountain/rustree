@@ -6,11 +6,13 @@
 // recipient" — the branches of the sampled tree that the original donor and
 // recipient project onto.
 
-use std::collections::HashMap;
-use crate::node::FlatTree;
 use crate::dtl::DTLEvent;
 use crate::error::RustreeError;
-use crate::sampling::{NodeMark, mark_nodes_postorder, find_leaf_indices_by_names, extract_induced_subtree_by_names};
+use crate::node::FlatTree;
+use crate::sampling::{
+    extract_induced_subtree_by_names, find_leaf_indices_by_names, mark_nodes_postorder, NodeMark,
+};
+use std::collections::HashMap;
 
 /// An induced transfer: a transfer event with both complete-tree and
 /// sampled-tree donor/recipient species.
@@ -60,9 +62,7 @@ fn project_node(tree: &FlatTree, marks: &[NodeMark], node_idx: usize) -> Option<
         NodeMark::Discard => {
             let sibling = get_sibling(tree, node_idx);
             match sibling {
-                Some(s) if marks[s] != NodeMark::Discard => {
-                    project_node(tree, marks, s)
-                }
+                Some(s) if marks[s] != NodeMark::Discard => project_node(tree, marks, s),
                 _ => {
                     // Sibling is Discard or doesn't exist — go up to parent
                     let parent = tree.nodes[node_idx].parent?;
@@ -106,7 +106,9 @@ pub fn ghost_lengths(
     sampled_leaf_names: &[String],
 ) -> Result<(FlatTree, Vec<f64>), RustreeError> {
     let (sampled_tree, _) = extract_induced_subtree_by_names(complete_tree, sampled_leaf_names)
-        .ok_or_else(|| RustreeError::Tree("Failed to extract induced subtree from leaf names".to_string()))?;
+        .ok_or_else(|| {
+            RustreeError::Tree("Failed to extract induced subtree from leaf names".to_string())
+        })?;
 
     let keep_indices = find_leaf_indices_by_names(complete_tree, sampled_leaf_names);
     let mut marks = vec![NodeMark::Discard; complete_tree.nodes.len()];
@@ -154,7 +156,9 @@ pub fn induced_transfers(
     events: &[DTLEvent],
 ) -> Result<Vec<InducedTransfer>, RustreeError> {
     let (sampled_tree, _) = extract_induced_subtree_by_names(complete_tree, sampled_leaf_names)
-        .ok_or_else(|| RustreeError::Tree("Failed to extract induced subtree from leaf names".to_string()))?;
+        .ok_or_else(|| {
+            RustreeError::Tree("Failed to extract induced subtree from leaf names".to_string())
+        })?;
 
     // Step 1: Mark complete tree nodes
     let keep_indices = find_leaf_indices_by_names(complete_tree, sampled_leaf_names);
@@ -185,7 +189,14 @@ pub fn induced_transfers(
     Ok(events
         .iter()
         .filter_map(|event| {
-            if let DTLEvent::Transfer { time, gene_id, from_species, to_species, .. } = event {
+            if let DTLEvent::Transfer {
+                time,
+                gene_id,
+                from_species,
+                to_species,
+                ..
+            } = event
+            {
                 Some(InducedTransfer {
                     time: *time,
                     gene_id: *gene_id,
@@ -310,7 +321,9 @@ mod tests {
         assert_eq!(t.to_species_complete, idx("D"));
 
         // B projects to A in the complete tree, then A maps to sampled tree
-        let sampled_tree = extract_induced_subtree_by_names(&complete_tree, &sampled_names).unwrap().0;
+        let sampled_tree = extract_induced_subtree_by_names(&complete_tree, &sampled_names)
+            .unwrap()
+            .0;
         let sampled_a = sampled_tree.find_node_index("A").unwrap();
         let sampled_c = sampled_tree.find_node_index("C").unwrap();
         assert_eq!(t.from_species_sampled, Some(sampled_a));
@@ -337,8 +350,16 @@ mod tests {
         let sampled_a = sampled.find_node_index("A").unwrap();
         let sampled_c = sampled.find_node_index("C").unwrap();
 
-        assert!((ghost[sampled_a] - 2.0).abs() < 1e-10, "Ghost length of A should be 2.0, got {}", ghost[sampled_a]);
-        assert!((ghost[sampled_c] - 2.0).abs() < 1e-10, "Ghost length of C should be 2.0, got {}", ghost[sampled_c]);
+        assert!(
+            (ghost[sampled_a] - 2.0).abs() < 1e-10,
+            "Ghost length of A should be 2.0, got {}",
+            ghost[sampled_a]
+        );
+        assert!(
+            (ghost[sampled_c] - 2.0).abs() < 1e-10,
+            "Ghost length of C should be 2.0, got {}",
+            ghost[sampled_c]
+        );
     }
 
     #[test]
@@ -358,9 +379,19 @@ mod tests {
         let sampled_a = sampled.find_node_index("A").unwrap();
         let sampled_b = sampled.find_node_index("B").unwrap();
 
-        assert!((ghost[sampled_ab] - 3.0).abs() < 1e-10, "Ghost length of AB should be 3.0, got {}", ghost[sampled_ab]);
-        assert!((ghost[sampled_a]).abs() < 1e-10, "Ghost length of A should be 0.0");
-        assert!((ghost[sampled_b]).abs() < 1e-10, "Ghost length of B should be 0.0");
+        assert!(
+            (ghost[sampled_ab] - 3.0).abs() < 1e-10,
+            "Ghost length of AB should be 3.0, got {}",
+            ghost[sampled_ab]
+        );
+        assert!(
+            (ghost[sampled_a]).abs() < 1e-10,
+            "Ghost length of A should be 0.0"
+        );
+        assert!(
+            (ghost[sampled_b]).abs() < 1e-10,
+            "Ghost length of B should be 0.0"
+        );
     }
 
     #[test]
@@ -389,6 +420,10 @@ mod tests {
         ];
 
         let induced = induced_transfers(&complete_tree, &sampled_names, &events).unwrap();
-        assert_eq!(induced.len(), 0, "Non-transfer events should be filtered out");
+        assert_eq!(
+            induced.len(),
+            0,
+            "Non-transfer events should be filtered out"
+        );
     }
 }

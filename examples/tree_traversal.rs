@@ -1,7 +1,6 @@
 // Tree traversal example — demonstrates PreOrder, InOrder, PostOrder on Node and FlatTree.
 
-
-use rustree::node::{Node, FlatNode, FlatTree, TraversalOrder, HasName};
+use rustree::node::{FlatNode, FlatTree, HasName, Node, TraversalOrder};
 
 fn print_traversal_names<T, I>(iter: I)
 where

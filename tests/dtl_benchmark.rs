@@ -1,9 +1,9 @@
 // Comprehensive benchmark for DTL (Duplication-Transfer-Loss) simulation
 
-use rustree::bd::simulate_bd_tree_bwd;
-use rustree::dtl::{simulate_dtl, count_events, count_extant_genes};
-use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::SeedableRng;
+use rustree::bd::simulate_bd_tree_bwd;
+use rustree::dtl::{count_events, count_extant_genes, simulate_dtl};
 use std::time::Instant;
 
 #[test]
@@ -33,8 +33,10 @@ fn benchmark_dtl_varying_rates() {
         (2.0, 2.0, 0.5, "High D+T, low L"),
     ];
 
-    println!("{:<20} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
-        "Configuration", "Time(ms)", "S", "D", "T", "L", "Leaves", "Extant");
+    println!(
+        "{:<20} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        "Configuration", "Time(ms)", "S", "D", "T", "L", "Leaves", "Extant"
+    );
     println!("{}", "-".repeat(100));
 
     for (lambda_d, lambda_t, lambda_l, label) in configs {
@@ -58,7 +60,8 @@ fn benchmark_dtl_varying_rates() {
                 None,
                 false,
                 &mut rng,
-            ).unwrap();
+            )
+            .unwrap();
 
             let (s, d, t, l, leaves) = count_events(&rec_tree);
             total_s += s;
@@ -78,8 +81,10 @@ fn benchmark_dtl_varying_rates() {
         let avg_leaves = total_leaves / n_reps;
         let avg_extant = total_extant / n_reps;
 
-        println!("{:<20} {:>10.3} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
-            label, avg_time_ms, avg_s, avg_d, avg_t, avg_l, avg_leaves, avg_extant);
+        println!(
+            "{:<20} {:>10.3} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+            label, avg_time_ms, avg_s, avg_d, avg_t, avg_l, avg_leaves, avg_extant
+        );
     }
 }
 
@@ -96,8 +101,10 @@ fn benchmark_dtl_varying_species_tree_size() {
     let lambda_l = 0.5;
     let sizes = vec![5, 10, 20, 50, 100, 200];
 
-    println!("{:<15} {:>12} {:>12} {:>10} {:>10} {:>10} {:>10} {:>10}",
-        "N species", "Time(ms)", "Events", "S", "D", "T", "L", "Leaves");
+    println!(
+        "{:<15} {:>12} {:>12} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        "N species", "Time(ms)", "Events", "S", "D", "T", "L", "Leaves"
+    );
     println!("{}", "-".repeat(95));
 
     for &n_species in &sizes {
@@ -112,7 +119,8 @@ fn benchmark_dtl_varying_species_tree_size() {
 
         for _ in 0..n_reps {
             // Generate a new species tree for each replicate
-            let (mut species_tree, _) = simulate_bd_tree_bwd(n_species, 1.0, 0.3, &mut rng).unwrap();
+            let (mut species_tree, _) =
+                simulate_bd_tree_bwd(n_species, 1.0, 0.3, &mut rng).unwrap();
             species_tree.assign_depths();
 
             let start = Instant::now();
@@ -126,7 +134,8 @@ fn benchmark_dtl_varying_species_tree_size() {
                 None,
                 false,
                 &mut rng,
-            ).unwrap();
+            )
+            .unwrap();
             let elapsed = start.elapsed();
 
             total_time += elapsed.as_secs_f64() * 1000.0;
@@ -148,8 +157,10 @@ fn benchmark_dtl_varying_species_tree_size() {
         let avg_l = total_l / n_reps;
         let avg_leaves = total_leaves / n_reps;
 
-        println!("{:<15} {:>12.3} {:>12} {:>10} {:>10} {:>10} {:>10} {:>10}",
-            n_species, avg_time_ms, avg_events, avg_s, avg_d, avg_t, avg_l, avg_leaves);
+        println!(
+            "{:<15} {:>12.3} {:>12} {:>10} {:>10} {:>10} {:>10} {:>10}",
+            n_species, avg_time_ms, avg_events, avg_s, avg_d, avg_t, avg_l, avg_leaves
+        );
     }
 }
 
@@ -167,8 +178,10 @@ fn benchmark_dtl_scalability() {
     // Test with increasing event rates
     let rate_multipliers = vec![0.1, 0.5, 1.0, 2.0, 5.0, 10.0];
 
-    println!("{:<15} {:>12} {:>12} {:>12} {:>12}",
-        "Rate mult.", "Time(ms)", "Total events", "Events/ms", "Leaves");
+    println!(
+        "{:<15} {:>12} {:>12} {:>12} {:>12}",
+        "Rate mult.", "Time(ms)", "Total events", "Events/ms", "Leaves"
+    );
     println!("{}", "-".repeat(65));
 
     for &mult in &rate_multipliers {
@@ -193,7 +206,8 @@ fn benchmark_dtl_scalability() {
                 None,
                 false,
                 &mut rng,
-            ).unwrap();
+            )
+            .unwrap();
             let elapsed = start.elapsed();
 
             total_time += elapsed.as_secs_f64() * 1000.0;
@@ -206,8 +220,14 @@ fn benchmark_dtl_scalability() {
         let avg_leaves = total_leaves / n_reps;
         let events_per_ms = avg_events as f64 / avg_time_ms;
 
-        println!("{:<15} {:>12.3} {:>12} {:>12.2} {:>12}",
-            format!("{}x", mult), avg_time_ms, avg_events, events_per_ms, avg_leaves);
+        println!(
+            "{:<15} {:>12.3} {:>12} {:>12.2} {:>12}",
+            format!("{}x", mult),
+            avg_time_ms,
+            avg_events,
+            events_per_ms,
+            avg_leaves
+        );
     }
 }
 
@@ -226,8 +246,10 @@ fn benchmark_dtl_transfer_intensity() {
     let lambda_l = 0.3;
     let transfer_rates = vec![0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0];
 
-    println!("{:<12} {:>12} {:>12} {:>12} {:>12} {:>12}",
-        "λ_transfer", "Time(ms)", "Transfers", "T/(S+D+T)", "Leaves", "T/Leaf");
+    println!(
+        "{:<12} {:>12} {:>12} {:>12} {:>12} {:>12}",
+        "λ_transfer", "Time(ms)", "Transfers", "T/(S+D+T)", "Leaves", "T/Leaf"
+    );
     println!("{}", "-".repeat(75));
 
     for &lambda_t in &transfer_rates {
@@ -249,7 +271,8 @@ fn benchmark_dtl_transfer_intensity() {
                 None,
                 false,
                 &mut rng,
-            ).unwrap();
+            )
+            .unwrap();
             let elapsed = start.elapsed();
 
             total_time += elapsed.as_secs_f64() * 1000.0;
@@ -274,8 +297,10 @@ fn benchmark_dtl_transfer_intensity() {
             0.0
         };
 
-        println!("{:<12.1} {:>12.3} {:>12} {:>12.3} {:>12} {:>12.3}",
-            lambda_t, avg_time_ms, avg_transfers, transfer_ratio, avg_leaves, transfers_per_leaf);
+        println!(
+            "{:<12.1} {:>12.3} {:>12} {:>12.3} {:>12} {:>12.3}",
+            lambda_t, avg_time_ms, avg_transfers, transfer_ratio, avg_leaves, transfers_per_leaf
+        );
     }
 }
 
@@ -294,8 +319,10 @@ fn benchmark_dtl_loss_impact() {
     let lambda_t = 0.5;
     let loss_rates = vec![0.0, 0.1, 0.3, 0.5, 1.0, 2.0, 5.0];
 
-    println!("{:<12} {:>12} {:>12} {:>12} {:>12} {:>12}",
-        "λ_loss", "Time(ms)", "Losses", "Extant", "Extinct(%)", "L/(D+T+L)");
+    println!(
+        "{:<12} {:>12} {:>12} {:>12} {:>12} {:>12}",
+        "λ_loss", "Time(ms)", "Losses", "Extant", "Extinct(%)", "L/(D+T+L)"
+    );
     println!("{}", "-".repeat(75));
 
     for &lambda_l in &loss_rates {
@@ -318,7 +345,8 @@ fn benchmark_dtl_loss_impact() {
                 None,
                 false,
                 &mut rng,
-            ).unwrap();
+            )
+            .unwrap();
             let elapsed = start.elapsed();
 
             total_time += elapsed.as_secs_f64() * 1000.0;
@@ -344,8 +372,10 @@ fn benchmark_dtl_loss_impact() {
             0.0
         };
 
-        println!("{:<12.1} {:>12.3} {:>12} {:>12} {:>12.1} {:>12.3}",
-            lambda_l, avg_time_ms, avg_losses, avg_extant, extinction_rate, loss_ratio);
+        println!(
+            "{:<12.1} {:>12.3} {:>12} {:>12} {:>12.1} {:>12.3}",
+            lambda_l, avg_time_ms, avg_losses, avg_extant, extinction_rate, loss_ratio
+        );
     }
 }
 
@@ -363,8 +393,10 @@ fn benchmark_dtl_large_scale() {
 
     let sizes = vec![50, 100, 200, 500, 1000];
 
-    println!("{:<15} {:>15} {:>15} {:>15} {:>15}",
-        "N species", "Time(s)", "Total events", "Gene nodes", "Events/sec");
+    println!(
+        "{:<15} {:>15} {:>15} {:>15} {:>15}",
+        "N species", "Time(s)", "Total events", "Gene nodes", "Events/sec"
+    );
     println!("{}", "-".repeat(75));
 
     for &n_species in &sizes {
@@ -375,7 +407,8 @@ fn benchmark_dtl_large_scale() {
 
         for _ in 0..n_reps {
             // Generate species tree
-            let (mut species_tree, _) = simulate_bd_tree_bwd(n_species, 1.0, 0.3, &mut rng).unwrap();
+            let (mut species_tree, _) =
+                simulate_bd_tree_bwd(n_species, 1.0, 0.3, &mut rng).unwrap();
             species_tree.assign_depths();
 
             let start = Instant::now();
@@ -389,7 +422,8 @@ fn benchmark_dtl_large_scale() {
                 None,
                 false,
                 &mut rng,
-            ).unwrap();
+            )
+            .unwrap();
             let elapsed = start.elapsed();
 
             total_time += elapsed.as_secs_f64();
@@ -402,8 +436,10 @@ fn benchmark_dtl_large_scale() {
         let avg_nodes = total_nodes / n_reps;
         let events_per_sec = avg_events as f64 / avg_time_s;
 
-        println!("{:<15} {:>15.3} {:>15} {:>15} {:>15.1}",
-            n_species, avg_time_s, avg_events, avg_nodes, events_per_sec);
+        println!(
+            "{:<15} {:>15.3} {:>15} {:>15} {:>15.1}",
+            n_species, avg_time_s, avg_events, avg_nodes, events_per_sec
+        );
     }
 }
 
@@ -441,7 +477,8 @@ fn benchmark_dtl_quick_test() {
             None,
             false,
             &mut rng,
-        ).unwrap();
+        )
+        .unwrap();
         let elapsed = start.elapsed();
         total_time += elapsed.as_secs_f64() * 1000.0;
         total_events += events.len();
@@ -460,16 +497,35 @@ fn benchmark_dtl_quick_test() {
     println!("Average time per simulation: {:.3} ms", avg_time_ms);
     println!("Average events per simulation: {}", avg_events);
     println!("Simulations per second: {:.1}", 1000.0 / avg_time_ms);
-    println!("Avg speciations: {}, duplications: {}, transfers: {}, losses: {}, leaves: {}",
-        total_s / n_reps, total_d / n_reps, total_t / n_reps, total_l / n_reps, total_leaves / n_reps);
+    println!(
+        "Avg speciations: {}, duplications: {}, transfers: {}, losses: {}, leaves: {}",
+        total_s / n_reps,
+        total_d / n_reps,
+        total_t / n_reps,
+        total_l / n_reps,
+        total_leaves / n_reps
+    );
 
     // Statistical sanity checks with deterministic seed:
     // - Every simulation should produce events (species tree has 10 leaves -> at least 9 speciations)
-    assert!(avg_events >= 9, "Expected at least 9 events on average, got {}", avg_events);
+    assert!(
+        avg_events >= 9,
+        "Expected at least 9 events on average, got {}",
+        avg_events
+    );
     // - With lambda_d=1.0, we expect some duplications
-    assert!(total_d > 0, "Expected at least some duplications with lambda_d=1.0");
+    assert!(
+        total_d > 0,
+        "Expected at least some duplications with lambda_d=1.0"
+    );
     // - With lambda_t=0.5, we expect some transfers
-    assert!(total_t > 0, "Expected at least some transfers with lambda_t=0.5");
+    assert!(
+        total_t > 0,
+        "Expected at least some transfers with lambda_t=0.5"
+    );
     // - Every gene tree should have at least one leaf
-    assert!(total_leaves >= n_reps, "Expected at least 1 leaf per simulation");
+    assert!(
+        total_leaves >= n_reps,
+        "Expected at least 1 leaf per simulation"
+    );
 }

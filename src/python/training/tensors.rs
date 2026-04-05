@@ -3,8 +3,8 @@
 //! Contains TaskTensors struct, build_task_tensors_internal helper,
 //! and the build_training_tensors pyfunction.
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ use super::extraction::RustBaseSample;
 /// Per-sample task tensors (before collation).
 pub(super) struct TaskTensors {
     pub(super) x_gene: Vec<i32>,
-    pub(super) g_true_sp: Vec<i32>,   // 1-based species IDs
+    pub(super) g_true_sp: Vec<i32>, // 1-based species IDs
     pub(super) event_true: Vec<i32>,
     pub(super) event_input: Vec<i32>,
     pub(super) frontier_mask: Vec<u8>,
@@ -37,8 +37,8 @@ pub(super) fn build_task_tensors_internal(
     predict_root_position: bool,
     sample_order: &str,
 ) -> Result<TaskTensors, String> {
-    use rand::Rng;
     use rand::seq::SliceRandom;
+    use rand::Rng;
     use std::collections::{HashSet, VecDeque};
 
     let g_root_name = &sample.g_root_name;
@@ -64,7 +64,8 @@ pub(super) fn build_task_tensors_internal(
     let mut g_neighbors_unrooted: HashMap<String, Vec<String>> = HashMap::new();
     for (k, v) in g_neighbors {
         if k != g_root_name {
-            let filtered: Vec<String> = v.iter()
+            let filtered: Vec<String> = v
+                .iter()
                 .filter(|n| n.as_str() != g_root_name.as_str())
                 .cloned()
                 .collect();
@@ -78,14 +79,21 @@ pub(super) fn build_task_tensors_internal(
             for j in (i + 1)..root_nbrs.len() {
                 let ci = root_nbrs[i].clone();
                 let cj = root_nbrs[j].clone();
-                g_neighbors_unrooted.entry(ci.clone()).or_default().push(cj.clone());
-                g_neighbors_unrooted.entry(cj.clone()).or_default().push(ci.clone());
+                g_neighbors_unrooted
+                    .entry(ci.clone())
+                    .or_default()
+                    .push(cj.clone());
+                g_neighbors_unrooted
+                    .entry(cj.clone())
+                    .or_default()
+                    .push(ci.clone());
             }
         }
     }
     // Safety: ensure every node referenced as a neighbor is also a key.
     // Collect missing keys first to avoid borrowing issues.
-    let all_referenced: Vec<String> = g_neighbors_unrooted.values()
+    let all_referenced: Vec<String> = g_neighbors_unrooted
+        .values()
         .flat_map(|vs| vs.iter().cloned())
         .collect();
     for name in all_referenced {
@@ -105,7 +113,11 @@ pub(super) fn build_task_tensors_internal(
         last_added_name = None;
     } else if nb_sampled == max_to_sample && !force_mask_last_added {
         include_root_node = true;
-        selected = g_neighbors.keys().filter(|k| k.as_str() != g_root_name.as_str()).cloned().collect();
+        selected = g_neighbors
+            .keys()
+            .filter(|k| k.as_str() != g_root_name.as_str())
+            .cloned()
+            .collect();
         frontier_names = vec![g_root_name.clone()];
         last_added_name = None;
     } else if nb_sampled == max_to_sample && force_mask_last_added {
@@ -117,8 +129,11 @@ pub(super) fn build_task_tensors_internal(
         include_root_node = false;
         let node_list: Vec<String> = g_neighbors_unrooted.keys().cloned().collect();
         let n = node_list.len();
-        let name_to_idx: HashMap<&str, usize> = node_list.iter().enumerate()
-            .map(|(i, name)| (name.as_str(), i)).collect();
+        let name_to_idx: HashMap<&str, usize> = node_list
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (name.as_str(), i))
+            .collect();
 
         let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
         for (u, vs) in &g_neighbors_unrooted {
@@ -130,36 +145,60 @@ pub(super) fn build_task_tensors_internal(
                         log::warn!(
                             "neighbor '{}' of node '{}' not found \
                              in g_neighbors_unrooted keys — skipping edge",
-                            v, u
+                            v,
+                            u
                         );
                         continue;
                     }
                 };
-                if ui != vi { adj[ui].push(vi); }
+                if ui != vi {
+                    adj[ui].push(vi);
+                }
             }
         }
-        for a in &mut adj { a.sort_unstable(); a.dedup(); }
+        for a in &mut adj {
+            a.sort_unstable();
+            a.dedup();
+        }
 
         let degrees: Vec<usize> = adj.iter().map(|a| a.len()).collect();
-        let leaves_idx: Vec<usize> = degrees.iter().enumerate()
-            .filter(|(_, &d)| d == 1).map(|(i, _)| i).collect();
-        let internal_idx: Vec<usize> = degrees.iter().enumerate()
-            .filter(|(_, &d)| d == 3).map(|(i, _)| i).collect();
+        let leaves_idx: Vec<usize> = degrees
+            .iter()
+            .enumerate()
+            .filter(|(_, &d)| d == 1)
+            .map(|(i, _)| i)
+            .collect();
+        let internal_idx: Vec<usize> = degrees
+            .iter()
+            .enumerate()
+            .filter(|(_, &d)| d == 3)
+            .map(|(i, _)| i)
+            .collect();
 
         let leaf_dist: Option<Vec<i32>> = if sample_order == "bottom_up" {
             let mut dist = vec![-1i32; n];
             let mut queue = VecDeque::new();
-            for &li in &leaves_idx { dist[li] = 0; queue.push_back(li); }
+            for &li in &leaves_idx {
+                dist[li] = 0;
+                queue.push_back(li);
+            }
             while let Some(u) = queue.pop_front() {
                 for &v in &adj[u] {
-                    if dist[v] == -1 { dist[v] = dist[u] + 1; queue.push_back(v); }
+                    if dist[v] == -1 {
+                        dist[v] = dist[u] + 1;
+                        queue.push_back(v);
+                    }
                 }
             }
             Some(dist)
-        } else { None };
+        } else {
+            None
+        };
 
         let mut mapped = vec![false; n];
-        for &li in &leaves_idx { mapped[li] = true; }
+        for &li in &leaves_idx {
+            mapped[li] = true;
+        }
         let internal_set: HashSet<usize> = internal_idx.iter().copied().collect();
 
         let mut mapped_cnt = vec![0u32; n];
@@ -167,16 +206,23 @@ pub(super) fn build_task_tensors_internal(
             mapped_cnt[ii] = adj[ii].iter().filter(|&&nb| mapped[nb]).count() as u32;
         }
 
-        let mut frontier_idx: Vec<usize> = internal_idx.iter()
-            .filter(|&&ii| mapped_cnt[ii] >= 2).copied().collect();
+        let mut frontier_idx: Vec<usize> = internal_idx
+            .iter()
+            .filter(|&&ii| mapped_cnt[ii] >= 2)
+            .copied()
+            .collect();
         let mut added_order: Vec<usize> = Vec::new();
         let mut last_added_i: Option<usize> = None;
 
         while added_order.len() < nb_sampled && !frontier_idx.is_empty() {
             let pick = if let Some(ref dist) = leaf_dist {
                 let min_d = frontier_idx.iter().map(|&v| dist[v]).min().unwrap();
-                let closest: Vec<usize> = frontier_idx.iter().enumerate()
-                    .filter(|(_, &v)| dist[v] == min_d).map(|(i, _)| i).collect();
+                let closest: Vec<usize> = frontier_idx
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, &v)| dist[v] == min_d)
+                    .map(|(i, _)| i)
+                    .collect();
                 *closest.choose(rng).unwrap()
             } else {
                 rng.gen_range(0..frontier_idx.len())
@@ -196,19 +242,30 @@ pub(super) fn build_task_tensors_internal(
         }
 
         let mut sel = HashSet::new();
-        for &li in &leaves_idx { sel.insert(node_list[li].clone()); }
-        for &ai in &added_order { sel.insert(node_list[ai].clone()); }
+        for &li in &leaves_idx {
+            sel.insert(node_list[li].clone());
+        }
+        for &ai in &added_order {
+            sel.insert(node_list[ai].clone());
+        }
         selected = sel;
         frontier_names = frontier_idx.iter().map(|&i| node_list[i].clone()).collect();
         last_added_name = last_added_i.map(|i| node_list[i].clone());
     }
 
-    let active_neighbors = if include_root_node { g_neighbors } else { &g_neighbors_unrooted };
+    let active_neighbors = if include_root_node {
+        g_neighbors
+    } else {
+        &g_neighbors_unrooted
+    };
     let mut g_names: Vec<String> = active_neighbors.keys().cloned().collect();
     g_names.sort();
     let n_gene = g_names.len();
-    let g_name_to_idx: HashMap<&str, usize> = g_names.iter().enumerate()
-        .map(|(i, name)| (name.as_str(), i)).collect();
+    let g_name_to_idx: HashMap<&str, usize> = g_names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (name.as_str(), i))
+        .collect();
 
     let leaf_set: HashSet<&str> = g_leaves_names.iter().map(|s| s.as_str()).collect();
     let frontier_set: HashSet<&str> = frontier_names.iter().map(|s| s.as_str()).collect();
@@ -222,25 +279,38 @@ pub(super) fn build_task_tensors_internal(
     let mut mask_label_node = vec![0u8; n_gene];
 
     for (i, name) in g_names.iter().enumerate() {
-        let sp_name = true_states.get(name)
+        let sp_name = true_states
+            .get(name)
             .ok_or_else(|| format!("Gene node '{}' not in true_states", name))?;
-        let sp_id = sp_name_to_id.get(sp_name.as_str())
+        let sp_id = sp_name_to_id
+            .get(sp_name.as_str())
             .ok_or_else(|| format!("Species '{}' not found in sp_name_to_id", sp_name))?;
         g_true_sp[i] = *sp_id;
 
-        if selected.contains(name) { x_gene[i] = *sp_id; }
+        if selected.contains(name) {
+            x_gene[i] = *sp_id;
+        }
 
         if leaf_set.contains(name.as_str()) {
             event_true[i] = 3;
         } else {
-            event_true[i] = *true_events.get(name)
+            event_true[i] = *true_events
+                .get(name)
                 .ok_or_else(|| format!("Gene node '{}' not in true_events", name))?;
         }
 
-        event_input[i] = if selected.contains(name) { event_true[i] } else { 4 };
+        event_input[i] = if selected.contains(name) {
+            event_true[i]
+        } else {
+            4
+        };
 
-        if frontier_set.contains(name.as_str()) { frontier_mask[i] = 1; }
-        if leaf_set.contains(name.as_str()) { is_leaf[i] = 1; }
+        if frontier_set.contains(name.as_str()) {
+            frontier_mask[i] = 1;
+        }
+        if leaf_set.contains(name.as_str()) {
+            is_leaf[i] = 1;
+        }
     }
 
     if let Some(ref la) = last_added_name {
@@ -274,29 +344,50 @@ pub(super) fn build_task_tensors_internal(
     let mut g_dir_src = Vec::with_capacity(n_edges);
     let mut g_dir_dst = Vec::with_capacity(n_edges);
     for &(a, b) in &directed {
-        g_dir_src.push(a); g_dir_dst.push(b);
-        g_edge_src.push(a); g_edge_dst.push(b);
-        g_edge_src.push(b); g_edge_dst.push(a);
+        g_dir_src.push(a);
+        g_dir_dst.push(b);
+        g_edge_src.push(a);
+        g_edge_dst.push(b);
+        g_edge_src.push(b);
+        g_edge_dst.push(a);
     }
 
-    let root_pair_0 = true_root.first()
-        .and_then(|s| g_name_to_idx.get(s.as_str())).map(|&v| v as i32).unwrap_or(-1);
-    let root_pair_1 = true_root.get(1)
-        .and_then(|s| g_name_to_idx.get(s.as_str())).map(|&v| v as i32).unwrap_or(-1);
+    let root_pair_0 = true_root
+        .first()
+        .and_then(|s| g_name_to_idx.get(s.as_str()))
+        .map(|&v| v as i32)
+        .unwrap_or(-1);
+    let root_pair_1 = true_root
+        .get(1)
+        .and_then(|s| g_name_to_idx.get(s.as_str()))
+        .map(|&v| v as i32)
+        .unwrap_or(-1);
     let root_edge_target: i32 = if !include_root_node && root_pair_0 >= 0 && root_pair_1 >= 0 {
         let pair_fwd = (root_pair_0.min(root_pair_1), root_pair_0.max(root_pair_1));
-        directed.iter().position(|&e| e == pair_fwd).map(|i| i as i32).unwrap_or(-1)
+        directed
+            .iter()
+            .position(|&e| e == pair_fwd)
+            .map(|i| i as i32)
+            .unwrap_or(-1)
     } else {
         -1
     };
 
     Ok(TaskTensors {
-        x_gene, g_true_sp, event_true, event_input,
-        frontier_mask, is_leaf, mask_label_node,
-        g_edge_src, g_edge_dst, g_dir_src, g_dir_dst, root_edge_target,
+        x_gene,
+        g_true_sp,
+        event_true,
+        event_input,
+        frontier_mask,
+        is_leaf,
+        mask_label_node,
+        g_edge_src,
+        g_edge_dst,
+        g_dir_src,
+        g_dir_dst,
+        root_edge_target,
     })
 }
-
 
 /// Build all tensors needed for a training sample in one Rust call.
 ///
@@ -324,39 +415,48 @@ pub fn build_training_tensors(
 
     // ---- Extract fields from base_sample dict ----
     let g_root_name: String = base_sample
-        .get_item("g_root_name")?.ok_or_else(|| PyValueError::new_err("missing g_root_name"))?
+        .get_item("g_root_name")?
+        .ok_or_else(|| PyValueError::new_err("missing g_root_name"))?
         .extract::<String>()?;
     let nb_g_leaves: usize = base_sample
-        .get_item("nb_g_leaves")?.ok_or_else(|| PyValueError::new_err("missing nb_g_leaves"))?
+        .get_item("nb_g_leaves")?
+        .ok_or_else(|| PyValueError::new_err("missing nb_g_leaves"))?
         .extract::<usize>()?;
     let species_names: Vec<String> = base_sample
-        .get_item("species_names")?.ok_or_else(|| PyValueError::new_err("missing species_names"))?
+        .get_item("species_names")?
+        .ok_or_else(|| PyValueError::new_err("missing species_names"))?
         .extract::<Vec<String>>()?;
     let g_leaves_names: Vec<String> = base_sample
-        .get_item("g_leaves_names")?.ok_or_else(|| PyValueError::new_err("missing g_leaves_names"))?
+        .get_item("g_leaves_names")?
+        .ok_or_else(|| PyValueError::new_err("missing g_leaves_names"))?
         .extract::<Vec<String>>()?;
     let true_root: Vec<String> = base_sample
-        .get_item("true_root")?.ok_or_else(|| PyValueError::new_err("missing true_root"))?
+        .get_item("true_root")?
+        .ok_or_else(|| PyValueError::new_err("missing true_root"))?
         .extract::<Vec<String>>()?;
 
     // g_neighbors: Dict[str, List[str]]
     let g_neighbors: HashMap<String, Vec<String>> = base_sample
-        .get_item("g_neighbors")?.ok_or_else(|| PyValueError::new_err("missing g_neighbors"))?
+        .get_item("g_neighbors")?
+        .ok_or_else(|| PyValueError::new_err("missing g_neighbors"))?
         .extract()?;
 
     // sp_children: Dict[str, List[str]]
     let sp_children: HashMap<String, Vec<String>> = base_sample
-        .get_item("sp_children")?.ok_or_else(|| PyValueError::new_err("missing sp_children"))?
+        .get_item("sp_children")?
+        .ok_or_else(|| PyValueError::new_err("missing sp_children"))?
         .extract()?;
 
     // true_states: Dict[str, str]
     let true_states: HashMap<String, String> = base_sample
-        .get_item("true_states")?.ok_or_else(|| PyValueError::new_err("missing true_states"))?
+        .get_item("true_states")?
+        .ok_or_else(|| PyValueError::new_err("missing true_states"))?
         .extract()?;
 
     // true_events: Dict[str, int]
     let true_events: HashMap<String, i32> = base_sample
-        .get_item("true_events")?.ok_or_else(|| PyValueError::new_err("missing true_events"))?
+        .get_item("true_events")?
+        .ok_or_else(|| PyValueError::new_err("missing true_events"))?
         .extract()?;
 
     // ---- RNG setup ----
@@ -379,10 +479,7 @@ pub fn build_training_tensors(
     let mut g_neighbors_unrooted: HashMap<String, Vec<String>> = HashMap::new();
     for (k, v) in &g_neighbors {
         if k != &g_root_name {
-            let filtered: Vec<String> = v.iter()
-                .filter(|n| *n != &g_root_name)
-                .cloned()
-                .collect();
+            let filtered: Vec<String> = v.iter().filter(|n| *n != &g_root_name).cloned().collect();
             g_neighbors_unrooted.insert(k.clone(), filtered);
         }
     }
@@ -391,8 +488,14 @@ pub fn build_training_tensors(
         if root_nbrs.len() == 2 {
             let c1 = &root_nbrs[0];
             let c2 = &root_nbrs[1];
-            g_neighbors_unrooted.entry(c1.clone()).or_default().push(c2.clone());
-            g_neighbors_unrooted.entry(c2.clone()).or_default().push(c1.clone());
+            g_neighbors_unrooted
+                .entry(c1.clone())
+                .or_default()
+                .push(c2.clone());
+            g_neighbors_unrooted
+                .entry(c2.clone())
+                .or_default()
+                .push(c1.clone());
         }
     }
 
@@ -409,9 +512,11 @@ pub fn build_training_tensors(
         last_added_name = None;
     } else if nb_sampled == max_to_sample && !force_mask_last_added {
         include_root_node = true;
-        selected = g_neighbors.keys()
+        selected = g_neighbors
+            .keys()
             .filter(|k| *k != &g_root_name)
-            .cloned().collect();
+            .cloned()
+            .collect();
         frontier_names = vec![g_root_name.clone()];
         last_added_name = None;
     } else if nb_sampled == max_to_sample && force_mask_last_added {
@@ -424,7 +529,8 @@ pub fn build_training_tensors(
         // ---- Inline frontier sampling (sample_gene_coloring) ----
         let node_list: Vec<String> = g_neighbors_unrooted.keys().cloned().collect();
         let n = node_list.len();
-        let name_to_idx: HashMap<&str, usize> = node_list.iter()
+        let name_to_idx: HashMap<&str, usize> = node_list
+            .iter()
             .enumerate()
             .map(|(i, name)| (name.as_str(), i))
             .collect();
@@ -446,11 +552,15 @@ pub fn build_training_tensors(
         }
 
         let degrees: Vec<usize> = adj.iter().map(|a| a.len()).collect();
-        let leaves_idx: Vec<usize> = degrees.iter().enumerate()
+        let leaves_idx: Vec<usize> = degrees
+            .iter()
+            .enumerate()
             .filter(|(_, &d)| d == 1)
             .map(|(i, _)| i)
             .collect();
-        let internal_idx: Vec<usize> = degrees.iter().enumerate()
+        let internal_idx: Vec<usize> = degrees
+            .iter()
+            .enumerate()
             .filter(|(_, &d)| d == 3)
             .map(|(i, _)| i)
             .collect();
@@ -488,7 +598,8 @@ pub fn build_training_tensors(
             mapped_cnt[ii] = cnt;
         }
 
-        let mut frontier_idx: Vec<usize> = internal_idx.iter()
+        let mut frontier_idx: Vec<usize> = internal_idx
+            .iter()
             .filter(|&&ii| mapped_cnt[ii] >= 2)
             .copied()
             .collect();
@@ -498,7 +609,9 @@ pub fn build_training_tensors(
         while added_order.len() < nb_sampled && !frontier_idx.is_empty() {
             let pick = if let Some(ref dist) = leaf_dist {
                 let min_d = frontier_idx.iter().map(|&v| dist[v]).min().unwrap();
-                let closest: Vec<usize> = frontier_idx.iter().enumerate()
+                let closest: Vec<usize> = frontier_idx
+                    .iter()
+                    .enumerate()
                     .filter(|(_, &v)| dist[v] == min_d)
                     .map(|(i, _)| i)
                     .collect();
@@ -541,7 +654,8 @@ pub fn build_training_tensors(
         sp_name_to_id.insert(name.as_str(), (i + 1) as i32);
         sp_name_to_idx.insert(name.as_str(), i);
     }
-    let x_sp: Vec<i32> = species_names.iter()
+    let x_sp: Vec<i32> = species_names
+        .iter()
         .map(|name: &String| sp_name_to_id[name.as_str()])
         .collect();
 
@@ -561,11 +675,16 @@ pub fn build_training_tensors(
     }
 
     // ---- Gene node ordering ----
-    let active_neighbors = if include_root_node { &g_neighbors } else { &g_neighbors_unrooted };
+    let active_neighbors = if include_root_node {
+        &g_neighbors
+    } else {
+        &g_neighbors_unrooted
+    };
     let mut g_names: Vec<String> = active_neighbors.keys().cloned().collect();
     g_names.sort();
     let n_gene = g_names.len();
-    let g_name_to_idx: HashMap<&str, usize> = g_names.iter()
+    let g_name_to_idx: HashMap<&str, usize> = g_names
+        .iter()
         .enumerate()
         .map(|(i, name)| (name.as_str(), i))
         .collect();
@@ -584,9 +703,11 @@ pub fn build_training_tensors(
 
     for (i, name) in g_names.iter().enumerate() {
         // Species mapping
-        let sp_name = true_states.get(name)
-            .ok_or_else(|| PyValueError::new_err(format!("Gene node '{}' not in true_states", name)))?;
-        let sp_id = sp_name_to_id.get(sp_name.as_str())
+        let sp_name = true_states.get(name).ok_or_else(|| {
+            PyValueError::new_err(format!("Gene node '{}' not in true_states", name))
+        })?;
+        let sp_id = sp_name_to_id
+            .get(sp_name.as_str())
             .ok_or_else(|| PyValueError::new_err(format!("Species '{}' not found", sp_name)))?;
         g_true_sp[i] = *sp_id;
 
@@ -600,8 +721,9 @@ pub fn build_training_tensors(
         if leaf_set.contains(name.as_str()) {
             event_true[i] = 3; // P/leaf
         } else {
-            event_true[i] = *true_events.get(name)
-                .ok_or_else(|| PyValueError::new_err(format!("Gene node '{}' not in true_events", name)))?;
+            event_true[i] = *true_events.get(name).ok_or_else(|| {
+                PyValueError::new_err(format!("Gene node '{}' not in true_events", name))
+            })?;
         }
 
         // Event input: masked for unselected nodes
@@ -679,11 +801,19 @@ pub fn build_training_tensors(
     }
 
     // Root edge target
-    let root_pair_0 = g_name_to_idx.get(true_root[0].as_str()).map(|&v| v as i32).unwrap_or(-1);
-    let root_pair_1 = g_name_to_idx.get(true_root[1].as_str()).map(|&v| v as i32).unwrap_or(-1);
+    let root_pair_0 = g_name_to_idx
+        .get(true_root[0].as_str())
+        .map(|&v| v as i32)
+        .unwrap_or(-1);
+    let root_pair_1 = g_name_to_idx
+        .get(true_root[1].as_str())
+        .map(|&v| v as i32)
+        .unwrap_or(-1);
     let root_edge_target: i32 = if !include_root_node {
         let pair_fwd = (root_pair_0.min(root_pair_1), root_pair_0.max(root_pair_1));
-        directed.iter().position(|&e| e == pair_fwd)
+        directed
+            .iter()
+            .position(|&e| e == pair_fwd)
             .map(|i| i as i32)
             .unwrap_or(-1)
     } else {
@@ -702,7 +832,10 @@ pub fn build_training_tensors(
     result.set_item("event_input", PyArray1::from_slice(py, &event_input))?;
     result.set_item("frontier_mask", PyArray1::from_slice(py, &frontier_mask))?;
     result.set_item("is_leaf", PyArray1::from_slice(py, &is_leaf))?;
-    result.set_item("mask_label_node", PyArray1::from_slice(py, &mask_label_node))?;
+    result.set_item(
+        "mask_label_node",
+        PyArray1::from_slice(py, &mask_label_node),
+    )?;
     result.set_item("last_added_index", last_idx)?;
     result.set_item("mask_last_added_event", mask_last_added_event)?;
 
@@ -718,8 +851,14 @@ pub fn build_training_tensors(
             .map_err(|e| PyValueError::new_err(format!("{}: {}", name, e)))?;
         Ok(arr.to_pyarray(py).into_any().unbind())
     };
-    result.set_item("sp_child_edge", edge_2d(&sp_child_src, &sp_child_dst, "sp_child_edge")?)?;
-    result.set_item("sp_parent_edge", edge_2d(&sp_parent_src, &sp_parent_dst, "sp_parent_edge")?)?;
+    result.set_item(
+        "sp_child_edge",
+        edge_2d(&sp_child_src, &sp_child_dst, "sp_child_edge")?,
+    )?;
+    result.set_item(
+        "sp_parent_edge",
+        edge_2d(&sp_parent_src, &sp_parent_dst, "sp_parent_edge")?,
+    )?;
     result.set_item("g_edge", edge_2d(&g_edge_src, &g_edge_dst, "g_edge")?)?;
     result.set_item("g_dir_edge", edge_2d(&g_dir_src, &g_dir_dst, "g_dir_edge")?)?;
     result.set_item("root_edge_target", root_edge_target)?;

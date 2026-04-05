@@ -1,22 +1,26 @@
 //! Streaming DTL simulation iterator for Python.
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use rand::rngs::StdRng;
-use std::sync::Arc;
 use std::fs;
+use std::sync::Arc;
 
 use crate::bd::TreeEvent;
 use crate::dtl::{count_extant_genes, DTLConfig};
 use crate::node::{FlatTree, RecTree};
-use crate::simulation::dtl::gillespie::{DTLMode, simulate_dtl_gillespie};
+use crate::simulation::dtl::gillespie::{simulate_dtl_gillespie, DTLMode};
 
-use super::gene_tree::PyGeneTree;
 use super::forest::PyGeneForest;
+use super::gene_tree::PyGeneTree;
 
 /// Compute the number of digits needed to represent n (for zero-padded filenames).
 pub(crate) fn digit_width(n: usize) -> usize {
-    if n == 0 { 1 } else { ((n as f64).log10().floor() as usize) + 1 }
+    if n == 0 {
+        1
+    } else {
+        ((n as f64).log10().floor() as usize) + 1
+    }
 }
 
 /// Lazy iterator for DTL gene tree simulation.
@@ -189,7 +193,8 @@ impl PyDtlSimIter {
         }
         Ok(PyGeneForest {
             forest: crate::node::gene_forest::GeneForest::from_rec_trees(
-                Arc::clone(&self.species_arc), trees,
+                Arc::clone(&self.species_arc),
+                trees,
             ),
         })
     }
@@ -214,8 +219,9 @@ impl PyDtlSimIter {
                     rec_tree.species_tree = species_arc;
                     let xml = rec_tree.to_xml();
                     let path = format!("{}/gene_{:0>width$}.xml", dir, idx, width = width);
-                    fs::write(&path, &xml)
-                        .map_err(|e| PyValueError::new_err(format!("Failed to write {}: {}", path, e)))?;
+                    fs::write(&path, &xml).map_err(|e| {
+                        PyValueError::new_err(format!("Failed to write {}: {}", path, e))
+                    })?;
                     idx += 1;
                 }
                 Some(Err(e)) => return Err(PyValueError::new_err(e)),
@@ -245,11 +251,14 @@ impl PyDtlSimIter {
                 None => break,
                 Some(Ok(mut rec_tree)) => {
                     rec_tree.species_tree = species_arc;
-                    let newick = rec_tree.gene_tree.to_newick()
+                    let newick = rec_tree
+                        .gene_tree
+                        .to_newick()
                         .map_err(|e| PyValueError::new_err(e.to_string()))?;
                     let path = format!("{}/gene_{:0>width$}.nwk", dir, idx, width = width);
-                    fs::write(&path, format!("{};", newick))
-                        .map_err(|e| PyValueError::new_err(format!("Failed to write {}: {}", path, e)))?;
+                    fs::write(&path, format!("{};", newick)).map_err(|e| {
+                        PyValueError::new_err(format!("Failed to write {}: {}", path, e))
+                    })?;
                     idx += 1;
                 }
                 Some(Err(e)) => return Err(PyValueError::new_err(e)),
@@ -265,8 +274,12 @@ impl PyDtlSimIter {
         };
         format!(
             "PyDtlSimIter(mode={}, completed={}/{}, D={}, T={}, L={})",
-            mode_str, self.completed, self.n_simulations,
-            self.config.lambda_d, self.config.lambda_t, self.config.lambda_l
+            mode_str,
+            self.completed,
+            self.n_simulations,
+            self.config.lambda_d,
+            self.config.lambda_t,
+            self.config.lambda_l
         )
     }
 

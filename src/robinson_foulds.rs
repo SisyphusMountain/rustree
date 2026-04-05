@@ -1,6 +1,5 @@
-use std::collections::{BTreeSet, HashSet};
 use crate::node::FlatTree;
-
+use std::collections::{BTreeSet, HashSet};
 
 /// Computes the set of leaf names in the FlatTree.
 /// A leaf is defined as a node with no left or right child.
@@ -56,10 +55,14 @@ fn get_splits(tree: &FlatTree) -> HashSet<String> {
         let mut leaves_vec: Vec<String> = sub_leaves.iter().cloned().collect();
         leaves_vec.sort_by(|a, b| {
             // Extract numeric suffix if present (e.g., "t10" -> 10)
-            let num_a = a.trim_start_matches(|c: char| !c.is_numeric())
-                .parse::<i32>().unwrap_or(0);
-            let num_b = b.trim_start_matches(|c: char| !c.is_numeric())
-                .parse::<i32>().unwrap_or(0);
+            let num_a = a
+                .trim_start_matches(|c: char| !c.is_numeric())
+                .parse::<i32>()
+                .unwrap_or(0);
+            let num_b = b
+                .trim_start_matches(|c: char| !c.is_numeric())
+                .parse::<i32>()
+                .unwrap_or(0);
             num_a.cmp(&num_b)
         });
         let clade = leaves_vec.join(",");
@@ -95,7 +98,7 @@ pub fn unrooted_robinson_foulds(tree1: &FlatTree, tree2: &FlatTree) -> usize {
 
     // Compute the number of splits that are not shared.
     let common: HashSet<_> = splits1.intersection(&splits2).collect();
-    
+
     (splits1.len() - common.len()) + (splits2.len() - common.len())
 }
 
@@ -110,8 +113,12 @@ fn get_unrooted_bipartitions(tree: &FlatTree) -> HashSet<String> {
     let mut bipartitions = HashSet::new();
 
     for (index, node) in tree.nodes.iter().enumerate() {
-        if node.parent.is_none() { continue; } // skip root
-        if node.left_child.is_none() && node.right_child.is_none() { continue; } // skip leaves
+        if node.parent.is_none() {
+            continue;
+        } // skip root
+        if node.left_child.is_none() && node.right_child.is_none() {
+            continue;
+        } // skip leaves
 
         let clade = subtree_leaves(tree, index);
         // Normalize: use the smaller side of the bipartition
@@ -122,7 +129,11 @@ fn get_unrooted_bipartitions(tree: &FlatTree) -> HashSet<String> {
         } else {
             // Equal size: pick lexicographically smaller
             let complement: BTreeSet<String> = all_leaves.difference(&clade).cloned().collect();
-            if clade < complement { clade } else { complement }
+            if clade < complement {
+                clade
+            } else {
+                complement
+            }
         };
 
         if side.len() > 1 || side.len() < n - 1 {

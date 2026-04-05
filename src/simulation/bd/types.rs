@@ -25,7 +25,6 @@ impl BDEvent {
             BDEvent::Leaf => "Leaf",
         }
     }
-
 }
 
 impl FromStr for BDEvent {
@@ -36,7 +35,10 @@ impl FromStr for BDEvent {
             "Speciation" => Ok(BDEvent::Speciation),
             "Extinction" => Ok(BDEvent::Extinction),
             "Leaf" => Ok(BDEvent::Leaf),
-            _ => Err(format!("Unknown BDEvent '{}'. Valid values: Speciation, Extinction, Leaf", s)),
+            _ => Err(format!(
+                "Unknown BDEvent '{}'. Valid values: Speciation, Extinction, Leaf",
+                s
+            )),
         }
     }
 }
@@ -59,22 +61,45 @@ pub struct TreeEvent {
 impl TreeEvent {
     /// Convert event to CSV row format, resolving node names from the tree
     pub fn to_csv_row(&self, tree: &FlatTree) -> Result<String, String> {
-        let node_name = tree.nodes.get(self.node_id)
+        let node_name = tree
+            .nodes
+            .get(self.node_id)
             .map(|n| n.name.as_str())
-            .ok_or_else(|| format!("Invalid node_id {} (tree has {} nodes)", self.node_id, tree.nodes.len()))?;
+            .ok_or_else(|| {
+                format!(
+                    "Invalid node_id {} (tree has {} nodes)",
+                    self.node_id,
+                    tree.nodes.len()
+                )
+            })?;
         let child1_name = match self.child1 {
-            Some(c) => tree.nodes.get(c)
-                .map(|n| n.name.as_str())
-                .ok_or_else(|| format!("Invalid child1 index {} (tree has {} nodes)", c, tree.nodes.len()))?,
+            Some(c) => tree.nodes.get(c).map(|n| n.name.as_str()).ok_or_else(|| {
+                format!(
+                    "Invalid child1 index {} (tree has {} nodes)",
+                    c,
+                    tree.nodes.len()
+                )
+            })?,
             None => "",
         };
         let child2_name = match self.child2 {
-            Some(c) => tree.nodes.get(c)
-                .map(|n| n.name.as_str())
-                .ok_or_else(|| format!("Invalid child2 index {} (tree has {} nodes)", c, tree.nodes.len()))?,
+            Some(c) => tree.nodes.get(c).map(|n| n.name.as_str()).ok_or_else(|| {
+                format!(
+                    "Invalid child2 index {} (tree has {} nodes)",
+                    c,
+                    tree.nodes.len()
+                )
+            })?,
             None => "",
         };
-        Ok(format!("{},{},{},{},{}", self.time, node_name, self.event_type.as_str(), child1_name, child2_name))
+        Ok(format!(
+            "{},{},{},{},{}",
+            self.time,
+            node_name,
+            self.event_type.as_str(),
+            child1_name,
+            child2_name
+        ))
     }
 
     /// CSV header for event data

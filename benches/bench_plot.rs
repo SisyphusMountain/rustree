@@ -64,7 +64,9 @@ struct Record {
 fn main() {
     fs::create_dir_all(OUTPUT_DIR).unwrap();
     let mut results: Vec<Record> = Vec::new();
-    let n_cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let n_cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
 
     let lambda = 1.0;
     let mu = 0.5;
@@ -92,7 +94,14 @@ fn main() {
             batch,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "bd", variant: "serial", param: n as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "bd",
+            variant: "serial",
+            param: n as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
 
         // Parallel
         let par_batch = batch.max(n_cpus * 8);
@@ -107,7 +116,14 @@ fn main() {
             par_batch,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "bd", variant: "parallel", param: n as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "bd",
+            variant: "parallel",
+            param: n as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
     }
 
     // =================================================================
@@ -120,7 +136,9 @@ fn main() {
 
         let batch = calibrate(|| {
             let mut rng = StdRng::seed_from_u64(0);
-            std::hint::black_box(simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap());
+            std::hint::black_box(
+                simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap(),
+            );
         });
 
         eprint!("  sp={:<5} serial   (x{:<5})...", sp, batch);
@@ -128,13 +146,23 @@ fn main() {
             || {
                 let mut rng = StdRng::seed_from_u64(0);
                 for _ in 0..batch {
-                    std::hint::black_box(simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap());
+                    std::hint::black_box(
+                        simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng)
+                            .unwrap(),
+                    );
                 }
             },
             batch,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "dtl_pergene", variant: "serial", param: sp as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "dtl_pergene",
+            variant: "serial",
+            param: sp as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
 
         let par_batch = batch.max(n_cpus * 8);
         eprint!("  sp={:<5} parallel (x{:<5})...", sp, par_batch);
@@ -142,13 +170,23 @@ fn main() {
             || {
                 (0..par_batch).into_par_iter().for_each(|i| {
                     let mut rng = StdRng::seed_from_u64(i as u64);
-                    std::hint::black_box(simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap());
+                    std::hint::black_box(
+                        simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng)
+                            .unwrap(),
+                    );
                 });
             },
             par_batch,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "dtl_pergene", variant: "parallel", param: sp as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "dtl_pergene",
+            variant: "parallel",
+            param: sp as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
     }
 
     // =================================================================
@@ -161,7 +199,10 @@ fn main() {
 
         let batch = calibrate(|| {
             let mut rng = StdRng::seed_from_u64(0);
-            std::hint::black_box(simulate_dtl_per_species(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap());
+            std::hint::black_box(
+                simulate_dtl_per_species(&species_tree, root, d, t, l, None, None, false, &mut rng)
+                    .unwrap(),
+            );
         });
 
         eprint!("  sp={:<5} serial   (x{:<5})...", sp, batch);
@@ -169,13 +210,33 @@ fn main() {
             || {
                 let mut rng = StdRng::seed_from_u64(0);
                 for _ in 0..batch {
-                    std::hint::black_box(simulate_dtl_per_species(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap());
+                    std::hint::black_box(
+                        simulate_dtl_per_species(
+                            &species_tree,
+                            root,
+                            d,
+                            t,
+                            l,
+                            None,
+                            None,
+                            false,
+                            &mut rng,
+                        )
+                        .unwrap(),
+                    );
                 }
             },
             batch,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "dtl_perspecies", variant: "serial", param: sp as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "dtl_perspecies",
+            variant: "serial",
+            param: sp as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
 
         let par_batch = batch.max(n_cpus * 8);
         eprint!("  sp={:<5} parallel (x{:<5})...", sp, par_batch);
@@ -183,13 +244,33 @@ fn main() {
             || {
                 (0..par_batch).into_par_iter().for_each(|i| {
                     let mut rng = StdRng::seed_from_u64(i as u64);
-                    std::hint::black_box(simulate_dtl_per_species(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap());
+                    std::hint::black_box(
+                        simulate_dtl_per_species(
+                            &species_tree,
+                            root,
+                            d,
+                            t,
+                            l,
+                            None,
+                            None,
+                            false,
+                            &mut rng,
+                        )
+                        .unwrap(),
+                    );
                 });
             },
             par_batch,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "dtl_perspecies", variant: "parallel", param: sp as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "dtl_perspecies",
+            variant: "parallel",
+            param: sp as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
     }
 
     // =================================================================
@@ -207,13 +288,33 @@ fn main() {
             || {
                 let mut rng = StdRng::seed_from_u64(0);
                 for _ in 0..bs {
-                    std::hint::black_box(simulate_dtl(&species_tree_batch, root_batch, d2, t2, l2, None, None, false, &mut rng).unwrap());
+                    std::hint::black_box(
+                        simulate_dtl(
+                            &species_tree_batch,
+                            root_batch,
+                            d2,
+                            t2,
+                            l2,
+                            None,
+                            None,
+                            false,
+                            &mut rng,
+                        )
+                        .unwrap(),
+                    );
                 }
             },
             bs,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "dtl_batch", variant: "pergene_serial", param: bs as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "dtl_batch",
+            variant: "pergene_serial",
+            param: bs as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
 
         // Per-gene parallel
         eprint!("  batch={:<6} pergene  parallel...", bs);
@@ -221,13 +322,33 @@ fn main() {
             || {
                 (0..bs).into_par_iter().for_each(|i| {
                     let mut rng = StdRng::seed_from_u64(i as u64);
-                    std::hint::black_box(simulate_dtl(&species_tree_batch, root_batch, d2, t2, l2, None, None, false, &mut rng).unwrap());
+                    std::hint::black_box(
+                        simulate_dtl(
+                            &species_tree_batch,
+                            root_batch,
+                            d2,
+                            t2,
+                            l2,
+                            None,
+                            None,
+                            false,
+                            &mut rng,
+                        )
+                        .unwrap(),
+                    );
                 });
             },
             bs,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "dtl_batch", variant: "pergene_parallel", param: bs as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "dtl_batch",
+            variant: "pergene_parallel",
+            param: bs as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
 
         // Per-species serial
         eprint!("  batch={:<6} persp    serial  ...", bs);
@@ -235,13 +356,33 @@ fn main() {
             || {
                 let mut rng = StdRng::seed_from_u64(0);
                 for _ in 0..bs {
-                    std::hint::black_box(simulate_dtl_per_species(&species_tree_batch, root_batch, d2, t2, l2, None, None, false, &mut rng).unwrap());
+                    std::hint::black_box(
+                        simulate_dtl_per_species(
+                            &species_tree_batch,
+                            root_batch,
+                            d2,
+                            t2,
+                            l2,
+                            None,
+                            None,
+                            false,
+                            &mut rng,
+                        )
+                        .unwrap(),
+                    );
                 }
             },
             bs,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "dtl_batch", variant: "perspecies_serial", param: bs as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "dtl_batch",
+            variant: "perspecies_serial",
+            param: bs as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
 
         // Per-species parallel
         eprint!("  batch={:<6} persp    parallel...", bs);
@@ -249,13 +390,33 @@ fn main() {
             || {
                 (0..bs).into_par_iter().for_each(|i| {
                     let mut rng = StdRng::seed_from_u64(i as u64);
-                    std::hint::black_box(simulate_dtl_per_species(&species_tree_batch, root_batch, d2, t2, l2, None, None, false, &mut rng).unwrap());
+                    std::hint::black_box(
+                        simulate_dtl_per_species(
+                            &species_tree_batch,
+                            root_batch,
+                            d2,
+                            t2,
+                            l2,
+                            None,
+                            None,
+                            false,
+                            &mut rng,
+                        )
+                        .unwrap(),
+                    );
                 });
             },
             bs,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "dtl_batch", variant: "perspecies_parallel", param: bs as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "dtl_batch",
+            variant: "perspecies_parallel",
+            param: bs as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
     }
 
     // =================================================================
@@ -287,14 +448,23 @@ fn main() {
                 pool.install(|| {
                     (0..batch_ts).into_par_iter().for_each(|i| {
                         let mut rng = StdRng::seed_from_u64(i as u64);
-                        std::hint::black_box(simulate_bd_tree_bwd(n_bd, lambda, mu, &mut rng).unwrap());
+                        std::hint::black_box(
+                            simulate_bd_tree_bwd(n_bd, lambda, mu, &mut rng).unwrap(),
+                        );
                     });
                 });
             },
             batch_ts,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "thread_scaling", variant: "bd", param: threads as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "thread_scaling",
+            variant: "bd",
+            param: threads as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
     }
 
     // DTL per-gene
@@ -311,14 +481,34 @@ fn main() {
                 pool.install(|| {
                     (0..batch_ts).into_par_iter().for_each(|i| {
                         let mut rng = StdRng::seed_from_u64(i as u64);
-                        std::hint::black_box(simulate_dtl(&species_tree_ts, root_ts, d, t, l, None, None, false, &mut rng).unwrap());
+                        std::hint::black_box(
+                            simulate_dtl(
+                                &species_tree_ts,
+                                root_ts,
+                                d,
+                                t,
+                                l,
+                                None,
+                                None,
+                                false,
+                                &mut rng,
+                            )
+                            .unwrap(),
+                        );
                     });
                 });
             },
             batch_ts,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "thread_scaling", variant: "dtl_pergene", param: threads as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "thread_scaling",
+            variant: "dtl_pergene",
+            param: threads as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
     }
 
     // DTL per-species
@@ -333,14 +523,34 @@ fn main() {
                 pool.install(|| {
                     (0..batch_ts).into_par_iter().for_each(|i| {
                         let mut rng = StdRng::seed_from_u64(i as u64);
-                        std::hint::black_box(simulate_dtl_per_species(&species_tree_ts, root_ts, d, t, l, None, None, false, &mut rng).unwrap());
+                        std::hint::black_box(
+                            simulate_dtl_per_species(
+                                &species_tree_ts,
+                                root_ts,
+                                d,
+                                t,
+                                l,
+                                None,
+                                None,
+                                false,
+                                &mut rng,
+                            )
+                            .unwrap(),
+                        );
                     });
                 });
             },
             batch_ts,
         );
         eprintln!(" {:>12.0} trees/s", mean);
-        results.push(Record { group: "thread_scaling", variant: "dtl_perspecies", param: threads as f64, mean, ci_low: lo, ci_high: hi });
+        results.push(Record {
+            group: "thread_scaling",
+            variant: "dtl_perspecies",
+            param: threads as f64,
+            mean,
+            ci_low: lo,
+            ci_high: hi,
+        });
     }
 
     // =================================================================

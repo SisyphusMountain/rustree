@@ -1,8 +1,8 @@
 #![allow(clippy::too_many_arguments)]
 //! Reconciliation comparison Python bindings.
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use std::fs;
 use std::process::Command;
 
@@ -46,11 +46,12 @@ impl PyReconciliationComparison {
         species_fontsize: f64,
         background: &str,
     ) -> PyResult<String> {
-        let (truth, inferred) = self.trees.as_ref()
-            .ok_or_else(|| PyValueError::new_err(
+        let (truth, inferred) = self.trees.as_ref().ok_or_else(|| {
+            PyValueError::new_err(
                 "display()/to_svg() requires trees stored from compare_reconciliation(). \
-                 Not available for consensus/per-sample sub-comparisons."
-            ))?;
+                 Not available for consensus/per-sample sub-comparisons.",
+            )
+        })?;
 
         // Generate combined RecPhyloXML with both gene trees
         let xml = crate::io::rectree_xml::multi_to_xml(&[truth, inferred]);
@@ -65,33 +66,53 @@ impl PyReconciliationComparison {
             .map_err(|e| PyValueError::new_err(format!("Failed to write temp XML: {}", e)))?;
 
         // Write config file for styling
-        let conf_lines = [format!("species_color:{}", species_color),
-            format!("species_police_size:{}", species_fontsize)];
+        let conf_lines = [
+            format!("species_color:{}", species_color),
+            format!("species_police_size:{}", species_fontsize),
+        ];
         fs::write(&conf_path, conf_lines.join("\n"))
             .map_err(|e| PyValueError::new_err(format!("Failed to write config: {}", e)))?;
 
         // Call thirdkind with two gene tree colors
         let colors = format!("{},{}", truth_color, inferred_color);
         let mut cmd = Command::new("thirdkind");
-        cmd.arg("-f").arg(&input_path)
-           .arg("-o").arg(&svg_path)
-           .arg("-c").arg(&conf_path)
-           .arg("-C").arg(&colors)
-           .arg("-Q").arg(background);
+        cmd.arg("-f")
+            .arg(&input_path)
+            .arg("-o")
+            .arg(&svg_path)
+            .arg("-c")
+            .arg(&conf_path)
+            .arg("-C")
+            .arg(&colors)
+            .arg("-Q")
+            .arg(background);
 
-        if internal_gene_names { cmd.arg("-i"); }
-        if internal_species_names { cmd.arg("-I"); }
-        if landscape { cmd.arg("-L"); }
-        if fill_species { cmd.arg("-P"); }
+        if internal_gene_names {
+            cmd.arg("-i");
+        }
+        if internal_species_names {
+            cmd.arg("-I");
+        }
+        if landscape {
+            cmd.arg("-L");
+        }
+        if fill_species {
+            cmd.arg("-P");
+        }
 
-        let output = cmd.output()
-            .map_err(|e| PyValueError::new_err(format!(
-                "Failed to run thirdkind. Is it installed? (`cargo install thirdkind`)\nError: {}", e
-            )))?;
+        let output = cmd.output().map_err(|e| {
+            PyValueError::new_err(format!(
+                "Failed to run thirdkind. Is it installed? (`cargo install thirdkind`)\nError: {}",
+                e
+            ))
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(PyValueError::new_err(format!("thirdkind failed: {}", stderr)));
+            return Err(PyValueError::new_err(format!(
+                "thirdkind failed: {}",
+                stderr
+            )));
         }
 
         let mut svg = fs::read_to_string(&svg_path)
@@ -327,8 +348,15 @@ impl PyReconciliationComparison {
         background: &str,
     ) -> PyResult<String> {
         self.generate_svg(
-            truth_color, inferred_color, internal_gene_names, internal_species_names,
-            landscape, fill_species, species_color, species_fontsize, background,
+            truth_color,
+            inferred_color,
+            internal_gene_names,
+            internal_species_names,
+            landscape,
+            fill_species,
+            species_color,
+            species_fontsize,
+            background,
         )
     }
 
@@ -360,8 +388,15 @@ impl PyReconciliationComparison {
         background: &str,
     ) -> PyResult<PyObject> {
         let svg = self.generate_svg(
-            truth_color, inferred_color, internal_gene_names, internal_species_names,
-            landscape, fill_species, species_color, species_fontsize, background,
+            truth_color,
+            inferred_color,
+            internal_gene_names,
+            internal_species_names,
+            landscape,
+            fill_species,
+            species_color,
+            species_fontsize,
+            background,
         )?;
 
         let ipython_display = super::import_pymodule(py, "IPython.display")?;
@@ -413,29 +448,45 @@ impl PyMultiSampleComparison {
     /// Consensus comparison (majority vote across samples).
     #[getter]
     fn consensus(&self) -> PyReconciliationComparison {
-        PyReconciliationComparison { inner: self.inner.consensus.clone(), trees: None }
+        PyReconciliationComparison {
+            inner: self.inner.consensus.clone(),
+            trees: None,
+        }
     }
 
     /// Per-sample mapping accuracies as a list.
     #[getter]
     fn sample_mapping_accuracies(&self) -> Vec<f64> {
-        self.inner.per_sample.iter().map(|c| c.mapping_accuracy()).collect()
+        self.inner
+            .per_sample
+            .iter()
+            .map(|c| c.mapping_accuracy())
+            .collect()
     }
 
     /// Per-sample event accuracies as a list.
     #[getter]
     fn sample_event_accuracies(&self) -> Vec<f64> {
-        self.inner.per_sample.iter().map(|c| c.event_accuracy()).collect()
+        self.inner
+            .per_sample
+            .iter()
+            .map(|c| c.event_accuracy())
+            .collect()
     }
 
     /// Get the comparison for a specific sample index.
     fn get_sample(&self, index: usize) -> PyResult<PyReconciliationComparison> {
         if index >= self.inner.per_sample.len() {
             return Err(PyValueError::new_err(format!(
-                "Sample index {} out of range (0..{})", index, self.inner.per_sample.len()
+                "Sample index {} out of range (0..{})",
+                index,
+                self.inner.per_sample.len()
             )));
         }
-        Ok(PyReconciliationComparison { inner: self.inner.per_sample[index].clone(), trees: None })
+        Ok(PyReconciliationComparison {
+            inner: self.inner.per_sample[index].clone(),
+            trees: None,
+        })
     }
 
     fn __repr__(&self) -> String {
@@ -463,7 +514,10 @@ impl PyMultiSampleComparison {
 /// # Returns
 /// A PyReconciliationComparison with accuracy metrics and per-node details.
 #[pyfunction]
-pub fn compare_reconciliations(truth: &PyGeneTree, inferred: &PyGeneTree) -> PyResult<PyReconciliationComparison> {
+pub fn compare_reconciliations(
+    truth: &PyGeneTree,
+    inferred: &PyGeneTree,
+) -> PyResult<PyReconciliationComparison> {
     let result = crate::comparison::compare_reconciliations(&truth.rec_tree, &inferred.rec_tree)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(PyReconciliationComparison {
@@ -483,7 +537,10 @@ pub fn compare_reconciliations(truth: &PyGeneTree, inferred: &PyGeneTree) -> PyR
 /// # Returns
 /// A PyMultiSampleComparison with per-sample and consensus accuracy.
 #[pyfunction]
-pub fn compare_reconciliations_multi(truth: &PyGeneTree, samples: Vec<PyGeneTree>) -> PyResult<PyMultiSampleComparison> {
+pub fn compare_reconciliations_multi(
+    truth: &PyGeneTree,
+    samples: Vec<PyGeneTree>,
+) -> PyResult<PyMultiSampleComparison> {
     let sample_recs: Vec<_> = samples.iter().map(|s| s.rec_tree.clone()).collect();
     let result = crate::comparison::compare_reconciliations_multi(&truth.rec_tree, &sample_recs)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;

@@ -3,7 +3,7 @@
 //! This module provides functions to parse RecPhyloXML files (e.g., from ALERax)
 //! into the rustree data structures.
 
-use crate::node::{FlatNode, FlatTree, rectree::Event};
+use crate::node::{rectree::Event, FlatNode, FlatTree};
 use quick_xml::events::Event as XmlEvent;
 use quick_xml::Reader;
 use std::collections::HashMap;
@@ -95,9 +95,7 @@ impl GeneNode {
 /// Parse a RecPhyloXML string and return the components for creating a RecTree.
 ///
 /// Returns a tuple of (species_tree, gene_tree, node_mapping, event_mapping).
-pub fn parse_recphyloxml(
-    xml_content: &str,
-) -> Result<RecPhyloComponents, ParseError> {
+pub fn parse_recphyloxml(xml_content: &str) -> Result<RecPhyloComponents, ParseError> {
     // Parse the species tree
     let species_root = parse_species_tree(xml_content)?;
     let (species_tree, species_name_map) = species_node_to_flat_tree(&species_root)?;
@@ -111,9 +109,7 @@ pub fn parse_recphyloxml(
 }
 
 /// Parse a RecPhyloXML file and return the components for creating a RecTree.
-pub fn parse_recphyloxml_file(
-    filepath: &str,
-) -> Result<RecPhyloComponents, ParseError> {
+pub fn parse_recphyloxml_file(filepath: &str) -> Result<RecPhyloComponents, ParseError> {
     let xml_content = fs::read_to_string(filepath)?;
     parse_recphyloxml(&xml_content)
 }
@@ -487,9 +483,7 @@ fn gene_node_to_flat_tree(
             .ok_or_else(|| {
                 ParseError::MissingSpecies(format!(
                     "Species '{}' not found in species tree (gene node: '{}', event: {:?})",
-                    node.species_location,
-                    node.name,
-                    node.event_type
+                    node.species_location, node.name, node.event_type
                 ))
             })?;
 

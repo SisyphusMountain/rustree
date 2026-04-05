@@ -40,10 +40,13 @@ fn build_new_data(flat_tree: &FlatTree) -> Vec<Vec<String>> {
         rows.push(vec![
             i.to_string(),
             node.name.clone(),
-            node.left_child.map_or("None".to_string(), |v| v.to_string()),
-            node.right_child.map_or("None".to_string(), |v| v.to_string()),
+            node.left_child
+                .map_or("None".to_string(), |v| v.to_string()),
+            node.right_child
+                .map_or("None".to_string(), |v| v.to_string()),
             node.parent.map_or("None".to_string(), |v| v.to_string()),
-            node.depth.map_or("None".to_string(), |v| format!("{:.6}", v)),
+            node.depth
+                .map_or("None".to_string(), |v| format!("{:.6}", v)),
             format!("{:.6}", node.length),
         ]);
     }
@@ -51,12 +54,16 @@ fn build_new_data(flat_tree: &FlatTree) -> Vec<Vec<String>> {
 }
 
 /// Merge new data with optional old data, colorizing cells that have changed.
-fn build_diffed_rows(new_data: &[Vec<String>], old_data: Option<&[Vec<String>]>) -> Vec<Vec<String>> {
+fn build_diffed_rows(
+    new_data: &[Vec<String>],
+    old_data: Option<&[Vec<String>]>,
+) -> Vec<Vec<String>> {
     let mut rows = Vec::new();
     for (i, new_row) in new_data.iter().enumerate() {
         let row = if let Some(old) = old_data {
             if i < old.len() {
-                new_row.iter()
+                new_row
+                    .iter()
                     .zip(&old[i])
                     .map(|(new_val, old_val)| format_diff(old_val, new_val))
                     .collect()

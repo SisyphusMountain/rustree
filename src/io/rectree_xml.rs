@@ -1,8 +1,8 @@
 //! XML serialization and parsing for reconciled trees (RecTree).
 
 use crate::error::RustreeError;
-use crate::node::{FlatTree, RecTree};
 use crate::node::rectree::Event;
+use crate::node::{FlatTree, RecTree};
 
 /// Generate RecPhyloXML with multiple gene trees sharing one species tree.
 ///
@@ -14,9 +14,11 @@ pub fn multi_to_xml(rec_trees: &[&RecTree]) -> String {
     }
 
     let first = rec_trees[0];
-    let estimated_size = rec_trees.iter()
+    let estimated_size = rec_trees
+        .iter()
         .map(|rt| rt.gene_tree.nodes.len() * 200)
-        .sum::<usize>() + 1000;
+        .sum::<usize>()
+        + 1000;
     let mut xml = String::with_capacity(estimated_size);
 
     // Header
@@ -112,14 +114,22 @@ impl RecTree {
         // Fallback to root species for unmapped nodes (e.g., after pruning).
         // Thirdkind requires speciesLocation on every event.
         let root_name = &self.species_tree.nodes[self.species_tree.root].name;
-        let fallback_name = if root_name.is_empty() { "root" } else { root_name.as_str() };
+        let fallback_name = if root_name.is_empty() {
+            "root"
+        } else {
+            root_name.as_str()
+        };
         let species_name: Option<&str> = Some(
             species_idx_opt
                 .map(|idx| {
                     let name = self.species_tree.nodes[idx].name.as_str();
-                    if name.is_empty() { fallback_name } else { name }
+                    if name.is_empty() {
+                        fallback_name
+                    } else {
+                        name
+                    }
                 })
-                .unwrap_or(fallback_name)
+                .unwrap_or(fallback_name),
         );
         let event = &self.event_mapping[node_idx];
         let indent_str = Self::get_indent(indent);
@@ -240,8 +250,16 @@ impl RecTree {
     /// Get indent string for XML formatting.
     fn get_indent(indent: usize) -> String {
         const INDENTS: [&str; 10] = [
-            "", "\t", "\t\t", "\t\t\t", "\t\t\t\t", "\t\t\t\t\t",
-            "\t\t\t\t\t\t", "\t\t\t\t\t\t\t", "\t\t\t\t\t\t\t\t", "\t\t\t\t\t\t\t\t\t"
+            "",
+            "\t",
+            "\t\t",
+            "\t\t\t",
+            "\t\t\t\t",
+            "\t\t\t\t\t",
+            "\t\t\t\t\t\t",
+            "\t\t\t\t\t\t\t",
+            "\t\t\t\t\t\t\t\t",
+            "\t\t\t\t\t\t\t\t\t",
         ];
         if indent < INDENTS.len() {
             INDENTS[indent].to_string()
@@ -261,7 +279,12 @@ impl RecTree {
         let (species_tree, gene_tree, node_mapping, event_mapping) =
             parse_recphyloxml(xml_content)?;
 
-        Ok(RecTree::new_owned(species_tree, gene_tree, node_mapping, event_mapping))
+        Ok(RecTree::new_owned(
+            species_tree,
+            gene_tree,
+            node_mapping,
+            event_mapping,
+        ))
     }
 
     /// Parse a RecPhyloXML file and create a RecTree.
@@ -271,20 +294,33 @@ impl RecTree {
         let (species_tree, gene_tree, node_mapping, event_mapping) =
             parse_recphyloxml_file(filepath)?;
 
-        Ok(RecTree::new_owned(species_tree, gene_tree, node_mapping, event_mapping))
+        Ok(RecTree::new_owned(
+            species_tree,
+            gene_tree,
+            node_mapping,
+            event_mapping,
+        ))
     }
 
     /// Parse gene-tree-only RecPhyloXML with a separate species tree.
     ///
     /// This is useful when the species tree is provided separately (e.g., from a Newick file)
     /// and the XML only contains the reconciled gene tree (no `<spTree>` section).
-    pub fn from_gene_tree_xml(xml_content: &str, species_tree: FlatTree) -> Result<Self, RustreeError> {
+    pub fn from_gene_tree_xml(
+        xml_content: &str,
+        species_tree: FlatTree,
+    ) -> Result<Self, RustreeError> {
         use super::recphyloxml::parse_gene_tree_only;
 
         let (gene_tree, node_mapping, event_mapping) =
             parse_gene_tree_only(xml_content, &species_tree)?;
 
-        Ok(RecTree::new_owned(species_tree, gene_tree, node_mapping, event_mapping))
+        Ok(RecTree::new_owned(
+            species_tree,
+            gene_tree,
+            node_mapping,
+            event_mapping,
+        ))
     }
 
     /// Parse gene-tree-only RecPhyloXML file with a separate species tree.
@@ -297,7 +333,12 @@ impl RecTree {
         let (gene_tree, node_mapping, event_mapping) =
             parse_gene_tree_only_file(xml_filepath, &species_tree)?;
 
-        Ok(RecTree::new_owned(species_tree, gene_tree, node_mapping, event_mapping))
+        Ok(RecTree::new_owned(
+            species_tree,
+            gene_tree,
+            node_mapping,
+            event_mapping,
+        ))
     }
 
     /// Parse reconciled tree from separate files: Newick species tree + gene tree XML.
@@ -323,9 +364,9 @@ impl RecTree {
 
         let mut species_nodes = parse_newick(&species_newick)?;
 
-        let species_root = species_nodes
-            .pop()
-            .ok_or_else(|| RustreeError::Parse("No tree found in species Newick file".to_string()))?;
+        let species_root = species_nodes.pop().ok_or_else(|| {
+            RustreeError::Parse("No tree found in species Newick file".to_string())
+        })?;
 
         let mut species_tree = species_root.to_flat_tree();
         species_tree.assign_depths();

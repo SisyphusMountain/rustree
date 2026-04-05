@@ -1,6 +1,6 @@
 //! Tree iteration utilities for recursive and flat trees.
 
-use super::{Node, FlatNode, FlatTree, TraversalOrder};
+use super::{FlatNode, FlatTree, Node, TraversalOrder};
 
 // ============================================================================
 // NodeIter - Iterator for recursive Node trees
@@ -40,7 +40,7 @@ impl<'a> Iterator for NodeIter<'a> {
                         self.stack.push(NodeState::Right(node));
                         self.stack.push(NodeState::Left(node));
                     }
-                }
+                },
                 NodeState::Left(node) => {
                     if let Some(ref left) = node.left_child {
                         self.stack.push(NodeState::Start(left));
@@ -56,7 +56,7 @@ impl<'a> Iterator for NodeIter<'a> {
                         return Some(node);
                     }
                     TraversalOrder::PreOrder => {}
-                }
+                },
             }
         }
         None
@@ -117,7 +117,7 @@ pub fn advance_flat_tree(
                     stack.push(FlatTreeState::Right(index));
                     stack.push(FlatTreeState::Left(index));
                 }
-            }
+            },
             FlatTreeState::Left(index) => {
                 if let Some(left_index) = tree.nodes[index].left_child {
                     stack.push(FlatTreeState::Start(left_index));
@@ -133,7 +133,7 @@ pub fn advance_flat_tree(
                     return Some(index);
                 }
                 TraversalOrder::PreOrder => {}
-            }
+            },
         }
     }
     None
@@ -143,8 +143,7 @@ impl<'a> Iterator for FlatTreeIter<'a> {
     type Item = &'a FlatNode;
 
     fn next(&mut self) -> Option<Self::Item> {
-        advance_flat_tree(self.tree, &mut self.stack, &self.order)
-            .map(|idx| &self.tree.nodes[idx])
+        advance_flat_tree(self.tree, &mut self.stack, &self.order).map(|idx| &self.tree.nodes[idx])
     }
 }
 

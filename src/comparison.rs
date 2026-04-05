@@ -1,11 +1,10 @@
 // Comparing two trees, to see whether they are identical.
 // + Reconciliation accuracy comparison (clade-based).
 
-use std::collections::{BTreeSet, HashSet, HashMap};
-use crate::node::{Node, FlatTree, RecTree, rectree::Event};
 use crate::error::RustreeError;
-use crate::sampling::{mark_nodes_postorder, NodeMark, get_descendant_leaf_names};
-
+use crate::node::{rectree::Event, FlatTree, Node, RecTree};
+use crate::sampling::{get_descendant_leaf_names, mark_nodes_postorder, NodeMark};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 // ============================================================================
 // Topology comparison (existing)
@@ -19,7 +18,11 @@ fn min_leaf_name(node: &Node) -> &str {
         (Some(left), Some(right)) => {
             let l = min_leaf_name(left);
             let r = min_leaf_name(right);
-            if l <= r { l } else { r }
+            if l <= r {
+                l
+            } else {
+                r
+            }
         }
         (Some(child), None) | (None, Some(child)) => min_leaf_name(child),
     }
@@ -29,20 +32,36 @@ fn min_leaf_name(node: &Node) -> &str {
 ///
 /// Uses canonical child ordering (by minimum leaf name) to achieve O(n)
 /// comparison instead of the O(2^h) worst case of trying both orderings.
-pub fn compare_nodes(n1: &Node, n2: &Node, use_lengths: bool, tol: f64) -> Result<bool, RustreeError> {
-    if n1.name != n2.name { return Ok(false); }
+pub fn compare_nodes(
+    n1: &Node,
+    n2: &Node,
+    use_lengths: bool,
+    tol: f64,
+) -> Result<bool, RustreeError> {
+    if n1.name != n2.name {
+        return Ok(false);
+    }
 
-    if use_lengths
-        && (n1.length - n2.length).abs() > tol { return Ok(false); }
+    if use_lengths && (n1.length - n2.length).abs() > tol {
+        return Ok(false);
+    }
 
     // Collect non-None children for each node.
     let mut children1 = Vec::new();
-    if let Some(child) = &n1.left_child { children1.push(child.as_ref()); }
-    if let Some(child) = &n1.right_child { children1.push(child.as_ref()); }
+    if let Some(child) = &n1.left_child {
+        children1.push(child.as_ref());
+    }
+    if let Some(child) = &n1.right_child {
+        children1.push(child.as_ref());
+    }
 
     let mut children2 = Vec::new();
-    if let Some(child) = &n2.left_child { children2.push(child.as_ref()); }
-    if let Some(child) = &n2.right_child { children2.push(child.as_ref()); }
+    if let Some(child) = &n2.left_child {
+        children2.push(child.as_ref());
+    }
+    if let Some(child) = &n2.right_child {
+        children2.push(child.as_ref());
+    }
 
     if children1.len() != children2.len() {
         return Ok(false);
@@ -56,8 +75,11 @@ pub fn compare_nodes(n1: &Node, n2: &Node, use_lengths: bool, tol: f64) -> Resul
             children2.sort_by_key(|c| min_leaf_name(c));
             Ok(compare_nodes(children1[0], children2[0], use_lengths, tol)?
                 && compare_nodes(children1[1], children2[1], use_lengths, tol)?)
-        },
-        n => Err(RustreeError::Tree(format!("Invalid binary tree: node '{}' has {} children (expected 0 or 2)", n1.name, n)))
+        }
+        n => Err(RustreeError::Tree(format!(
+            "Invalid binary tree: node '{}' has {} children (expected 0 or 2)",
+            n1.name, n
+        ))),
     }
 }
 
@@ -65,7 +87,6 @@ pub fn compare_nodes(n1: &Node, n2: &Node, use_lengths: bool, tol: f64) -> Resul
 pub fn compare_nodes_topology(n1: &Node, n2: &Node) -> Result<bool, RustreeError> {
     compare_nodes(n1, n2, false, 0.0)
 }
-
 
 // ============================================================================
 // Reconciliation accuracy comparison
@@ -128,19 +149,25 @@ pub struct ReconciliationComparison {
 impl ReconciliationComparison {
     /// Fraction of correctly inferred species mappings.
     pub fn mapping_accuracy(&self) -> f64 {
-        if self.mappings_evaluated == 0 { return 0.0; }
+        if self.mappings_evaluated == 0 {
+            return 0.0;
+        }
         self.correct_mappings as f64 / self.mappings_evaluated as f64
     }
 
     /// Fraction of correctly inferred events.
     pub fn event_accuracy(&self) -> f64 {
-        if self.nodes_compared == 0 { return 0.0; }
+        if self.nodes_compared == 0 {
+            return 0.0;
+        }
         self.correct_events as f64 / self.nodes_compared as f64
     }
 
     /// Fraction of nodes correct on both mapping and event.
     pub fn both_accuracy(&self) -> f64 {
-        if self.mappings_evaluated == 0 { return 0.0; }
+        if self.mappings_evaluated == 0 {
+            return 0.0;
+        }
         self.correct_both as f64 / self.mappings_evaluated as f64
     }
 }
@@ -158,18 +185,17 @@ pub struct MultiSampleComparison {
     pub mean_event_accuracy: f64,
 }
 
-
 // ============================================================================
 // Internal helpers
 // ============================================================================
 
 /// Find indices of extant leaves (Event::Leaf) in the gene tree.
 fn extant_leaf_indices(tree: &FlatTree, event_mapping: &[Event]) -> HashSet<usize> {
-    tree.nodes.iter().enumerate()
+    tree.nodes
+        .iter()
+        .enumerate()
         .filter(|(i, n)| {
-            n.left_child.is_none()
-            && n.right_child.is_none()
-            && event_mapping[*i] == Event::Leaf
+            n.left_child.is_none() && n.right_child.is_none() && event_mapping[*i] == Event::Leaf
         })
         .map(|(i, _)| i)
         .collect()
@@ -177,7 +203,8 @@ fn extant_leaf_indices(tree: &FlatTree, event_mapping: &[Event]) -> HashSet<usiz
 
 /// Collect names of leaves with Event::Leaf (extant genes).
 fn extant_leaf_names(tree: &FlatTree, event_mapping: &[Event]) -> BTreeSet<String> {
-    extant_leaf_indices(tree, event_mapping).iter()
+    extant_leaf_indices(tree, event_mapping)
+        .iter()
         .map(|&i| tree.nodes[i].name.clone())
         .collect()
 }
@@ -195,7 +222,8 @@ fn build_extant_clade_map(
     event_mapping: &[Event],
 ) -> HashMap<BTreeSet<String>, usize> {
     let extant_indices = extant_leaf_indices(tree, event_mapping);
-    let extant_names: HashSet<String> = extant_indices.iter()
+    let extant_names: HashSet<String> = extant_indices
+        .iter()
         .map(|&i| tree.nodes[i].name.clone())
         .collect();
 
@@ -214,7 +242,8 @@ fn build_extant_clade_map(
         // Safety: idx comes from tree.postorder_indices(), so it is a valid tree node index
         let all_descendants = get_descendant_leaf_names(tree, idx)
             .expect("internal error: postorder index should be valid");
-        let clade: BTreeSet<String> = all_descendants.into_iter()
+        let clade: BTreeSet<String> = all_descendants
+            .into_iter()
             .filter(|name| extant_names.contains(name))
             .collect();
 
@@ -261,10 +290,8 @@ fn species_clade_for(
     gene_node_idx: usize,
     species_clades: &[BTreeSet<String>],
 ) -> Option<BTreeSet<String>> {
-    rec_tree.node_mapping[gene_node_idx]
-        .map(|sp_idx| species_clades[sp_idx].clone())
+    rec_tree.node_mapping[gene_node_idx].map(|sp_idx| species_clades[sp_idx].clone())
 }
-
 
 // ============================================================================
 // Public API
@@ -291,7 +318,10 @@ pub fn compare_reconciliations(
         return Err(RustreeError::Validation(format!(
             "Extant leaf sets differ: truth has {}, inferred has {}. \
              Only in truth (first 5): {:?}. Only in inferred (first 5): {:?}",
-            truth_extant.len(), inf_extant.len(), only_truth, only_inf
+            truth_extant.len(),
+            inf_extant.len(),
+            only_truth,
+            only_inf
         )));
     }
 
@@ -321,9 +351,15 @@ pub fn compare_reconciliations(
 
     // Leaf mapping sanity check (by species clade)
     for leaf_name in &truth_extant {
-        let truth_leaf_idx = truth.gene_tree.nodes.iter()
+        let truth_leaf_idx = truth
+            .gene_tree
+            .nodes
+            .iter()
             .position(|n| n.name == *leaf_name);
-        let inf_leaf_idx = inferred.gene_tree.nodes.iter()
+        let inf_leaf_idx = inferred
+            .gene_tree
+            .nodes
+            .iter()
             .position(|n| n.name == *leaf_name);
 
         if let (Some(ti), Some(ii)) = (truth_leaf_idx, inf_leaf_idx) {
@@ -356,18 +392,23 @@ pub fn compare_reconciliations(
                 (Some(tc), Some(ic)) => {
                     comparison.mappings_evaluated += 1;
                     let correct = tc == ic;
-                    if correct { comparison.correct_mappings += 1; }
+                    if correct {
+                        comparison.correct_mappings += 1;
+                    }
                     Some(correct)
-                },
+                }
                 _ => None,
             };
 
-            if event_correct { comparison.correct_events += 1; }
+            if event_correct {
+                comparison.correct_events += 1;
+            }
             if event_correct && mapping_correct == Some(true) {
                 comparison.correct_both += 1;
             }
 
-            *comparison.event_confusion
+            *comparison
+                .event_confusion
                 .entry((truth_event.clone(), inf_event.clone()))
                 .or_insert(0) += 1;
 
@@ -399,7 +440,6 @@ pub fn compare_reconciliations(
     Ok(comparison)
 }
 
-
 /// Compare truth reconciliation against multiple inferred samples.
 ///
 /// Computes per-sample metrics and a consensus comparison where
@@ -410,19 +450,26 @@ pub fn compare_reconciliations_multi(
     samples: &[RecTree],
 ) -> Result<MultiSampleComparison, RustreeError> {
     if samples.is_empty() {
-        return Err(RustreeError::Validation("No samples to compare".to_string()));
+        return Err(RustreeError::Validation(
+            "No samples to compare".to_string(),
+        ));
     }
 
     // Per-sample comparisons
-    let per_sample: Vec<ReconciliationComparison> = samples.iter()
+    let per_sample: Vec<ReconciliationComparison> = samples
+        .iter()
         .map(|s| compare_reconciliations(truth, s))
         .collect::<Result<Vec<_>, _>>()?;
 
     // Mean accuracies
-    let mean_mapping_accuracy = if per_sample.is_empty() { 0.0 } else {
+    let mean_mapping_accuracy = if per_sample.is_empty() {
+        0.0
+    } else {
         per_sample.iter().map(|c| c.mapping_accuracy()).sum::<f64>() / per_sample.len() as f64
     };
-    let mean_event_accuracy = if per_sample.is_empty() { 0.0 } else {
+    let mean_event_accuracy = if per_sample.is_empty() {
+        0.0
+    } else {
         per_sample.iter().map(|c| c.event_accuracy()).sum::<f64>() / per_sample.len() as f64
     };
 
@@ -432,8 +479,10 @@ pub fn compare_reconciliations_multi(
     let truth_sp_clades = build_species_clades(&truth.species_tree);
 
     // For each clade, collect votes across samples using species clades (not names)
-    let mut species_clade_votes: HashMap<BTreeSet<String>, HashMap<BTreeSet<String>, usize>> = HashMap::new();
-    let mut species_name_for_clade: HashMap<BTreeSet<String>, HashMap<BTreeSet<String>, String>> = HashMap::new();
+    let mut species_clade_votes: HashMap<BTreeSet<String>, HashMap<BTreeSet<String>, usize>> =
+        HashMap::new();
+    let mut species_name_for_clade: HashMap<BTreeSet<String>, HashMap<BTreeSet<String>, String>> =
+        HashMap::new();
     let mut event_votes: HashMap<BTreeSet<String>, HashMap<Event, usize>> = HashMap::new();
 
     for sample in samples {
@@ -495,16 +544,24 @@ pub fn compare_reconciliations_multi(
 
         // Get majority-vote species clade
         let consensus_sp_clade = species_clade_votes.get(clade).and_then(|votes| {
-            votes.iter().max_by_key(|(_, &count)| count).map(|(sc, _)| sc.clone())
+            votes
+                .iter()
+                .max_by_key(|(_, &count)| count)
+                .map(|(sc, _)| sc.clone())
         });
         // Get the display name for the winning species clade
         let consensus_sp = consensus_sp_clade.as_ref().and_then(|sc| {
-            species_name_for_clade.get(clade).and_then(|m| m.get(sc).cloned())
+            species_name_for_clade
+                .get(clade)
+                .and_then(|m| m.get(sc).cloned())
         });
 
         // Get majority-vote event
         let consensus_event = event_votes.get(clade).and_then(|votes| {
-            votes.iter().max_by_key(|(_, &count)| count).map(|(ev, _)| ev.clone())
+            votes
+                .iter()
+                .max_by_key(|(_, &count)| count)
+                .map(|(ev, _)| ev.clone())
         });
 
         if let Some(ref cons_event) = consensus_event {
@@ -515,18 +572,23 @@ pub fn compare_reconciliations_multi(
                 (Some(tc), Some(cc)) => {
                     consensus.mappings_evaluated += 1;
                     let correct = tc == cc;
-                    if correct { consensus.correct_mappings += 1; }
+                    if correct {
+                        consensus.correct_mappings += 1;
+                    }
                     Some(correct)
-                },
+                }
                 _ => None,
             };
 
-            if event_correct { consensus.correct_events += 1; }
+            if event_correct {
+                consensus.correct_events += 1;
+            }
             if event_correct && mapping_correct == Some(true) {
                 consensus.correct_both += 1;
             }
 
-            *consensus.event_confusion
+            *consensus
+                .event_confusion
                 .entry((truth_event.clone(), cons_event.clone()))
                 .or_insert(0) += 1;
 
@@ -556,7 +618,6 @@ pub fn compare_reconciliations_multi(
     })
 }
 
-
 // ============================================================================
 // Tests
 // ============================================================================
@@ -564,16 +625,40 @@ pub fn compare_reconciliations_multi(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::{FlatNode, FlatTree, RecTree, rectree::Event};
+    use crate::node::{rectree::Event, FlatNode, FlatTree, RecTree};
     use std::sync::Arc;
 
     /// Build a simple species tree: (A, B)root
     fn make_species_tree() -> FlatTree {
         FlatTree {
             nodes: vec![
-                FlatNode { name: "root".into(), left_child: Some(1), right_child: Some(2), parent: None, depth: None, length: 0.0, bd_event: None },
-                FlatNode { name: "A".into(), left_child: None, right_child: None, parent: Some(0), depth: None, length: 1.0, bd_event: None },
-                FlatNode { name: "B".into(), left_child: None, right_child: None, parent: Some(0), depth: None, length: 1.0, bd_event: None },
+                FlatNode {
+                    name: "root".into(),
+                    left_child: Some(1),
+                    right_child: Some(2),
+                    parent: None,
+                    depth: None,
+                    length: 0.0,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "A".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(0),
+                    depth: None,
+                    length: 1.0,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "B".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(0),
+                    depth: None,
+                    length: 1.0,
+                    bd_event: None,
+                },
             ],
             root: 0,
         }
@@ -585,22 +670,66 @@ mod tests {
         let gene_tree = FlatTree {
             nodes: vec![
                 // 0: root (speciation at root)
-                FlatNode { name: "root".into(), left_child: Some(1), right_child: Some(4), parent: None, depth: None, length: 0.0, bd_event: None },
+                FlatNode {
+                    name: "root".into(),
+                    left_child: Some(1),
+                    right_child: Some(4),
+                    parent: None,
+                    depth: None,
+                    length: 0.0,
+                    bd_event: None,
+                },
                 // 1: internal (duplication in A)
-                FlatNode { name: "dup_A".into(), left_child: Some(2), right_child: Some(3), parent: Some(0), depth: None, length: 0.5, bd_event: None },
+                FlatNode {
+                    name: "dup_A".into(),
+                    left_child: Some(2),
+                    right_child: Some(3),
+                    parent: Some(0),
+                    depth: None,
+                    length: 0.5,
+                    bd_event: None,
+                },
                 // 2: leaf a1
-                FlatNode { name: "A_1".into(), left_child: None, right_child: None, parent: Some(1), depth: None, length: 0.5, bd_event: None },
+                FlatNode {
+                    name: "A_1".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(1),
+                    depth: None,
+                    length: 0.5,
+                    bd_event: None,
+                },
                 // 3: leaf a2
-                FlatNode { name: "A_2".into(), left_child: None, right_child: None, parent: Some(1), depth: None, length: 0.5, bd_event: None },
+                FlatNode {
+                    name: "A_2".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(1),
+                    depth: None,
+                    length: 0.5,
+                    bd_event: None,
+                },
                 // 4: leaf b1
-                FlatNode { name: "B_1".into(), left_child: None, right_child: None, parent: Some(0), depth: None, length: 1.0, bd_event: None },
+                FlatNode {
+                    name: "B_1".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(0),
+                    depth: None,
+                    length: 1.0,
+                    bd_event: None,
+                },
             ],
             root: 0,
         };
         // species indices: root=0, A=1, B=2
         let node_mapping = vec![Some(0), Some(1), Some(1), Some(1), Some(2)];
         let event_mapping = vec![
-            Event::Speciation, Event::Duplication, Event::Leaf, Event::Leaf, Event::Leaf
+            Event::Speciation,
+            Event::Duplication,
+            Event::Leaf,
+            Event::Leaf,
+            Event::Leaf,
         ];
         RecTree::new(Arc::clone(species), gene_tree, node_mapping, event_mapping)
     }
@@ -631,7 +760,7 @@ mod tests {
 
         let result = compare_reconciliations(&truth, &inferred).unwrap();
         assert_eq!(result.mapping_accuracy(), 1.0); // mappings still correct
-        // 5 nodes total, all matched by clade. 4 correct events, 1 wrong.
+                                                    // 5 nodes total, all matched by clade. 4 correct events, 1 wrong.
         assert_eq!(result.correct_events, 4);
         assert_eq!(result.nodes_compared, 5);
     }
@@ -663,26 +792,95 @@ mod tests {
         let gene_tree = FlatTree {
             nodes: vec![
                 // 0: root (speciation)
-                FlatNode { name: "root".into(), left_child: Some(1), right_child: Some(4), parent: None, depth: None, length: 0.0, bd_event: None },
+                FlatNode {
+                    name: "root".into(),
+                    left_child: Some(1),
+                    right_child: Some(4),
+                    parent: None,
+                    depth: None,
+                    length: 0.0,
+                    bd_event: None,
+                },
                 // 1: duplication in A
-                FlatNode { name: "dup_A".into(), left_child: Some(2), right_child: Some(3), parent: Some(0), depth: None, length: 0.5, bd_event: None },
+                FlatNode {
+                    name: "dup_A".into(),
+                    left_child: Some(2),
+                    right_child: Some(3),
+                    parent: Some(0),
+                    depth: None,
+                    length: 0.5,
+                    bd_event: None,
+                },
                 // 2: A_1
-                FlatNode { name: "A_1".into(), left_child: None, right_child: None, parent: Some(1), depth: None, length: 0.5, bd_event: None },
+                FlatNode {
+                    name: "A_1".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(1),
+                    depth: None,
+                    length: 0.5,
+                    bd_event: None,
+                },
                 // 3: A_2
-                FlatNode { name: "A_2".into(), left_child: None, right_child: None, parent: Some(1), depth: None, length: 0.5, bd_event: None },
+                FlatNode {
+                    name: "A_2".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(1),
+                    depth: None,
+                    length: 0.5,
+                    bd_event: None,
+                },
                 // 4: SL node (speciation, one child survives, one is loss)
-                FlatNode { name: "sl_B".into(), left_child: Some(5), right_child: Some(6), parent: Some(0), depth: None, length: 0.8, bd_event: None },
+                FlatNode {
+                    name: "sl_B".into(),
+                    left_child: Some(5),
+                    right_child: Some(6),
+                    parent: Some(0),
+                    depth: None,
+                    length: 0.8,
+                    bd_event: None,
+                },
                 // 5: B_1
-                FlatNode { name: "B_1".into(), left_child: None, right_child: None, parent: Some(4), depth: None, length: 0.2, bd_event: None },
+                FlatNode {
+                    name: "B_1".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(4),
+                    depth: None,
+                    length: 0.2,
+                    bd_event: None,
+                },
                 // 6: loss
-                FlatNode { name: "loss_1".into(), left_child: None, right_child: None, parent: Some(4), depth: None, length: 0.2, bd_event: None },
+                FlatNode {
+                    name: "loss_1".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(4),
+                    depth: None,
+                    length: 0.2,
+                    bd_event: None,
+                },
             ],
             root: 0,
         };
-        let node_mapping = vec![Some(0), Some(1), Some(1), Some(1), Some(2), Some(2), Some(2)];
+        let node_mapping = vec![
+            Some(0),
+            Some(1),
+            Some(1),
+            Some(1),
+            Some(2),
+            Some(2),
+            Some(2),
+        ];
         let event_mapping = vec![
-            Event::Speciation, Event::Duplication, Event::Leaf, Event::Leaf,
-            Event::Speciation, Event::Leaf, Event::Loss,
+            Event::Speciation,
+            Event::Duplication,
+            Event::Leaf,
+            Event::Leaf,
+            Event::Speciation,
+            Event::Leaf,
+            Event::Loss,
         ];
         let inferred = RecTree::new(Arc::clone(&sp), gene_tree, node_mapping, event_mapping);
 
@@ -713,14 +911,39 @@ mod tests {
         // Inferred with different leaf set
         let gene_tree = FlatTree {
             nodes: vec![
-                FlatNode { name: "root".into(), left_child: Some(1), right_child: Some(2), parent: None, depth: None, length: 0.0, bd_event: None },
-                FlatNode { name: "A_1".into(), left_child: None, right_child: None, parent: Some(0), depth: None, length: 1.0, bd_event: None },
-                FlatNode { name: "C_1".into(), left_child: None, right_child: None, parent: Some(0), depth: None, length: 1.0, bd_event: None },
+                FlatNode {
+                    name: "root".into(),
+                    left_child: Some(1),
+                    right_child: Some(2),
+                    parent: None,
+                    depth: None,
+                    length: 0.0,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "A_1".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(0),
+                    depth: None,
+                    length: 1.0,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "C_1".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(0),
+                    depth: None,
+                    length: 1.0,
+                    bd_event: None,
+                },
             ],
             root: 0,
         };
         let inferred = RecTree::new(
-            Arc::clone(&sp), gene_tree,
+            Arc::clone(&sp),
+            gene_tree,
             vec![Some(0), Some(1), Some(2)],
             vec![Event::Speciation, Event::Leaf, Event::Leaf],
         );
@@ -787,12 +1010,13 @@ mod tests {
         let a2: BTreeSet<String> = ["A_2".to_string()].into();
         let b1: BTreeSet<String> = ["B_1".to_string()].into();
         let a1a2: BTreeSet<String> = ["A_1".to_string(), "A_2".to_string()].into();
-        let all: BTreeSet<String> = ["A_1".to_string(), "A_2".to_string(), "B_1".to_string()].into();
+        let all: BTreeSet<String> =
+            ["A_1".to_string(), "A_2".to_string(), "B_1".to_string()].into();
 
-        assert_eq!(clade_map[&a1], 2);   // leaf A_1
-        assert_eq!(clade_map[&a2], 3);   // leaf A_2
-        assert_eq!(clade_map[&b1], 4);   // leaf B_1
+        assert_eq!(clade_map[&a1], 2); // leaf A_1
+        assert_eq!(clade_map[&a2], 3); // leaf A_2
+        assert_eq!(clade_map[&b1], 4); // leaf B_1
         assert_eq!(clade_map[&a1a2], 1); // dup node
-        assert_eq!(clade_map[&all], 0);  // root
+        assert_eq!(clade_map[&all], 0); // root
     }
 }

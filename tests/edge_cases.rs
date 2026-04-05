@@ -1,6 +1,6 @@
 // Edge case tests for various tree operations (#78)
 
-use rustree::node::{FlatTree, FlatNode, TraversalOrder};
+use rustree::node::{FlatNode, FlatTree, TraversalOrder};
 use rustree::parse_newick;
 use rustree::sampling::{extract_induced_subtree, extract_induced_subtree_by_names};
 use std::collections::HashSet;
@@ -42,7 +42,9 @@ fn test_single_node_to_newick() {
         }],
         root: 0,
     };
-    let newick = tree.to_newick().expect("Single node should produce valid Newick");
+    let newick = tree
+        .to_newick()
+        .expect("Single node should produce valid Newick");
     assert_eq!(newick, "A:0.000000");
 }
 
@@ -138,7 +140,8 @@ fn test_parse_single_leaf_newick() {
 #[test]
 fn test_parse_deeply_nested_newick() {
     // 10-level deep caterpillar tree
-    let newick = "((((((((((A:1,B:1):1,C:2):1,D:3):1,E:4):1,F:5):1,G:6):1,H:7):1,I:8):1,J:9):1,K:10):0;";
+    let newick =
+        "((((((((((A:1,B:1):1,C:2):1,D:3):1,E:4):1,F:5):1,G:6):1,H:7):1,I:8):1,J:9):1,K:10):0;";
     let result = parse_newick(newick);
     assert!(result.is_ok());
     let nodes = result.unwrap();
@@ -166,8 +169,11 @@ fn test_parse_ternary_tree_rejected() {
     let result = parse_newick("(A:1,B:1,C:1):0;");
     assert!(result.is_err(), "Ternary node should be rejected");
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("Non-binary") || err.contains("3 children"),
-        "Error should mention non-binary: {}", err);
+    assert!(
+        err.contains("Non-binary") || err.contains("3 children"),
+        "Error should mention non-binary: {}",
+        err
+    );
 }
 
 // ============================================================================
@@ -204,5 +210,8 @@ fn test_assign_depths_twice_idempotent() {
     tree.assign_depths();
     let depths_second: Vec<_> = tree.nodes.iter().map(|n| n.depth).collect();
 
-    assert_eq!(depths_first, depths_second, "assign_depths should be idempotent");
+    assert_eq!(
+        depths_first, depths_second,
+        "assign_depths should be idempotent"
+    );
 }

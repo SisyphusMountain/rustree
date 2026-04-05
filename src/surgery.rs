@@ -1,11 +1,7 @@
 use crate::node::FlatTree;
 
 /// Validates ancestry relationship. Returns true if ancestor_idx is an ancestor of descendant_idx.
-pub fn is_ancestor(
-    flat_tree: &FlatTree,
-    potential_ancestor_idx: usize,
-    node_idx: usize,
-) -> bool {
+pub fn is_ancestor(flat_tree: &FlatTree, potential_ancestor_idx: usize, node_idx: usize) -> bool {
     // Check if indices are valid first
     if potential_ancestor_idx >= flat_tree.nodes.len() || node_idx >= flat_tree.nodes.len() {
         return false; // Or consider returning an error/panic depending on desired strictness
@@ -49,14 +45,12 @@ pub fn is_ancestor(
 /// Uses `Result` for errors like missing sibling (violates binary assumption).
 fn detach(flat_tree: &mut FlatTree, node_to_detach_idx: usize) -> Result<usize, String> {
     // 1. Get parent P. Error if non-root node has no parent (consistency issue).
-    let parent_idx = flat_tree[node_to_detach_idx]
-        .parent
-        .ok_or_else(|| {
-            format!(
-                "detach consistency error: Non-root node {} has no parent.",
-                node_to_detach_idx
-            )
-        })?;
+    let parent_idx = flat_tree[node_to_detach_idx].parent.ok_or_else(|| {
+        format!(
+            "detach consistency error: Non-root node {} has no parent.",
+            node_to_detach_idx
+        )
+    })?;
 
     // 2. Get sibling S and identify if N was left/right child. Error if no sibling.
     let (sibling_idx, n_was_left) = {
@@ -150,13 +144,10 @@ fn attach(
 ) -> Result<(), String> {
     // 1. Validate P's state (detached, one child N) and find N.
     let original_donor_n_idx = {
-        let p_node = flat_tree
-            .nodes
-            .get(detached_root_idx)
-            .ok_or(format!(
-                "Detached root index {} out of bounds.",
-                detached_root_idx
-            ))?; // Use get for bounds check
+        let p_node = flat_tree.nodes.get(detached_root_idx).ok_or(format!(
+            "Detached root index {} out of bounds.",
+            detached_root_idx
+        ))?; // Use get for bounds check
 
         if p_node.parent.is_some() {
             return Err(format!(
@@ -166,8 +157,8 @@ fn attach(
         }
 
         match (p_node.left_child, p_node.right_child) {
-            (Some(n_idx), None) => n_idx,     // N is left child
-            (None, Some(n_idx)) => n_idx,     // N is right child
+            (Some(n_idx), None) => n_idx, // N is left child
+            (None, Some(n_idx)) => n_idx, // N is right child
             (None, None) => {
                 return Err(format!(
                     "Attach error: Detached node P ({}) has no children.",
@@ -187,7 +178,10 @@ fn attach(
     let recipient_parent_idx_opt = flat_tree
         .nodes
         .get(target_node_idx)
-        .ok_or(format!("Target node index {} out of bounds.", target_node_idx))?
+        .ok_or(format!(
+            "Target node index {} out of bounds.",
+            target_node_idx
+        ))?
         .parent; // Get R's parent Option
 
     // 3. Link RP to P (or set P as new root).

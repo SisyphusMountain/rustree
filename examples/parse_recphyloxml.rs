@@ -1,5 +1,5 @@
 // Example: Parse a RecPhyloXML file (e.g., from ALERax)
-use rustree::{RecTree, Event};
+use rustree::{Event, RecTree};
 use std::env;
 
 fn main() {
@@ -22,10 +22,16 @@ fn main() {
             // Display species tree info
             println!("\n=== Species Tree ===");
             println!("  Nodes: {}", rec_tree.species_tree.nodes.len());
-            println!("  Root: {}", rec_tree.species_tree.nodes[rec_tree.species_tree.root].name);
+            println!(
+                "  Root: {}",
+                rec_tree.species_tree.nodes[rec_tree.species_tree.root].name
+            );
 
             // Count leaves in species tree
-            let species_leaves: Vec<_> = rec_tree.species_tree.nodes.iter()
+            let species_leaves: Vec<_> = rec_tree
+                .species_tree
+                .nodes
+                .iter()
                 .filter(|n| n.left_child.is_none() && n.right_child.is_none())
                 .collect();
             println!("  Leaves: {}", species_leaves.len());
@@ -33,14 +39,37 @@ fn main() {
             // Display gene tree info
             println!("\n=== Gene Tree ===");
             println!("  Nodes: {}", rec_tree.gene_tree.nodes.len());
-            println!("  Root: {}", rec_tree.gene_tree.nodes[rec_tree.gene_tree.root].name);
+            println!(
+                "  Root: {}",
+                rec_tree.gene_tree.nodes[rec_tree.gene_tree.root].name
+            );
 
             // Count events
-            let speciation_count = rec_tree.event_mapping.iter().filter(|e| **e == Event::Speciation).count();
-            let duplication_count = rec_tree.event_mapping.iter().filter(|e| **e == Event::Duplication).count();
-            let transfer_count = rec_tree.event_mapping.iter().filter(|e| **e == Event::Transfer).count();
-            let loss_count = rec_tree.event_mapping.iter().filter(|e| **e == Event::Loss).count();
-            let leaf_count = rec_tree.event_mapping.iter().filter(|e| **e == Event::Leaf).count();
+            let speciation_count = rec_tree
+                .event_mapping
+                .iter()
+                .filter(|e| **e == Event::Speciation)
+                .count();
+            let duplication_count = rec_tree
+                .event_mapping
+                .iter()
+                .filter(|e| **e == Event::Duplication)
+                .count();
+            let transfer_count = rec_tree
+                .event_mapping
+                .iter()
+                .filter(|e| **e == Event::Transfer)
+                .count();
+            let loss_count = rec_tree
+                .event_mapping
+                .iter()
+                .filter(|e| **e == Event::Loss)
+                .count();
+            let leaf_count = rec_tree
+                .event_mapping
+                .iter()
+                .filter(|e| **e == Event::Leaf)
+                .count();
 
             println!("\n=== Event Counts ===");
             println!("  Speciation: {}", speciation_count);
@@ -52,7 +81,10 @@ fn main() {
 
             // Display some leaf genes
             println!("\n=== Sample Gene Tree Leaves ===");
-            let leaf_nodes: Vec<_> = rec_tree.gene_tree.nodes.iter()
+            let leaf_nodes: Vec<_> = rec_tree
+                .gene_tree
+                .nodes
+                .iter()
                 .enumerate()
                 .filter(|(idx, _)| rec_tree.event_mapping[*idx] == Event::Leaf)
                 .take(10)

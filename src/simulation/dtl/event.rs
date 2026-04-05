@@ -53,7 +53,13 @@ impl DTLEvent {
     /// * `gene_tree` - The gene tree to resolve gene node names
     pub fn to_csv_row(&self, species_tree: &FlatTree, gene_tree: &FlatTree) -> String {
         match self {
-            DTLEvent::Speciation { time, gene_id, species_id, left_child, right_child } => {
+            DTLEvent::Speciation {
+                time,
+                gene_id,
+                species_id,
+                left_child,
+                right_child,
+            } => {
                 format!(
                     "{},{},Speciation,{},,,{},{}",
                     time,
@@ -63,7 +69,13 @@ impl DTLEvent {
                     gene_tree.nodes[*right_child].name
                 )
             }
-            DTLEvent::Duplication { time, gene_id, species_id, child1, child2 } => {
+            DTLEvent::Duplication {
+                time,
+                gene_id,
+                species_id,
+                child1,
+                child2,
+            } => {
                 format!(
                     "{},{},Duplication,{},,,{},{}",
                     time,
@@ -73,7 +85,15 @@ impl DTLEvent {
                     gene_tree.nodes[*child2].name
                 )
             }
-            DTLEvent::Transfer { time, gene_id, species_id, from_species, to_species, donor_child, recipient_child } => {
+            DTLEvent::Transfer {
+                time,
+                gene_id,
+                species_id,
+                from_species,
+                to_species,
+                donor_child,
+                recipient_child,
+            } => {
                 format!(
                     "{},{},Transfer,{},{},{},{},{}",
                     time,
@@ -85,20 +105,24 @@ impl DTLEvent {
                     gene_tree.nodes[*recipient_child].name
                 )
             }
-            DTLEvent::Loss { time, gene_id, species_id } => {
+            DTLEvent::Loss {
+                time,
+                gene_id,
+                species_id,
+            } => {
                 format!(
                     "{},{},Loss,{},,,,",
-                    time,
-                    gene_tree.nodes[*gene_id].name,
-                    species_tree.nodes[*species_id].name
+                    time, gene_tree.nodes[*gene_id].name, species_tree.nodes[*species_id].name
                 )
             }
-            DTLEvent::Leaf { time, gene_id, species_id } => {
+            DTLEvent::Leaf {
+                time,
+                gene_id,
+                species_id,
+            } => {
                 format!(
                     "{},{},Leaf,{},,,,",
-                    time,
-                    gene_tree.nodes[*gene_id].name,
-                    species_tree.nodes[*species_id].name
+                    time, gene_tree.nodes[*gene_id].name, species_tree.nodes[*species_id].name
                 )
             }
         }

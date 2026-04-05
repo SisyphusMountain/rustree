@@ -1,8 +1,8 @@
-use std::time::Instant;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rustree::bd::simulate_bd_tree_bwd;
-use rustree::dtl::{simulate_dtl_batch, simulate_dtl_per_species_batch, count_events};
+use rustree::dtl::{count_events, simulate_dtl_batch, simulate_dtl_per_species_batch};
+use std::time::Instant;
 
 fn fmt_num(n: usize) -> String {
     let s = n.to_string();
@@ -28,13 +28,18 @@ fn main() {
     let lambda_t = 0.2;
     let lambda_l = 0.3;
 
-    println!("DTL rates: λ_d={}, λ_t={}, λ_l={}", lambda_d, lambda_t, lambda_l);
+    println!(
+        "DTL rates: λ_d={}, λ_t={}, λ_l={}",
+        lambda_d, lambda_t, lambda_l
+    );
     println!("Gene trees per species tree: {}", fmt_num(n_gene_trees));
     println!();
 
     // Header
-    println!("{:>8} | {:>12} {:>12} | {:>12} {:>12} | {:>8}",
-        "Species", "Per-Gene", "trees/sec", "Per-Species", "trees/sec", "Speedup");
+    println!(
+        "{:>8} | {:>12} {:>12} | {:>12} {:>12} | {:>8}",
+        "Species", "Per-Gene", "trees/sec", "Per-Species", "trees/sec", "Speedup"
+    );
     println!("{}", "-".repeat(80));
 
     for &n_species in &species_sizes {
@@ -57,7 +62,8 @@ fn main() {
             n_gene_trees,
             false,
             &mut rng1,
-        ).unwrap();
+        )
+        .unwrap();
         let per_gene_time = start.elapsed().as_secs_f64();
         let per_gene_rate = n_gene_trees as f64 / per_gene_time;
 
@@ -75,17 +81,17 @@ fn main() {
             n_gene_trees,
             false,
             &mut rng2,
-        ).unwrap();
+        )
+        .unwrap();
         let per_species_time = start.elapsed().as_secs_f64();
         let per_species_rate = n_gene_trees as f64 / per_species_time;
 
         let speedup = per_gene_time / per_species_time;
 
-        println!("{:>8} | {:>10.3}s {:>10.0}/s | {:>10.3}s {:>10.0}/s | {:>7.2}x",
-            n_species,
-            per_gene_time, per_gene_rate,
-            per_species_time, per_species_rate,
-            speedup);
+        println!(
+            "{:>8} | {:>10.3}s {:>10.0}/s | {:>10.3}s {:>10.0}/s | {:>7.2}x",
+            n_species, per_gene_time, per_gene_rate, per_species_time, per_species_rate, speedup
+        );
 
         // Count events for comparison
         let mut pg_events = (0usize, 0usize, 0usize, 0usize); // S, D, T, L
@@ -106,9 +112,15 @@ fn main() {
             ps_events.3 += l;
         }
 
-        println!("         | D:{:>6} T:{:>6} L:{:>6} | D:{:>6} T:{:>6} L:{:>6} |",
-            fmt_num(pg_events.1), fmt_num(pg_events.2), fmt_num(pg_events.3),
-            fmt_num(ps_events.1), fmt_num(ps_events.2), fmt_num(ps_events.3));
+        println!(
+            "         | D:{:>6} T:{:>6} L:{:>6} | D:{:>6} T:{:>6} L:{:>6} |",
+            fmt_num(pg_events.1),
+            fmt_num(pg_events.2),
+            fmt_num(pg_events.3),
+            fmt_num(ps_events.1),
+            fmt_num(ps_events.2),
+            fmt_num(ps_events.3)
+        );
     }
 
     println!();
@@ -128,8 +140,10 @@ fn main() {
 
     let batch_sizes = [100, 1_000, 10_000];
 
-    println!("{:>10} | {:>12} {:>12} | {:>12} {:>12}",
-        "Batch", "Per-Gene", "trees/sec", "Per-Species", "trees/sec");
+    println!(
+        "{:>10} | {:>12} {:>12} | {:>12} {:>12}",
+        "Batch", "Per-Gene", "trees/sec", "Per-Species", "trees/sec"
+    );
     println!("{}", "-".repeat(65));
 
     for &batch_size in &batch_sizes {
@@ -137,10 +151,18 @@ fn main() {
         let mut rng1 = StdRng::seed_from_u64(123);
         let start = Instant::now();
         let _ = simulate_dtl_batch(
-            &species_tree, species_tree.root,
-            lambda_d, lambda_t, lambda_l, None,
-            None, batch_size, false, &mut rng1,
-        ).unwrap();
+            &species_tree,
+            species_tree.root,
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            None,
+            None,
+            batch_size,
+            false,
+            &mut rng1,
+        )
+        .unwrap();
         let pg_time = start.elapsed().as_secs_f64();
         let pg_rate = batch_size as f64 / pg_time;
 
@@ -148,16 +170,28 @@ fn main() {
         let mut rng2 = StdRng::seed_from_u64(123);
         let start = Instant::now();
         let _ = simulate_dtl_per_species_batch(
-            &species_tree, species_tree.root,
-            lambda_d, lambda_t, lambda_l, None,
-            None, batch_size, false, &mut rng2,
-        ).unwrap();
+            &species_tree,
+            species_tree.root,
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            None,
+            None,
+            batch_size,
+            false,
+            &mut rng2,
+        )
+        .unwrap();
         let ps_time = start.elapsed().as_secs_f64();
         let ps_rate = batch_size as f64 / ps_time;
 
-        println!("{:>10} | {:>10.3}s {:>10.0}/s | {:>10.3}s {:>10.0}/s",
+        println!(
+            "{:>10} | {:>10.3}s {:>10.0}/s | {:>10.3}s {:>10.0}/s",
             fmt_num(batch_size),
-            pg_time, pg_rate,
-            ps_time, ps_rate);
+            pg_time,
+            pg_rate,
+            ps_time,
+            ps_rate
+        );
     }
 }

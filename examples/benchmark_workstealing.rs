@@ -1,16 +1,18 @@
 // Benchmark: Multi-core with dynamic work distribution (work stealing)
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use rustree::bd::simulate_bd_tree_bwd;
 use rustree::dtl::simulate_dtl;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
-use std::time::Instant;
-use std::thread;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Instant;
 
 fn main() {
     println!("=== Multi-Core with Dynamic Work Distribution ===\n");
 
-    let num_cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let num_cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
     println!("Available CPUs: {}\n", num_cpus);
 
     // Generate species tree
@@ -23,7 +25,11 @@ fn main() {
     let n_trees = 1000;
 
     for num_threads in [1, 2, 4, 8, 16, num_cpus].iter() {
-        println!("=== Testing with {} thread{} ===", num_threads, if *num_threads > 1 { "s" } else { "" });
+        println!(
+            "=== Testing with {} thread{} ===",
+            num_threads,
+            if *num_threads > 1 { "s" } else { "" }
+        );
 
         let species_tree_arc = Arc::new(species_tree.clone());
 
@@ -46,12 +52,15 @@ fn main() {
                     let (rec_tree, tree_events) = simulate_dtl(
                         &species_tree_clone,
                         species_tree_clone.root,
-                        0.2, 0.2, 0.1,
+                        0.2,
+                        0.2,
+                        0.1,
                         None,
                         None,
                         false,
                         &mut rng_thread,
-                    ).unwrap();
+                    )
+                    .unwrap();
                     nodes += rec_tree.gene_tree.nodes.len();
                     events += tree_events.len();
                 }
@@ -68,7 +77,10 @@ fn main() {
 
         let static_time = start.elapsed().as_secs_f64();
         println!("  Time: {:.3}s", static_time);
-        println!("  Throughput: {:.1} trees/second", n_trees as f64 / static_time);
+        println!(
+            "  Throughput: {:.1} trees/second",
+            n_trees as f64 / static_time
+        );
 
         // Method 2: Dynamic work distribution
         println!("\nMethod 2: Dynamic work distribution");
@@ -105,12 +117,15 @@ fn main() {
                     let (rec_tree, tree_events) = simulate_dtl(
                         &species_tree_clone,
                         species_tree_clone.root,
-                        0.2, 0.2, 0.1,
+                        0.2,
+                        0.2,
+                        0.1,
                         None,
                         None,
                         false,
                         &mut rng_thread,
-                    ).unwrap();
+                    )
+                    .unwrap();
                     nodes += rec_tree.gene_tree.nodes.len();
                     events += tree_events.len();
                     trees_done += 1;
@@ -131,19 +146,32 @@ fn main() {
 
         let dynamic_time = start.elapsed().as_secs_f64();
         println!("  Time: {:.3}s", dynamic_time);
-        println!("  Throughput: {:.1} trees/second", n_trees as f64 / dynamic_time);
+        println!(
+            "  Throughput: {:.1} trees/second",
+            n_trees as f64 / dynamic_time
+        );
 
         // Show work distribution
         let min_count = *per_thread_counts.iter().min().unwrap();
         let max_count = *per_thread_counts.iter().max().unwrap();
-        let avg_count = per_thread_counts.iter().sum::<usize>() as f64 / per_thread_counts.len() as f64;
-        println!("  Work distribution: min={}, max={}, avg={:.1}", min_count, max_count, avg_count);
-        println!("  Balance: {:.1}% (max/avg - 1)", 100.0 * (max_count as f64 / avg_count - 1.0));
+        let avg_count =
+            per_thread_counts.iter().sum::<usize>() as f64 / per_thread_counts.len() as f64;
+        println!(
+            "  Work distribution: min={}, max={}, avg={:.1}",
+            min_count, max_count, avg_count
+        );
+        println!(
+            "  Balance: {:.1}% (max/avg - 1)",
+            100.0 * (max_count as f64 / avg_count - 1.0)
+        );
 
         // Comparison
         let improvement = static_time / dynamic_time;
-        println!("\nImprovement: {:.2}x faster ({:.1}% speedup)\n",
-                 improvement, 100.0 * (improvement - 1.0));
+        println!(
+            "\nImprovement: {:.2}x faster ({:.1}% speedup)\n",
+            improvement,
+            100.0 * (improvement - 1.0)
+        );
 
         println!("{}\n", "=".repeat(70));
     }

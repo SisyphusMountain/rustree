@@ -3,25 +3,24 @@
 //! Contains CollatedTask struct, gcn_norm_internal, compute_varlen_metadata,
 //! collate_task_tensors, and the build_otf_batch / compute_gcn_norm / build_inference_batch pyfunctions.
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::node::{Event, RecTree, remap_gene_tree_indices};
-use crate::sampling::extract_induced_subtree;
 use crate::bd::simulate_bd_tree_bwd;
-use crate::sampling::extract_extant_subtree;
 use crate::dtl::simulate_dtl_per_species;
+use crate::node::{remap_gene_tree_indices, Event, RecTree};
+use crate::sampling::extract_extant_subtree;
+use crate::sampling::extract_induced_subtree;
 
 use crate::python::validate_dtl_rates;
 
-use super::extraction::{RustBaseSample, extract_base_sample_internal, parse_base_sample_dict};
-use super::tensors::{TaskTensors, build_task_tensors_internal};
-
+use super::extraction::{extract_base_sample_internal, parse_base_sample_dict, RustBaseSample};
+use super::tensors::{build_task_tensors_internal, TaskTensors};
 
 /// GCN normalization: add self-loops, compute D^{-1/2} A D^{-1/2} edge weights.
 ///
@@ -29,7 +28,11 @@ use super::tensors::{TaskTensors, build_task_tensors_internal};
 /// add_self_loops=True, flow="source_to_target")`.
 ///
 /// Returns (new_src, new_dst, edge_weights) with self-loops included.
-pub(super) fn gcn_norm_internal(src: &[i32], dst: &[i32], num_nodes: usize) -> (Vec<i32>, Vec<i32>, Vec<f32>) {
+pub(super) fn gcn_norm_internal(
+    src: &[i32],
+    dst: &[i32],
+    num_nodes: usize,
+) -> (Vec<i32>, Vec<i32>, Vec<f32>) {
     let n_orig = src.len();
     let n_total = n_orig + num_nodes; // original edges + self-loops
 
@@ -49,12 +52,21 @@ pub(super) fn gcn_norm_internal(src: &[i32], dst: &[i32], num_nodes: usize) -> (
     }
 
     // D^{-1/2}
-    let inv_sqrt: Vec<f32> = deg.iter().map(|&d| {
-        if d == 0 { 0.0f32 } else { (d as f32).powf(-0.5) }
-    }).collect();
+    let inv_sqrt: Vec<f32> = deg
+        .iter()
+        .map(|&d| {
+            if d == 0 {
+                0.0f32
+            } else {
+                (d as f32).powf(-0.5)
+            }
+        })
+        .collect();
 
     // Edge weights: inv_sqrt[src] * inv_sqrt[dst]
-    let weights: Vec<f32> = new_src.iter().zip(new_dst.iter())
+    let weights: Vec<f32> = new_src
+        .iter()
+        .zip(new_dst.iter())
         .map(|(&s, &d)| inv_sqrt[s as usize] * inv_sqrt[d as usize])
         .collect();
 
@@ -71,7 +83,9 @@ fn compute_varlen_metadata(sizes: &[i32]) -> (Vec<i32>, i32) {
     for &s in sizes {
         cumsum += s;
         cu.push(cumsum);
-        if s > max_val { max_val = s; }
+        if s > max_val {
+            max_val = s;
+        }
     }
     (cu, max_val)
 }
@@ -137,14 +151,24 @@ fn collate_task_tensors(tensors: &[TaskTensors]) -> CollatedTask {
         is_leaf.extend_from_slice(&t.is_leaf);
         mask_label_node.extend_from_slice(&t.mask_label_node);
 
-        for &s in &t.g_edge_src { g_edge_src_raw.push(s + cum_g); }
-        for &d in &t.g_edge_dst { g_edge_dst_raw.push(d + cum_g); }
-        for &s in &t.g_dir_src { g_dir_src.push(s + cum_g); }
-        for &d in &t.g_dir_dst { g_dir_dst.push(d + cum_g); }
+        for &s in &t.g_edge_src {
+            g_edge_src_raw.push(s + cum_g);
+        }
+        for &d in &t.g_edge_dst {
+            g_edge_dst_raw.push(d + cum_g);
+        }
+        for &s in &t.g_dir_src {
+            g_dir_src.push(s + cum_g);
+        }
+        for &d in &t.g_dir_dst {
+            g_dir_dst.push(d + cum_g);
+        }
 
         true_root_index.push(t.root_edge_target);
         g_sizes.push(ng);
-        for _ in 0..ng { g_batch.push(s_idx as i32); }
+        for _ in 0..ng {
+            g_batch.push(s_idx as i32);
+        }
         cum_g += ng;
         g_ptr.push(cum_g);
         cum_re += ndir;
@@ -160,12 +184,25 @@ fn collate_task_tensors(tensors: &[TaskTensors]) -> CollatedTask {
     let (cu_g, max_g) = compute_varlen_metadata(&g_sizes);
 
     CollatedTask {
-        gene_x, gene_y, event, event_true,
-        frontier_mask, is_leaf, mask_label_node,
-        gene_ei_src, gene_ei_dst, gene_ew,
-        g_dir_src, g_dir_dst,
-        true_root_index, g_sizes, g_ptr, g_batch, root_edges_ptr,
-        cu_g, max_g,
+        gene_x,
+        gene_y,
+        event,
+        event_true,
+        frontier_mask,
+        is_leaf,
+        mask_label_node,
+        gene_ei_src,
+        gene_ei_dst,
+        gene_ew,
+        g_dir_src,
+        g_dir_dst,
+        true_root_index,
+        g_sizes,
+        g_ptr,
+        g_batch,
+        root_edges_ptr,
+        cu_g,
+        max_g,
     }
 }
 
@@ -216,26 +253,38 @@ pub fn build_otf_batch(
     max_gene_nodes: usize,
     max_retries: usize,
 ) -> PyResult<PyObject> {
+    use crate::node::TraversalOrder;
     use numpy::PyArray1;
     use pyo3::types::PyDict;
-    use crate::node::TraversalOrder;
 
     // Validate
     if gt_seeds.len() != n_gene_trees {
         return Err(PyValueError::new_err(format!(
-            "gt_seeds length {} != n_gene_trees {}", gt_seeds.len(), n_gene_trees)));
+            "gt_seeds length {} != n_gene_trees {}",
+            gt_seeds.len(),
+            n_gene_trees
+        )));
     }
     if map_coloring_seeds.len() != n_gene_trees {
         return Err(PyValueError::new_err(format!(
-            "map_coloring_seeds length {} != n_gene_trees {}", map_coloring_seeds.len(), n_gene_trees)));
+            "map_coloring_seeds length {} != n_gene_trees {}",
+            map_coloring_seeds.len(),
+            n_gene_trees
+        )));
     }
     if enable_event && evt_coloring_seeds.len() != n_gene_trees {
         return Err(PyValueError::new_err(format!(
-            "evt_coloring_seeds length {} != n_gene_trees {}", evt_coloring_seeds.len(), n_gene_trees)));
+            "evt_coloring_seeds length {} != n_gene_trees {}",
+            evt_coloring_seeds.len(),
+            n_gene_trees
+        )));
     }
     if enable_root && root_coloring_seeds.len() != n_gene_trees {
         return Err(PyValueError::new_err(format!(
-            "root_coloring_seeds length {} != n_gene_trees {}", root_coloring_seeds.len(), n_gene_trees)));
+            "root_coloring_seeds length {} != n_gene_trees {}",
+            root_coloring_seeds.len(),
+            n_gene_trees
+        )));
     }
     validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
 
@@ -252,8 +301,9 @@ pub fn build_otf_batch(
         let (mut sp_tree_raw, _) = simulate_bd_tree_bwd(n_sp, lambda_birth, mu_death, &mut sp_rng)?;
         sp_tree_raw.assign_depths();
         let sp_tree_raw_arc = Arc::new(sp_tree_raw);
-        let (extant_sp, _) = extract_extant_subtree(&sp_tree_raw_arc)
-            .ok_or_else(|| "build_otf_batch: failed to extract extant species subtree".to_string())?;
+        let (extant_sp, _) = extract_extant_subtree(&sp_tree_raw_arc).ok_or_else(|| {
+            "build_otf_batch: failed to extract extant species subtree".to_string()
+        })?;
         let extant_sp_arc = Arc::new(extant_sp);
         let n_sp_nodes = extant_sp_arc.nodes.len();
 
@@ -261,16 +311,22 @@ pub fn build_otf_batch(
         //    Parallelised with rayon: each slot is independent (own seed, own RNG).
         let species_identity: Vec<Option<usize>> = (0..n_sp_nodes).map(Some).collect();
 
-        let valid_gene_trees: Vec<RecTree> = (0..n_gene_trees).into_par_iter()
+        let valid_gene_trees: Vec<RecTree> = (0..n_gene_trees)
+            .into_par_iter()
             .map(|i| {
                 for attempt in 0..=(max_retries as u64) {
                     let gt_seed = gt_seeds[i].wrapping_add(attempt);
                     let mut gt_rng = StdRng::seed_from_u64(gt_seed);
 
                     let (mut rec_tree, events) = match simulate_dtl_per_species(
-                        &extant_sp_arc, extant_sp_arc.root,
-                        lambda_d, lambda_t, lambda_l,
-                        None, None, false,
+                        &extant_sp_arc,
+                        extant_sp_arc.root,
+                        lambda_d,
+                        lambda_t,
+                        lambda_l,
+                        None,
+                        None,
+                        false,
                         &mut gt_rng,
                     ) {
                         Ok(r) => r,
@@ -280,30 +336,41 @@ pub fn build_otf_batch(
                     rec_tree.dtl_events = Some(events);
 
                     // Extract extant gene leaves
-                    let extant_gene_indices: std::collections::HashSet<usize> = rec_tree.gene_tree.nodes
-                        .iter().enumerate()
+                    let extant_gene_indices: std::collections::HashSet<usize> = rec_tree
+                        .gene_tree
+                        .nodes
+                        .iter()
+                        .enumerate()
                         .filter(|(idx, n)| {
-                            n.left_child.is_none() && n.right_child.is_none()
+                            n.left_child.is_none()
+                                && n.right_child.is_none()
                                 && rec_tree.event_mapping[*idx] == Event::Leaf
                         })
                         .map(|(idx, _)| idx)
                         .collect();
 
-                    if extant_gene_indices.is_empty() { continue; }
-                    if extant_gene_indices.len() < min_gene_leaves { continue; }
+                    if extant_gene_indices.is_empty() {
+                        continue;
+                    }
+                    if extant_gene_indices.len() < min_gene_leaves {
+                        continue;
+                    }
 
-                    let (extant_gene_tree, gene_old_to_new) = match extract_induced_subtree(
-                        &rec_tree.gene_tree, &extant_gene_indices,
-                    ) {
-                        Some(r) => r,
-                        None => continue,
-                    };
+                    let (extant_gene_tree, gene_old_to_new) =
+                        match extract_induced_subtree(&rec_tree.gene_tree, &extant_gene_indices) {
+                            Some(r) => r,
+                            None => continue,
+                        };
 
-                    if max_gene_nodes > 0 && extant_gene_tree.nodes.len() > max_gene_nodes { continue; }
+                    if max_gene_nodes > 0 && extant_gene_tree.nodes.len() > max_gene_nodes {
+                        continue;
+                    }
 
                     let (new_node_mapping, new_event_mapping) = match remap_gene_tree_indices(
-                        &extant_gene_tree, &gene_old_to_new,
-                        &rec_tree.node_mapping, &rec_tree.event_mapping,
+                        &extant_gene_tree,
+                        &gene_old_to_new,
+                        &rec_tree.node_mapping,
+                        &rec_tree.event_mapping,
                         &species_identity,
                     ) {
                         Ok(r) => r,
@@ -318,14 +385,20 @@ pub fn build_otf_batch(
                     ));
                 }
                 Err(format!(
-                    "build_otf_batch: gene tree slot {} failed after {} retries", i, max_retries))
+                    "build_otf_batch: gene tree slot {} failed after {} retries",
+                    i, max_retries
+                ))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
         // 3. Species tree tensors (computed once, replicated B times during collation)
-        let sp_preorder: Vec<usize> = extant_sp_arc.iter_indices(TraversalOrder::PreOrder).collect();
-        let species_names: Vec<String> = sp_preorder.iter()
-            .map(|&i| extant_sp_arc.nodes[i].name.clone()).collect();
+        let sp_preorder: Vec<usize> = extant_sp_arc
+            .iter_indices(TraversalOrder::PreOrder)
+            .collect();
+        let species_names: Vec<String> = sp_preorder
+            .iter()
+            .map(|&i| extant_sp_arc.nodes[i].name.clone())
+            .collect();
 
         let mut sp_name_to_id: HashMap<String, i32> = HashMap::new();
         let mut sp_name_to_idx_map: HashMap<String, usize> = HashMap::new();
@@ -334,8 +407,10 @@ pub fn build_otf_batch(
             sp_name_to_idx_map.insert(name.clone(), i);
         }
 
-        let x_sp_single: Vec<i32> = species_names.iter()
-            .map(|name| sp_name_to_id[name]).collect();
+        let x_sp_single: Vec<i32> = species_names
+            .iter()
+            .map(|name| sp_name_to_id[name])
+            .collect();
 
         let mut sp_child_src_s: Vec<i32> = Vec::new();
         let mut sp_child_dst_s: Vec<i32> = Vec::new();
@@ -346,18 +421,23 @@ pub fn build_otf_batch(
             let pi = sp_name_to_idx_map[&node.name] as i32;
             for child in [node.left_child, node.right_child].into_iter().flatten() {
                 let ci = sp_name_to_idx_map[&extant_sp_arc.nodes[child].name] as i32;
-                sp_child_src_s.push(pi); sp_child_dst_s.push(ci);
-                sp_parent_src_s.push(ci); sp_parent_dst_s.push(pi);
+                sp_child_src_s.push(pi);
+                sp_child_dst_s.push(ci);
+                sp_parent_src_s.push(ci);
+                sp_parent_dst_s.push(pi);
             }
         }
 
         // 4. Extract base samples from gene trees (parallel)
-        let base_samples: Vec<RustBaseSample> = valid_gene_trees.par_iter()
+        let base_samples: Vec<RustBaseSample> = valid_gene_trees
+            .par_iter()
             .map(extract_base_sample_internal)
             .collect::<Result<Vec<_>, _>>()?;
 
         // 5. Build task tensors (parallel -- each sample has its own seed/RNG)
-        let map_tensors: Vec<TaskTensors> = base_samples.par_iter().enumerate()
+        let map_tensors: Vec<TaskTensors> = base_samples
+            .par_iter()
+            .enumerate()
             .map(|(i, s)| {
                 let mut rng = StdRng::seed_from_u64(map_coloring_seeds[i]);
                 build_task_tensors_internal(s, &sp_name_to_id, &mut rng, false, false, sample_order)
@@ -365,22 +445,44 @@ pub fn build_otf_batch(
             .collect::<Result<Vec<_>, _>>()?;
 
         let evt_tensors: Vec<TaskTensors> = if enable_event {
-            base_samples.par_iter().enumerate()
+            base_samples
+                .par_iter()
+                .enumerate()
                 .map(|(i, s)| {
                     let mut rng = StdRng::seed_from_u64(evt_coloring_seeds[i]);
-                    build_task_tensors_internal(s, &sp_name_to_id, &mut rng, true, false, sample_order)
+                    build_task_tensors_internal(
+                        s,
+                        &sp_name_to_id,
+                        &mut rng,
+                        true,
+                        false,
+                        sample_order,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?
-        } else { Vec::new() };
+        } else {
+            Vec::new()
+        };
 
         let root_tensors: Vec<TaskTensors> = if enable_root {
-            base_samples.par_iter().enumerate()
+            base_samples
+                .par_iter()
+                .enumerate()
                 .map(|(i, s)| {
                     let mut rng = StdRng::seed_from_u64(root_coloring_seeds[i]);
-                    build_task_tensors_internal(s, &sp_name_to_id, &mut rng, false, true, sample_order)
+                    build_task_tensors_internal(
+                        s,
+                        &sp_name_to_id,
+                        &mut rng,
+                        false,
+                        true,
+                        sample_order,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?
-        } else { Vec::new() };
+        } else {
+            Vec::new()
+        };
 
         // 6. Compute species GCN norm once on single-tree edges, then replicate B times
         let (sp_child_norm_src_s, sp_child_norm_dst_s, sp_child_ew_s) =
@@ -407,14 +509,18 @@ pub fn build_otf_batch(
             let offset = (s_idx * n_sp_nodes) as i32;
             sp_x.extend_from_slice(&x_sp_single);
             for (&s, &d) in sp_child_norm_src_s.iter().zip(sp_child_norm_dst_s.iter()) {
-                sp_child_src.push(s + offset); sp_child_dst.push(d + offset);
+                sp_child_src.push(s + offset);
+                sp_child_dst.push(d + offset);
             }
             sp_child_ew.extend_from_slice(&sp_child_ew_s);
             for (&s, &d) in sp_parent_norm_src_s.iter().zip(sp_parent_norm_dst_s.iter()) {
-                sp_parent_src.push(s + offset); sp_parent_dst.push(d + offset);
+                sp_parent_src.push(s + offset);
+                sp_parent_dst.push(d + offset);
             }
             sp_parent_ew.extend_from_slice(&sp_parent_ew_s);
-            for _ in 0..n_sp_nodes { sp_batch.push(s_idx as i32); }
+            for _ in 0..n_sp_nodes {
+                sp_batch.push(s_idx as i32);
+            }
             sp_sizes.push(n_sp_nodes as i32);
             sp_ptr.push((s_idx + 1) as i32 * n_sp_nodes as i32);
         }
@@ -424,21 +530,54 @@ pub fn build_otf_batch(
 
         // 7. Collate task tensors (includes gene GCN norm + varlen metadata)
         let map_c = collate_task_tensors(&map_tensors);
-        let evt_c = if enable_event { Some(collate_task_tensors(&evt_tensors)) } else { None };
-        let root_c = if enable_root { Some(collate_task_tensors(&root_tensors)) } else { None };
+        let evt_c = if enable_event {
+            Some(collate_task_tensors(&evt_tensors))
+        } else {
+            None
+        };
+        let root_c = if enable_root {
+            Some(collate_task_tensors(&root_tensors))
+        } else {
+            None
+        };
 
-        Ok((sp_x, sp_child_src, sp_child_dst, sp_child_ew,
-            sp_parent_src, sp_parent_dst, sp_parent_ew,
-            sp_ptr, sp_sizes, sp_batch, cu_sp, max_sp,
-            map_c, evt_c, root_c))
+        Ok((
+            sp_x,
+            sp_child_src,
+            sp_child_dst,
+            sp_child_ew,
+            sp_parent_src,
+            sp_parent_dst,
+            sp_parent_ew,
+            sp_ptr,
+            sp_sizes,
+            sp_batch,
+            cu_sp,
+            max_sp,
+            map_c,
+            evt_c,
+            root_c,
+        ))
     });
     // ---- End GIL-free section --------------------------------------------
 
-    let (sp_x, sp_child_src, sp_child_dst, sp_child_ew,
-         sp_parent_src, sp_parent_dst, sp_parent_ew,
-         sp_ptr, sp_sizes, sp_batch, cu_sp, max_sp,
-         map_c, evt_c, root_c) =
-        result_or_err.map_err(PyValueError::new_err)?;
+    let (
+        sp_x,
+        sp_child_src,
+        sp_child_dst,
+        sp_child_ew,
+        sp_parent_src,
+        sp_parent_dst,
+        sp_parent_ew,
+        sp_ptr,
+        sp_sizes,
+        sp_batch,
+        cu_sp,
+        max_sp,
+        map_c,
+        evt_c,
+        root_c,
+    ) = result_or_err.map_err(PyValueError::new_err)?;
 
     // 8. Build result dict of numpy arrays
     let result = PyDict::new(py);
@@ -457,9 +596,15 @@ pub fn build_otf_batch(
 
     // Species (GCN-normalized edges with self-loops)
     result.set_item("sp_x", PyArray1::from_slice(py, &sp_x))?;
-    result.set_item("sp_child_ei", edge_2d(&sp_child_src, &sp_child_dst, "sp_child_ei")?)?;
+    result.set_item(
+        "sp_child_ei",
+        edge_2d(&sp_child_src, &sp_child_dst, "sp_child_ei")?,
+    )?;
     result.set_item("sp_child_ew", PyArray1::from_slice(py, &sp_child_ew))?;
-    result.set_item("sp_parent_ei", edge_2d(&sp_parent_src, &sp_parent_dst, "sp_parent_ei")?)?;
+    result.set_item(
+        "sp_parent_ei",
+        edge_2d(&sp_parent_src, &sp_parent_dst, "sp_parent_ei")?,
+    )?;
     result.set_item("sp_parent_ew", PyArray1::from_slice(py, &sp_parent_ew))?;
     result.set_item("sp_ptr", PyArray1::from_slice(py, &sp_ptr))?;
     result.set_item("sp_sizes", PyArray1::from_slice(py, &sp_sizes))?;
@@ -469,29 +614,89 @@ pub fn build_otf_batch(
 
     // Helper: write one collated task into result dict under a given prefix
     let write_task = |c: &CollatedTask, prefix: &str| -> PyResult<()> {
-        result.set_item(format!("{}_gene_x", prefix), PyArray1::from_slice(py, &c.gene_x))?;
-        result.set_item(format!("{}_gene_y", prefix), PyArray1::from_slice(py, &c.gene_y))?;
-        result.set_item(format!("{}_event", prefix), PyArray1::from_slice(py, &c.event))?;
-        result.set_item(format!("{}_event_true", prefix), PyArray1::from_slice(py, &c.event_true))?;
-        result.set_item(format!("{}_is_leaf", prefix), PyArray1::from_slice(py, &c.is_leaf))?;
-        result.set_item(format!("{}_frontier_mask", prefix), PyArray1::from_slice(py, &c.frontier_mask))?;
-        result.set_item(format!("{}_mask_label_node", prefix), PyArray1::from_slice(py, &c.mask_label_node))?;
-        result.set_item(format!("{}_gene_ei", prefix), edge_2d(&c.gene_ei_src, &c.gene_ei_dst, &format!("{}_gene_ei", prefix))?)?;
-        result.set_item(format!("{}_gene_ew", prefix), PyArray1::from_slice(py, &c.gene_ew))?;
-        result.set_item(format!("{}_g_dir_edge", prefix), edge_2d(&c.g_dir_src, &c.g_dir_dst, &format!("{}_g_dir_edge", prefix))?)?;
-        result.set_item(format!("{}_true_root_index", prefix), PyArray1::from_slice(py, &c.true_root_index))?;
-        result.set_item(format!("{}_g_ptr", prefix), PyArray1::from_slice(py, &c.g_ptr))?;
-        result.set_item(format!("{}_g_sizes", prefix), PyArray1::from_slice(py, &c.g_sizes))?;
-        result.set_item(format!("{}_g_batch", prefix), PyArray1::from_slice(py, &c.g_batch))?;
-        result.set_item(format!("{}_root_edges_ptr", prefix), PyArray1::from_slice(py, &c.root_edges_ptr))?;
-        result.set_item(format!("{}_cu_g", prefix), PyArray1::from_slice(py, &c.cu_g))?;
+        result.set_item(
+            format!("{}_gene_x", prefix),
+            PyArray1::from_slice(py, &c.gene_x),
+        )?;
+        result.set_item(
+            format!("{}_gene_y", prefix),
+            PyArray1::from_slice(py, &c.gene_y),
+        )?;
+        result.set_item(
+            format!("{}_event", prefix),
+            PyArray1::from_slice(py, &c.event),
+        )?;
+        result.set_item(
+            format!("{}_event_true", prefix),
+            PyArray1::from_slice(py, &c.event_true),
+        )?;
+        result.set_item(
+            format!("{}_is_leaf", prefix),
+            PyArray1::from_slice(py, &c.is_leaf),
+        )?;
+        result.set_item(
+            format!("{}_frontier_mask", prefix),
+            PyArray1::from_slice(py, &c.frontier_mask),
+        )?;
+        result.set_item(
+            format!("{}_mask_label_node", prefix),
+            PyArray1::from_slice(py, &c.mask_label_node),
+        )?;
+        result.set_item(
+            format!("{}_gene_ei", prefix),
+            edge_2d(
+                &c.gene_ei_src,
+                &c.gene_ei_dst,
+                &format!("{}_gene_ei", prefix),
+            )?,
+        )?;
+        result.set_item(
+            format!("{}_gene_ew", prefix),
+            PyArray1::from_slice(py, &c.gene_ew),
+        )?;
+        result.set_item(
+            format!("{}_g_dir_edge", prefix),
+            edge_2d(
+                &c.g_dir_src,
+                &c.g_dir_dst,
+                &format!("{}_g_dir_edge", prefix),
+            )?,
+        )?;
+        result.set_item(
+            format!("{}_true_root_index", prefix),
+            PyArray1::from_slice(py, &c.true_root_index),
+        )?;
+        result.set_item(
+            format!("{}_g_ptr", prefix),
+            PyArray1::from_slice(py, &c.g_ptr),
+        )?;
+        result.set_item(
+            format!("{}_g_sizes", prefix),
+            PyArray1::from_slice(py, &c.g_sizes),
+        )?;
+        result.set_item(
+            format!("{}_g_batch", prefix),
+            PyArray1::from_slice(py, &c.g_batch),
+        )?;
+        result.set_item(
+            format!("{}_root_edges_ptr", prefix),
+            PyArray1::from_slice(py, &c.root_edges_ptr),
+        )?;
+        result.set_item(
+            format!("{}_cu_g", prefix),
+            PyArray1::from_slice(py, &c.cu_g),
+        )?;
         result.set_item(format!("{}_max_g", prefix), c.max_g)?;
         Ok(())
     };
 
     write_task(&map_c, "map")?;
-    if let Some(ref c) = evt_c { write_task(c, "evt")?; }
-    if let Some(ref c) = root_c { write_task(c, "root")?; }
+    if let Some(ref c) = evt_c {
+        write_task(c, "evt")?;
+    }
+    if let Some(ref c) = root_c {
+        write_task(c, "root")?;
+    }
 
     Ok(result.into())
 }
@@ -511,10 +716,14 @@ pub fn build_otf_batch(
 #[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (edge_index, num_nodes))]
-pub fn compute_gcn_norm(py: Python, edge_index: &Bound<'_, numpy::PyArray2<i32>>, num_nodes: usize) -> PyResult<(PyObject, PyObject)> {
-    use numpy::{PyArray1, PyArrayMethods};
+pub fn compute_gcn_norm(
+    py: Python,
+    edge_index: &Bound<'_, numpy::PyArray2<i32>>,
+    num_nodes: usize,
+) -> PyResult<(PyObject, PyObject)> {
     use numpy::ndarray::Array2;
     use numpy::ToPyArray;
+    use numpy::{PyArray1, PyArrayMethods};
 
     let ei = unsafe { edge_index.as_array() };
     let src: Vec<i32> = ei.row(0).to_vec();
@@ -570,8 +779,11 @@ pub fn build_inference_batch(
         let sample_order: &str = &sample_order_owned;
 
         // Build species tensors (single copy)
-        let x_sp_single: Vec<i32> = base.species_names.iter()
-            .map(|name| sp_name_to_id[name]).collect();
+        let x_sp_single: Vec<i32> = base
+            .species_names
+            .iter()
+            .map(|name| sp_name_to_id[name])
+            .collect();
 
         let mut sp_child_src_s: Vec<i32> = Vec::new();
         let mut sp_child_dst_s: Vec<i32> = Vec::new();
@@ -608,7 +820,14 @@ pub fn build_inference_batch(
         for copy_idx in 0..n_copies {
             let copy_seed = seed.wrapping_add(copy_idx as u64 * 1000003);
             let mut rng = StdRng::seed_from_u64(copy_seed);
-            let t = build_task_tensors_internal(&base, &sp_name_to_id, &mut rng, false, false, sample_order)?;
+            let t = build_task_tensors_internal(
+                &base,
+                &sp_name_to_id,
+                &mut rng,
+                false,
+                false,
+                sample_order,
+            )?;
             map_tensors.push(t);
         }
 
@@ -635,29 +854,56 @@ pub fn build_inference_batch(
             let offset = (s_idx * n_sp_nodes) as i32;
             sp_x.extend_from_slice(&x_sp_single);
             for (&s, &d) in sp_child_norm_src_s.iter().zip(sp_child_norm_dst_s.iter()) {
-                sp_child_src.push(s + offset); sp_child_dst.push(d + offset);
+                sp_child_src.push(s + offset);
+                sp_child_dst.push(d + offset);
             }
             sp_child_ew.extend_from_slice(&sp_child_ew_s);
             for (&s, &d) in sp_parent_norm_src_s.iter().zip(sp_parent_norm_dst_s.iter()) {
-                sp_parent_src.push(s + offset); sp_parent_dst.push(d + offset);
+                sp_parent_src.push(s + offset);
+                sp_parent_dst.push(d + offset);
             }
             sp_parent_ew.extend_from_slice(&sp_parent_ew_s);
-            for _ in 0..n_sp_nodes { sp_batch.push(s_idx as i32); }
+            for _ in 0..n_sp_nodes {
+                sp_batch.push(s_idx as i32);
+            }
             sp_sizes.push(n_sp_nodes as i32);
             sp_ptr.push((s_idx + 1) as i32 * n_sp_nodes as i32);
         }
 
         let (cu_sp, max_sp) = compute_varlen_metadata(&sp_sizes);
 
-        Ok((sp_x, sp_child_src, sp_child_dst, sp_child_ew,
-            sp_parent_src, sp_parent_dst, sp_parent_ew,
-            sp_ptr, sp_sizes, sp_batch, cu_sp, max_sp, map_c))
+        Ok((
+            sp_x,
+            sp_child_src,
+            sp_child_dst,
+            sp_child_ew,
+            sp_parent_src,
+            sp_parent_dst,
+            sp_parent_ew,
+            sp_ptr,
+            sp_sizes,
+            sp_batch,
+            cu_sp,
+            max_sp,
+            map_c,
+        ))
     });
 
-    let (sp_x, sp_child_src, sp_child_dst, sp_child_ew,
-         sp_parent_src, sp_parent_dst, sp_parent_ew,
-         sp_ptr, sp_sizes, sp_batch, cu_sp, max_sp, map_c) =
-        result_or_err.map_err(PyValueError::new_err)?;
+    let (
+        sp_x,
+        sp_child_src,
+        sp_child_dst,
+        sp_child_ew,
+        sp_parent_src,
+        sp_parent_dst,
+        sp_parent_ew,
+        sp_ptr,
+        sp_sizes,
+        sp_batch,
+        cu_sp,
+        max_sp,
+        map_c,
+    ) = result_or_err.map_err(PyValueError::new_err)?;
 
     let result = PyDict::new(py);
 
@@ -675,9 +921,15 @@ pub fn build_inference_batch(
 
     // Species
     result.set_item("sp_x", PyArray1::from_slice(py, &sp_x))?;
-    result.set_item("sp_child_ei", edge_2d(&sp_child_src, &sp_child_dst, "sp_child_ei")?)?;
+    result.set_item(
+        "sp_child_ei",
+        edge_2d(&sp_child_src, &sp_child_dst, "sp_child_ei")?,
+    )?;
     result.set_item("sp_child_ew", PyArray1::from_slice(py, &sp_child_ew))?;
-    result.set_item("sp_parent_ei", edge_2d(&sp_parent_src, &sp_parent_dst, "sp_parent_ei")?)?;
+    result.set_item(
+        "sp_parent_ei",
+        edge_2d(&sp_parent_src, &sp_parent_dst, "sp_parent_ei")?,
+    )?;
     result.set_item("sp_parent_ew", PyArray1::from_slice(py, &sp_parent_ew))?;
     result.set_item("sp_ptr", PyArray1::from_slice(py, &sp_ptr))?;
     result.set_item("sp_sizes", PyArray1::from_slice(py, &sp_sizes))?;
@@ -692,16 +944,34 @@ pub fn build_inference_batch(
     result.set_item("map_event", PyArray1::from_slice(py, &c.event))?;
     result.set_item("map_event_true", PyArray1::from_slice(py, &c.event_true))?;
     result.set_item("map_is_leaf", PyArray1::from_slice(py, &c.is_leaf))?;
-    result.set_item("map_frontier_mask", PyArray1::from_slice(py, &c.frontier_mask))?;
-    result.set_item("map_mask_label_node", PyArray1::from_slice(py, &c.mask_label_node))?;
-    result.set_item("map_gene_ei", edge_2d(&c.gene_ei_src, &c.gene_ei_dst, "map_gene_ei")?)?;
+    result.set_item(
+        "map_frontier_mask",
+        PyArray1::from_slice(py, &c.frontier_mask),
+    )?;
+    result.set_item(
+        "map_mask_label_node",
+        PyArray1::from_slice(py, &c.mask_label_node),
+    )?;
+    result.set_item(
+        "map_gene_ei",
+        edge_2d(&c.gene_ei_src, &c.gene_ei_dst, "map_gene_ei")?,
+    )?;
     result.set_item("map_gene_ew", PyArray1::from_slice(py, &c.gene_ew))?;
-    result.set_item("map_g_dir_edge", edge_2d(&c.g_dir_src, &c.g_dir_dst, "map_g_dir_edge")?)?;
-    result.set_item("map_true_root_index", PyArray1::from_slice(py, &c.true_root_index))?;
+    result.set_item(
+        "map_g_dir_edge",
+        edge_2d(&c.g_dir_src, &c.g_dir_dst, "map_g_dir_edge")?,
+    )?;
+    result.set_item(
+        "map_true_root_index",
+        PyArray1::from_slice(py, &c.true_root_index),
+    )?;
     result.set_item("map_g_ptr", PyArray1::from_slice(py, &c.g_ptr))?;
     result.set_item("map_g_sizes", PyArray1::from_slice(py, &c.g_sizes))?;
     result.set_item("map_g_batch", PyArray1::from_slice(py, &c.g_batch))?;
-    result.set_item("map_root_edges_ptr", PyArray1::from_slice(py, &c.root_edges_ptr))?;
+    result.set_item(
+        "map_root_edges_ptr",
+        PyArray1::from_slice(py, &c.root_edges_ptr),
+    )?;
     result.set_item("map_cu_g", PyArray1::from_slice(py, &c.cu_g))?;
     result.set_item("map_max_g", c.max_g)?;
 

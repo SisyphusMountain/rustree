@@ -1,4 +1,4 @@
-use rustree::{RecTree, Event};
+use rustree::{Event, RecTree};
 
 #[test]
 #[ignore] // Requires external WP2 data — set RUSTREE_WP2_DATA to the data dir

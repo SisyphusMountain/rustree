@@ -10,11 +10,11 @@ use crate::node::{FlatTree, RecTree};
 use rand::Rng;
 use std::sync::Arc;
 
-use super::DTLConfig;
 use super::event::DTLEvent;
 use super::gillespie::DTLMode;
 use super::stream::DtlSimIter;
-use super::utils::{validate_rates, precompute_lca};
+use super::utils::{precompute_lca, validate_rates};
+use super::DTLConfig;
 
 /// Returns a lazy iterator that generates gene trees one at a time (per-species model).
 ///
@@ -65,7 +65,14 @@ pub fn simulate_dtl_per_species_iter<'a, R: Rng>(
         transfer_alpha,
         replacement_transfer,
     };
-    simulate_dtl_per_species_iter_with_config(species_tree, origin_species, config, n_simulations, require_extant, rng)
+    simulate_dtl_per_species_iter_with_config(
+        species_tree,
+        origin_species,
+        config,
+        n_simulations,
+        require_extant,
+        rng,
+    )
 }
 
 /// Core implementation for creating a per-species DTL simulation iterator from a [`DTLConfig`].
@@ -85,7 +92,8 @@ pub fn simulate_dtl_per_species_iter_with_config<'a, R: Rng>(
     // Include origin start time in depths so the stem period is covered
     // by contemporaneity (make_subdivision only has node depths, not branch starts).
     let mut depths = species_tree.make_subdivision();
-    let origin_start = species_tree.nodes[origin_species].depth
+    let origin_start = species_tree.nodes[origin_species]
+        .depth
         .ok_or_else(|| format!("Origin species {} has no depth", origin_species))?
         - species_tree.nodes[origin_species].length;
     depths.push(origin_start);
@@ -124,11 +132,18 @@ pub fn simulate_dtl_per_species<R: Rng>(
     rng: &mut R,
 ) -> Result<(RecTree, Vec<DTLEvent>), String> {
     simulate_dtl_per_species_iter(
-        species_tree, origin_species,
-        lambda_d, lambda_t, lambda_l,
-        transfer_alpha, replacement_transfer,
-        1, require_extant, rng,
-    )?.single()
+        species_tree,
+        origin_species,
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        transfer_alpha,
+        replacement_transfer,
+        1,
+        require_extant,
+        rng,
+    )?
+    .single()
 }
 
 /// Simulates multiple gene trees using the Zombi-style per-species DTL model.
@@ -147,9 +162,16 @@ pub fn simulate_dtl_per_species_batch<R: Rng>(
     rng: &mut R,
 ) -> Result<(Vec<RecTree>, Vec<Vec<DTLEvent>>), String> {
     simulate_dtl_per_species_iter(
-        species_tree, origin_species,
-        lambda_d, lambda_t, lambda_l,
-        transfer_alpha, replacement_transfer,
-        n_simulations, require_extant, rng,
-    )?.collect_all()
+        species_tree,
+        origin_species,
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        transfer_alpha,
+        replacement_transfer,
+        n_simulations,
+        require_extant,
+        rng,
+    )?
+    .collect_all()
 }

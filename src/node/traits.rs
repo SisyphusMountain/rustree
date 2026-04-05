@@ -1,7 +1,7 @@
 //! Traits and operator implementations for tree types.
 
+use super::{FlatNode, FlatTree, Node};
 use std::ops::{Index, IndexMut};
-use super::{Node, FlatNode, FlatTree};
 
 /// Trait for types that have a name field.
 pub trait HasName {

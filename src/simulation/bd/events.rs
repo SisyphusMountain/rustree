@@ -1,9 +1,8 @@
 // Event generation functions for birth-death trees
-// I did this so we could easily generate events 
+// I did this so we could easily generate events
 // from trees opened from Newick files, which don't have
 // event annotations. If the tree is dated, we can use depths
 // to discriminate between extinctions and leaves.
-
 
 use crate::node::FlatTree;
 
@@ -46,7 +45,7 @@ pub fn generate_events_from_tree(tree: &FlatTree) -> Result<Vec<TreeEvent>, Stri
         } else {
             // Fall back to structure-based inference
             if node.left_child.is_none() && node.right_child.is_none() {
-                BDEvent::Leaf  // Assume extant if no annotation
+                BDEvent::Leaf // Assume extant if no annotation
             } else {
                 BDEvent::Speciation
             }
@@ -93,7 +92,10 @@ pub fn generate_events_from_tree(tree: &FlatTree) -> Result<Vec<TreeEvent>, Stri
 /// flat_tree.assign_depths();
 /// let events = generate_events_with_extinction(&flat_tree, 0.01).unwrap();
 /// ```
-pub fn generate_events_with_extinction(tree: &FlatTree, eps: f64) -> Result<Vec<TreeEvent>, String> {
+pub fn generate_events_with_extinction(
+    tree: &FlatTree,
+    eps: f64,
+) -> Result<Vec<TreeEvent>, String> {
     // First pass: find max depth among childless nodes
     let mut max_depth: f64 = 0.0;
     for node in &tree.nodes {

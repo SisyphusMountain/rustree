@@ -18,7 +18,12 @@ fn pilot_dtl_events(species_tree: &FlatTree, d: f64, t: f64, l: f64) -> u64 {
     let root = species_tree.root;
     let mut rng = StdRng::seed_from_u64(42);
     let total: usize = (0..10)
-        .map(|_| simulate_dtl(species_tree, root, d, t, l, None, None, false, &mut rng).unwrap().1.len())
+        .map(|_| {
+            simulate_dtl(species_tree, root, d, t, l, None, None, false, &mut rng)
+                .unwrap()
+                .1
+                .len()
+        })
         .sum();
     (total / 10).max(1) as u64
 }
@@ -28,7 +33,12 @@ fn pilot_dtl_per_species_events(species_tree: &FlatTree, d: f64, t: f64, l: f64)
     let root = species_tree.root;
     let mut rng = StdRng::seed_from_u64(42);
     let total: usize = (0..10)
-        .map(|_| simulate_dtl_per_species(species_tree, root, d, t, l, None, None, false, &mut rng).unwrap().1.len())
+        .map(|_| {
+            simulate_dtl_per_species(species_tree, root, d, t, l, None, None, false, &mut rng)
+                .unwrap()
+                .1
+                .len()
+        })
         .sum();
     (total / 10).max(1) as u64
 }
@@ -43,7 +53,9 @@ fn dtl_pergene_scaling(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
             let root = species_tree.root;
             let mut rng = StdRng::seed_from_u64(123);
-            b.iter(|| simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap());
+            b.iter(|| {
+                simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap()
+            });
         });
         group.finish();
     }
@@ -61,7 +73,9 @@ fn dtl_pergene_rate_sweep(c: &mut Criterion) {
         let label = format!("mult_{}", mult);
         group.bench_with_input(BenchmarkId::new("rate", &label), &mult, |b, _| {
             let mut rng = StdRng::seed_from_u64(123);
-            b.iter(|| simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap());
+            b.iter(|| {
+                simulate_dtl(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap()
+            });
         });
         group.finish();
     }
@@ -77,7 +91,10 @@ fn dtl_perspecies_scaling(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
             let root = species_tree.root;
             let mut rng = StdRng::seed_from_u64(123);
-            b.iter(|| simulate_dtl_per_species(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap());
+            b.iter(|| {
+                simulate_dtl_per_species(&species_tree, root, d, t, l, None, None, false, &mut rng)
+                    .unwrap()
+            });
         });
         group.finish();
     }
@@ -95,7 +112,10 @@ fn dtl_perspecies_rate_sweep(c: &mut Criterion) {
         let label = format!("mult_{}", mult);
         group.bench_with_input(BenchmarkId::new("rate", &label), &mult, |b, _| {
             let mut rng = StdRng::seed_from_u64(123);
-            b.iter(|| simulate_dtl_per_species(&species_tree, root, d, t, l, None, None, false, &mut rng).unwrap());
+            b.iter(|| {
+                simulate_dtl_per_species(&species_tree, root, d, t, l, None, None, false, &mut rng)
+                    .unwrap()
+            });
         });
         group.finish();
     }
@@ -111,10 +131,28 @@ fn dtl_batch_pergene(c: &mut Criterion) {
         let total_events = avg_per_sim * batch_size as u64;
         let mut group = c.benchmark_group("dtl_batch_pergene");
         group.throughput(Throughput::Elements(total_events));
-        group.bench_with_input(BenchmarkId::from_parameter(batch_size), &batch_size, |b, &bs| {
-            let mut rng = StdRng::seed_from_u64(123);
-            b.iter(|| simulate_dtl_batch(&species_tree, root, d, t, l, None, None, bs, false, &mut rng).unwrap());
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(batch_size),
+            &batch_size,
+            |b, &bs| {
+                let mut rng = StdRng::seed_from_u64(123);
+                b.iter(|| {
+                    simulate_dtl_batch(
+                        &species_tree,
+                        root,
+                        d,
+                        t,
+                        l,
+                        None,
+                        None,
+                        bs,
+                        false,
+                        &mut rng,
+                    )
+                    .unwrap()
+                });
+            },
+        );
         group.finish();
     }
 }

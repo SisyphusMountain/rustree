@@ -1,3 +1,5 @@
+use crate::node::gene_forest::GeneForest;
+use crate::node::{map_by_topology, FlatTree, RecTree};
 /// ALERax integration module for gene tree reconciliation
 ///
 /// This module provides functionality to call the external ALERax tool
@@ -8,8 +10,6 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
-use crate::node::{FlatTree, RecTree, map_by_topology};
-use crate::node::gene_forest::GeneForest;
 
 /// Configuration for ALERax reconciliation
 pub struct AleRaxConfig {
@@ -132,34 +132,35 @@ fn check_alerax_installed(alerax_path: &str) -> Result<(), String> {
     Command::new(alerax_path)
         .arg("--help")
         .output()
-        .map_err(|_| format!(
-            "ALERax not found at '{}'. Please install ALERax:
+        .map_err(|_| {
+            format!(
+                "ALERax not found at '{}'. Please install ALERax:
   conda install -c bioconda alerax
   or download from: https://github.com/BenoitMorel/AleRax",
-            alerax_path
-        ))?;
+                alerax_path
+            )
+        })?;
     Ok(())
 }
 
 /// Extract species name from gene name (format: species_geneid)
 fn extract_species_from_gene_name(gene_name: &str) -> String {
-    gene_name.split('_')
-        .next()
-        .unwrap_or(gene_name)
-        .to_string()
+    gene_name.split('_').next().unwrap_or(gene_name).to_string()
 }
 
 /// Validate that gene tree leaves map to species tree leaves
 pub fn validate_inputs(
     species_tree: &FlatTree,
-    gene_trees: &[(String, String)],  // (family_name, newick_string)
+    gene_trees: &[(String, String)], // (family_name, newick_string)
 ) -> Result<(), String> {
     // Check species tree is valid
     if species_tree.nodes.is_empty() {
         return Err("Species tree is empty".to_string());
     }
 
-    let species_leaf_names: HashSet<String> = species_tree.nodes.iter()
+    let species_leaf_names: HashSet<String> = species_tree
+        .nodes
+        .iter()
         .filter(|n| n.left_child.is_none() && n.right_child.is_none())
         .map(|n| n.name.clone())
         .collect();
@@ -174,19 +175,23 @@ pub fn validate_inputs(
         let mut nodes = crate::newick::parse_newick(newick)
             .map_err(|e| format!("Failed to parse gene tree '{}': {}", family_name, e))?;
 
-        let root = nodes.pop()
+        let root = nodes
+            .pop()
             .ok_or_else(|| format!("Gene tree for family '{}' is empty", family_name))?;
 
         let gene_tree = root.to_flat_tree();
 
         // Extract gene leaf names and map to species
-        let gene_leaf_species: HashSet<String> = gene_tree.nodes.iter()
+        let gene_leaf_species: HashSet<String> = gene_tree
+            .nodes
+            .iter()
             .filter(|n| n.left_child.is_none() && n.right_child.is_none())
             .map(|n| extract_species_from_gene_name(&n.name))
             .collect();
 
         // Check if gene leaves are subset of species leaves
-        let unmapped: Vec<&String> = gene_leaf_species.iter()
+        let unmapped: Vec<&String> = gene_leaf_species
+            .iter()
             .filter(|name| !species_leaf_names.contains(*name))
             .collect();
 
@@ -201,7 +206,8 @@ pub fn validate_inputs(
         if gene_leaf_species.len() < 4 {
             return Err(format!(
                 "Gene tree '{}' covers only {} species (minimum 4 required for reconciliation)",
-                family_name, gene_leaf_species.len()
+                family_name,
+                gene_leaf_species.len()
             ));
         }
     }
@@ -214,7 +220,10 @@ fn create_families_file(families: &[GeneFamily]) -> String {
     let mut content = String::from("[FAMILIES]\n");
     for family in families {
         content.push_str(&format!("- {}\n", family.name));
-        content.push_str(&format!("gene_tree = {}\n", family.gene_tree_path.display()));
+        content.push_str(&format!(
+            "gene_tree = {}\n",
+            family.gene_tree_path.display()
+        ));
     }
     content
 }
@@ -239,8 +248,12 @@ fn prepare_alerax_input(config: &AleRaxConfig, species_tree_newick: &str) -> Res
             format!("{};", family.gene_tree_newick.trim())
         };
 
-        fs::write(&family.gene_tree_path, gene_newick)
-            .map_err(|e| format!("Failed to write gene tree for family '{}': {}", family.name, e))?;
+        fs::write(&family.gene_tree_path, gene_newick).map_err(|e| {
+            format!(
+                "Failed to write gene tree for family '{}': {}",
+                family.name, e
+            )
+        })?;
     }
 
     // Create families.txt file
@@ -258,8 +271,10 @@ fn build_alerax_command(config: &AleRaxConfig) -> Command {
     cmd.arg("-s").arg(&config.species_tree_path);
     cmd.arg("-f").arg(&config.families_file_path);
     cmd.arg("-p").arg(&config.output_dir);
-    cmd.arg("--model-parametrization").arg(config.model_parametrization.as_str());
-    cmd.arg("--gene-tree-samples").arg(config.num_samples.to_string());
+    cmd.arg("--model-parametrization")
+        .arg(config.model_parametrization.as_str());
+    cmd.arg("--gene-tree-samples")
+        .arg(config.num_samples.to_string());
 
     if let Some(ref rooting) = config.gene_tree_rooting {
         cmd.arg("--gene-tree-rooting").arg(rooting);
@@ -274,8 +289,8 @@ fn build_alerax_command(config: &AleRaxConfig) -> Command {
 
 /// Parse ALERax rates file (D L T)
 fn parse_rates_file(path: &Path) -> Result<(f64, f64, f64), String> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read rates file: {}", e))?;
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("Failed to read rates file: {}", e))?;
 
     let lines: Vec<&str> = content.lines().collect();
     if lines.len() < 2 {
@@ -289,11 +304,14 @@ fn parse_rates_file(path: &Path) -> Result<(f64, f64, f64), String> {
         return Err(format!("Expected 3 rate values, found {}", values.len()));
     }
 
-    let d = values[0].parse()
+    let d = values[0]
+        .parse()
         .map_err(|_| format!("Failed to parse duplication rate: {}", values[0]))?;
-    let l = values[1].parse()
+    let l = values[1]
+        .parse()
         .map_err(|_| format!("Failed to parse loss rate: {}", values[1]))?;
-    let t = values[2].parse()
+    let t = values[2]
+        .parse()
         .map_err(|_| format!("Failed to parse transfer rate: {}", values[2]))?;
 
     Ok((d, l, t))
@@ -301,15 +319,16 @@ fn parse_rates_file(path: &Path) -> Result<(f64, f64, f64), String> {
 
 /// Parse ALERax per-family likelihoods file
 fn parse_likelihoods_file(path: &Path) -> Result<HashMap<String, f64>, String> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read likelihoods file: {}", e))?;
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("Failed to read likelihoods file: {}", e))?;
 
     let mut likelihoods = HashMap::new();
     for line in content.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() == 2 {
             let family_name = parts[0].to_string();
-            let likelihood = parts[1].parse()
+            let likelihood = parts[1]
+                .parse()
                 .map_err(|_| format!("Failed to parse likelihood for family {}", family_name))?;
             likelihoods.insert(family_name, likelihood);
         }
@@ -320,8 +339,8 @@ fn parse_likelihoods_file(path: &Path) -> Result<HashMap<String, f64>, String> {
 
 /// Parse ALERax eventCounts file for a single sample
 fn parse_event_counts_file(path: &Path) -> Result<EventCounts, String> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read eventCounts file: {}", e))?;
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("Failed to read eventCounts file: {}", e))?;
 
     let mut counts = EventCounts::default();
 
@@ -329,7 +348,9 @@ fn parse_event_counts_file(path: &Path) -> Result<EventCounts, String> {
         let parts: Vec<&str> = line.split(':').collect();
         if parts.len() == 2 {
             let event_type = parts[0].trim();
-            let count: f64 = parts[1].trim().parse()
+            let count: f64 = parts[1]
+                .trim()
+                .parse()
                 .map_err(|_| format!("Failed to parse count for {}", event_type))?;
 
             match event_type {
@@ -351,8 +372,8 @@ fn parse_event_counts_file(path: &Path) -> Result<EventCounts, String> {
 
 /// Parse ALERax transfers file for a single sample
 fn parse_transfers_file(path: &Path) -> Result<HashMap<String, HashMap<String, f64>>, String> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read transfers file: {}", e))?;
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("Failed to read transfers file: {}", e))?;
 
     let mut transfers: HashMap<String, HashMap<String, f64>> = HashMap::new();
 
@@ -366,10 +387,12 @@ fn parse_transfers_file(path: &Path) -> Result<HashMap<String, HashMap<String, f
         if parts.len() == 3 {
             let source = parts[0].to_string();
             let destination = parts[1].to_string();
-            let count: f64 = parts[2].parse()
+            let count: f64 = parts[2]
+                .parse()
                 .map_err(|_| format!("Failed to parse transfer count in line: {}", line))?;
 
-            transfers.entry(source)
+            transfers
+                .entry(source)
                 .or_default()
                 .insert(destination, count);
         }
@@ -422,7 +445,8 @@ fn aggregate_statistics(
     // Aggregate event counts across samples
     let mut total_counts = EventCounts::default();
     for sample_idx in 0..num_samples {
-        let event_counts_path = reconciliation_dir.join(format!("{}_eventCounts_{}.txt", family_name, sample_idx));
+        let event_counts_path =
+            reconciliation_dir.join(format!("{}_eventCounts_{}.txt", family_name, sample_idx));
         if !event_counts_path.exists() {
             continue;
         }
@@ -454,7 +478,8 @@ fn aggregate_statistics(
     // Aggregate transfers across samples
     let mut transfer_totals: HashMap<String, HashMap<String, f64>> = HashMap::new();
     for sample_idx in 0..num_samples {
-        let transfers_path = reconciliation_dir.join(format!("{}_transfers_{}.txt", family_name, sample_idx));
+        let transfers_path =
+            reconciliation_dir.join(format!("{}_transfers_{}.txt", family_name, sample_idx));
         if !transfers_path.exists() {
             continue;
         }
@@ -462,7 +487,8 @@ fn aggregate_statistics(
         let transfers = parse_transfers_file(&transfers_path)?;
         for (source, destinations) in transfers {
             for (dest, count) in destinations {
-                *transfer_totals.entry(source.clone())
+                *transfer_totals
+                    .entry(source.clone())
                     .or_default()
                     .entry(dest.clone())
                     .or_insert(0.0) += count;
@@ -474,7 +500,8 @@ fn aggregate_statistics(
     let mut mean_transfers: HashMap<String, HashMap<String, f64>> = HashMap::new();
     for (source, destinations) in transfer_totals {
         for (dest, total) in destinations {
-            mean_transfers.entry(source.clone())
+            mean_transfers
+                .entry(source.clone())
                 .or_default()
                 .insert(dest, total / n_samples);
         }
@@ -500,16 +527,19 @@ fn aggregate_statistics(
     // Compute mean events per species
     let mut events_per_species: HashMap<String, EventCounts> = HashMap::new();
     for (species, totals) in species_event_totals {
-        events_per_species.insert(species, EventCounts {
-            speciations: totals.speciations / n_samples,
-            speciation_losses: totals.speciation_losses / n_samples,
-            duplications: totals.duplications / n_samples,
-            duplication_losses: totals.duplication_losses / n_samples,
-            transfers: totals.transfers / n_samples,
-            transfer_losses: totals.transfer_losses / n_samples,
-            losses: totals.losses / n_samples,
-            leaves: totals.leaves / n_samples,
-        });
+        events_per_species.insert(
+            species,
+            EventCounts {
+                speciations: totals.speciations / n_samples,
+                speciation_losses: totals.speciation_losses / n_samples,
+                duplications: totals.duplications / n_samples,
+                duplication_losses: totals.duplication_losses / n_samples,
+                transfers: totals.transfers / n_samples,
+                transfer_losses: totals.transfer_losses / n_samples,
+                losses: totals.losses / n_samples,
+                leaves: totals.leaves / n_samples,
+            },
+        );
     }
 
     Ok(ReconciliationStatistics {
@@ -543,8 +573,8 @@ fn parse_alerax_results(
         let mut reconciled_trees = Vec::new();
 
         for sample_idx in 0..num_samples {
-            let xml_path = reconciliation_dir
-                .join(format!("{}_sample_{}.xml", family.name, sample_idx));
+            let xml_path =
+                reconciliation_dir.join(format!("{}_sample_{}.xml", family.name, sample_idx));
 
             // Skip if sample doesn't exist (ALERax might generate fewer samples)
             if !xml_path.exists() {
@@ -552,32 +582,43 @@ fn parse_alerax_results(
             }
 
             // Use existing RecTree::from_xml_file to parse
-            let rec_tree = RecTree::from_xml_file(xml_path.to_str().unwrap())
-                .map_err(|e| format!("Failed to parse RecPhyloXML for family '{}' sample {}: {}",
-                    family.name, sample_idx, e))?;
+            let rec_tree = RecTree::from_xml_file(xml_path.to_str().unwrap()).map_err(|e| {
+                format!(
+                    "Failed to parse RecPhyloXML for family '{}' sample {}: {}",
+                    family.name, sample_idx, e
+                )
+            })?;
             reconciled_trees.push(rec_tree);
         }
 
         if reconciled_trees.is_empty() {
-            return Err(format!("No reconciliation samples found for family '{}'", family.name));
+            return Err(format!(
+                "No reconciliation samples found for family '{}'",
+                family.name
+            ));
         }
 
-        let likelihood = likelihoods.get(&family.name)
+        let likelihood = likelihoods
+            .get(&family.name)
             .copied()
             .ok_or_else(|| format!("No likelihood found for family '{}'", family.name))?;
 
         // Compute summary statistics
-        let statistics = aggregate_statistics(output_dir, &family.name, num_samples, &reconciled_trees)?;
+        let statistics =
+            aggregate_statistics(output_dir, &family.name, num_samples, &reconciled_trees)?;
 
-        results.insert(family.name.clone(), AleRaxFamilyResult {
-            family_name: family.name.clone(),
-            reconciled_trees,
-            duplication_rate: d,
-            loss_rate: l,
-            transfer_rate: t,
-            likelihood,
-            statistics,
-        });
+        results.insert(
+            family.name.clone(),
+            AleRaxFamilyResult {
+                family_name: family.name.clone(),
+                reconciled_trees,
+                duplication_rate: d,
+                loss_rate: l,
+                transfer_rate: t,
+                likelihood,
+                statistics,
+            },
+        );
     }
 
     Ok(results)
@@ -601,7 +642,8 @@ pub fn run_alerax(
     let cmd_str = format!("{:?}", cmd);
     log::info!("Running ALERax command: {}", cmd_str);
 
-    let output = cmd.output()
+    let output = cmd
+        .output()
         .map_err(|e| format!("Failed to execute ALERax: {}", e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -610,7 +652,9 @@ pub fn run_alerax(
     if !output.status.success() {
         return Err(format!(
             "ALERax failed with exit code {:?}:\nStderr:\n{}\nStdout:\n{}",
-            output.status.code(), stderr, stdout
+            output.status.code(),
+            stderr,
+            stdout
         ));
     }
 
@@ -618,16 +662,22 @@ pub fn run_alerax(
     if !config.output_dir.exists() {
         return Err(format!(
             "ALERax completed but output directory does not exist: {}\nStdout:\n{}\nStderr:\n{}",
-            config.output_dir.display(), stdout, stderr
+            config.output_dir.display(),
+            stdout,
+            stderr
         ));
     }
 
     // Parse results
-    parse_alerax_results(&config.output_dir, &config.families, config.num_samples)
-        .map_err(|e| format!(
+    parse_alerax_results(&config.output_dir, &config.families, config.num_samples).map_err(|e| {
+        format!(
             "{}.\n\nALERax output directory: {}\nStdout:\n{}\nStderr:\n{}",
-            e, config.output_dir.display(), stdout, stderr
-        ))
+            e,
+            config.output_dir.display(),
+            stdout,
+            stderr
+        )
+    })
 }
 
 /// Parse ALERax meanSpeciesEventCounts.txt or totalSpeciesEventCounts.txt.
@@ -635,39 +685,66 @@ pub fn run_alerax(
 /// Format: CSV with header
 /// `species_label, speciations, duplications, losses, transfers, presence, origination, copies, singletons, transfers_to`
 fn parse_species_event_counts_file(path: &Path) -> Result<Vec<SpeciesEventRow>, String> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read species event counts file '{}': {}", path.display(), e))?;
+    let content = fs::read_to_string(path).map_err(|e| {
+        format!(
+            "Failed to read species event counts file '{}': {}",
+            path.display(),
+            e
+        )
+    })?;
 
     let mut rows = Vec::new();
     let mut lines = content.lines();
 
     // Skip header line
-    let _header = lines.next()
+    let _header = lines
+        .next()
         .ok_or_else(|| format!("Empty species event counts file: {}", path.display()))?;
 
     for line in lines {
         let line = line.trim();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
 
         let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
         if parts.len() < 10 {
             return Err(format!(
                 "Expected 10 columns in species event counts, got {}: {}",
-                parts.len(), line
+                parts.len(),
+                line
             ));
         }
 
         rows.push(SpeciesEventRow {
             species_label: parts[0].to_string(),
-            speciations: parts[1].parse().map_err(|_| format!("Bad speciations value: '{}'", parts[1]))?,
-            duplications: parts[2].parse().map_err(|_| format!("Bad duplications value: '{}'", parts[2]))?,
-            losses: parts[3].parse().map_err(|_| format!("Bad losses value: '{}'", parts[3]))?,
-            transfers: parts[4].parse().map_err(|_| format!("Bad transfers value: '{}'", parts[4]))?,
-            presence: parts[5].parse().map_err(|_| format!("Bad presence value: '{}'", parts[5]))?,
-            origination: parts[6].parse().map_err(|_| format!("Bad origination value: '{}'", parts[6]))?,
-            copies: parts[7].parse().map_err(|_| format!("Bad copies value: '{}'", parts[7]))?,
-            singletons: parts[8].parse().map_err(|_| format!("Bad singletons value: '{}'", parts[8]))?,
-            transfers_to: parts[9].parse().map_err(|_| format!("Bad transfers_to value: '{}'", parts[9]))?,
+            speciations: parts[1]
+                .parse()
+                .map_err(|_| format!("Bad speciations value: '{}'", parts[1]))?,
+            duplications: parts[2]
+                .parse()
+                .map_err(|_| format!("Bad duplications value: '{}'", parts[2]))?,
+            losses: parts[3]
+                .parse()
+                .map_err(|_| format!("Bad losses value: '{}'", parts[3]))?,
+            transfers: parts[4]
+                .parse()
+                .map_err(|_| format!("Bad transfers value: '{}'", parts[4]))?,
+            presence: parts[5]
+                .parse()
+                .map_err(|_| format!("Bad presence value: '{}'", parts[5]))?,
+            origination: parts[6]
+                .parse()
+                .map_err(|_| format!("Bad origination value: '{}'", parts[6]))?,
+            copies: parts[7]
+                .parse()
+                .map_err(|_| format!("Bad copies value: '{}'", parts[7]))?,
+            singletons: parts[8]
+                .parse()
+                .map_err(|_| format!("Bad singletons value: '{}'", parts[8]))?,
+            transfers_to: parts[9]
+                .parse()
+                .map_err(|_| format!("Bad transfers_to value: '{}'", parts[9]))?,
         });
     }
 
@@ -684,16 +761,25 @@ fn parse_transfer_rows_file(path: &Path) -> Result<Vec<TransferRow>, String> {
     let mut rows = Vec::new();
     for line in content.lines() {
         let line = line.trim();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
 
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() != 3 { continue; }
+        if parts.len() != 3 {
+            continue;
+        }
 
         rows.push(TransferRow {
             source: parts[0].to_string(),
             destination: parts[1].to_string(),
-            count: parts[2].parse()
-                .map_err(|_| format!("Bad transfer count '{}' in file {}", parts[2], path.display()))?,
+            count: parts[2].parse().map_err(|_| {
+                format!(
+                    "Bad transfer count '{}' in file {}",
+                    parts[2],
+                    path.display()
+                )
+            })?,
         });
     }
 
@@ -715,11 +801,14 @@ fn run_alerax_streaming(config: &AleRaxConfig, species_tree_newick: &str) -> Res
     let cmd_str = format!("{:?}", cmd);
     log::info!("Running ALERax: {}", cmd_str);
 
-    let mut child = cmd.spawn()
+    let mut child = cmd
+        .spawn()
         .map_err(|e| format!("Failed to spawn ALERax: {}", e))?;
 
     // Read stderr in a thread — print each line in real-time AND capture
-    let stderr = child.stderr.take()
+    let stderr = child
+        .stderr
+        .take()
         .ok_or_else(|| "Failed to capture ALERax stderr".to_string())?;
     let stderr_handle = std::thread::spawn(move || {
         let reader = BufReader::new(stderr);
@@ -738,7 +827,9 @@ fn run_alerax_streaming(config: &AleRaxConfig, species_tree_newick: &str) -> Res
     });
 
     // Read stdout in a thread — capture silently
-    let stdout = child.stdout.take()
+    let stdout = child
+        .stdout
+        .take()
         .ok_or_else(|| "Failed to capture ALERax stdout".to_string())?;
     let stdout_handle = std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
@@ -755,25 +846,32 @@ fn run_alerax_streaming(config: &AleRaxConfig, species_tree_newick: &str) -> Res
         captured
     });
 
-    let status = child.wait()
+    let status = child
+        .wait()
         .map_err(|e| format!("Failed to wait for ALERax: {}", e))?;
 
-    let stderr_output = stderr_handle.join()
+    let stderr_output = stderr_handle
+        .join()
         .map_err(|_| "Failed to join stderr reader thread".to_string())?;
-    let stdout_output = stdout_handle.join()
+    let stdout_output = stdout_handle
+        .join()
         .map_err(|_| "Failed to join stdout reader thread".to_string())?;
 
     if !status.success() {
         return Err(format!(
             "ALERax failed with exit code {:?}:\nStderr:\n{}\nStdout:\n{}",
-            status.code(), stderr_output, stdout_output
+            status.code(),
+            stderr_output,
+            stdout_output
         ));
     }
 
     if !config.output_dir.exists() {
         return Err(format!(
             "ALERax completed but output directory does not exist: {}\nStdout:\n{}\nStderr:\n{}",
-            config.output_dir.display(), stdout_output, stderr_output
+            config.output_dir.display(),
+            stdout_output,
+            stderr_output
         ));
     }
 
@@ -781,10 +879,7 @@ fn run_alerax_streaming(config: &AleRaxConfig, species_tree_newick: &str) -> Res
 }
 
 /// Rename species labels in SpeciesEventRow vectors using a name mapping.
-fn rename_species_event_rows(
-    rows: &mut [SpeciesEventRow],
-    mapping: &HashMap<String, String>,
-) {
+fn rename_species_event_rows(rows: &mut [SpeciesEventRow], mapping: &HashMap<String, String>) {
     for row in rows {
         if let Some(orig) = mapping.get(&row.species_label) {
             row.species_label = orig.clone();
@@ -793,10 +888,7 @@ fn rename_species_event_rows(
 }
 
 /// Rename source/destination in TransferRow vectors using a name mapping.
-fn rename_transfer_rows(
-    rows: &mut [TransferRow],
-    mapping: &HashMap<String, String>,
-) {
+fn rename_transfer_rows(rows: &mut [TransferRow], mapping: &HashMap<String, String>) {
     for row in rows {
         if let Some(orig) = mapping.get(&row.source) {
             row.source = orig.clone();
@@ -833,7 +925,8 @@ pub fn reconcile_forest(
     }
 
     let original_species_tree = forest.species_tree();
-    let species_newick = original_species_tree.to_newick()
+    let species_newick = original_species_tree
+        .to_newick()
         .map_err(|e| format!("Failed to serialize species tree: {}", e))?;
 
     // Create output directory
@@ -862,7 +955,9 @@ pub fn reconcile_forest(
     let mut families = Vec::new();
     for (idx, rec_tree) in forest.iter().enumerate() {
         let family_name = format!("family_{}", idx);
-        let gene_newick = rec_tree.gene_tree.to_newick()
+        let gene_newick = rec_tree
+            .gene_tree
+            .to_newick()
             .map_err(|e| format!("Failed to serialize gene tree {}: {}", idx, e))?;
         let gene_tree_path = input_dir.join(format!("{}.newick", family_name));
 
@@ -926,7 +1021,8 @@ pub fn reconcile_forest(
     // Auto-rename: map ALERax species names back to original names
     // Get ALERax species tree from the first parsed RecTree
     let first_family_name = &families[0].name;
-    let first_family_result = family_results.get(first_family_name)
+    let first_family_result = family_results
+        .get(first_family_name)
         .ok_or_else(|| "No results for first family".to_string())?;
     let alerax_species_tree = &first_family_result.reconciled_trees[0].species_tree;
 
@@ -975,7 +1071,8 @@ pub fn reconcile_forest(
         // Rename species keys in ReconciliationStatistics
         let old_eps = std::mem::take(&mut result.statistics.events_per_species);
         for (species_name, counts) in old_eps {
-            let renamed = alerax_to_original.get(&species_name)
+            let renamed = alerax_to_original
+                .get(&species_name)
                 .cloned()
                 .unwrap_or(species_name);
             result.statistics.events_per_species.insert(renamed, counts);
@@ -983,17 +1080,16 @@ pub fn reconcile_forest(
 
         let old_mt = std::mem::take(&mut result.statistics.mean_transfers);
         for (source, dests) in old_mt {
-            let renamed_source = alerax_to_original.get(&source)
-                .cloned()
-                .unwrap_or(source);
+            let renamed_source = alerax_to_original.get(&source).cloned().unwrap_or(source);
             let mut renamed_dests = HashMap::new();
             for (dest, count) in dests {
-                let renamed_dest = alerax_to_original.get(&dest)
-                    .cloned()
-                    .unwrap_or(dest);
+                let renamed_dest = alerax_to_original.get(&dest).cloned().unwrap_or(dest);
                 renamed_dests.insert(renamed_dest, count);
             }
-            result.statistics.mean_transfers.insert(renamed_source, renamed_dests);
+            result
+                .statistics
+                .mean_transfers
+                .insert(renamed_source, renamed_dests);
         }
     }
 
@@ -1033,7 +1129,10 @@ mod tests {
     #[test]
     fn test_extract_species_from_gene_name() {
         assert_eq!(extract_species_from_gene_name("n5_20"), "n5");
-        assert_eq!(extract_species_from_gene_name("species_A_gene123"), "species");
+        assert_eq!(
+            extract_species_from_gene_name("species_A_gene123"),
+            "species"
+        );
         assert_eq!(extract_species_from_gene_name("single"), "single");
     }
 
@@ -1073,7 +1172,10 @@ mod tests {
             return; // Skip if test data not available
         }
         let rows = parse_species_event_counts_file(path).unwrap();
-        assert!(!rows.is_empty(), "Should have parsed species event count rows");
+        assert!(
+            !rows.is_empty(),
+            "Should have parsed species event count rows"
+        );
 
         // Check that Root row exists
         let root_row = rows.iter().find(|r| r.species_label == "Root");
@@ -1085,7 +1187,9 @@ mod tests {
 
     #[test]
     fn test_parse_total_species_event_counts() {
-        let path = Path::new("testdata/test_data_3/output_alerax/reconciliations/totalSpeciesEventCounts.txt");
+        let path = Path::new(
+            "testdata/test_data_3/output_alerax/reconciliations/totalSpeciesEventCounts.txt",
+        );
         if !path.exists() {
             return;
         }
@@ -1099,7 +1203,8 @@ mod tests {
 
     #[test]
     fn test_parse_transfer_rows_file() {
-        let path = Path::new("testdata/test_data_3/output_alerax/reconciliations/totalTransfers.txt");
+        let path =
+            Path::new("testdata/test_data_3/output_alerax/reconciliations/totalTransfers.txt");
         if !path.exists() {
             return;
         }
@@ -1119,13 +1224,27 @@ mod tests {
         let mut rows = vec![
             SpeciesEventRow {
                 species_label: "n1".to_string(),
-                speciations: 1.0, duplications: 0.0, losses: 0.0, transfers: 0.0,
-                presence: 1.0, origination: 0.0, copies: 1.0, singletons: 1.0, transfers_to: 0.0,
+                speciations: 1.0,
+                duplications: 0.0,
+                losses: 0.0,
+                transfers: 0.0,
+                presence: 1.0,
+                origination: 0.0,
+                copies: 1.0,
+                singletons: 1.0,
+                transfers_to: 0.0,
             },
             SpeciesEventRow {
                 species_label: "n2".to_string(),
-                speciations: 2.0, duplications: 0.0, losses: 0.0, transfers: 0.0,
-                presence: 1.0, origination: 0.0, copies: 2.0, singletons: 0.0, transfers_to: 0.0,
+                speciations: 2.0,
+                duplications: 0.0,
+                losses: 0.0,
+                transfers: 0.0,
+                presence: 1.0,
+                origination: 0.0,
+                copies: 2.0,
+                singletons: 0.0,
+                transfers_to: 0.0,
             },
         ];
 
@@ -1140,9 +1259,11 @@ mod tests {
 
     #[test]
     fn test_rename_transfer_rows() {
-        let mut rows = vec![
-            TransferRow { source: "n1".to_string(), destination: "n2".to_string(), count: 1.0 },
-        ];
+        let mut rows = vec![TransferRow {
+            source: "n1".to_string(),
+            destination: "n2".to_string(),
+            count: 1.0,
+        }];
 
         let mut mapping = HashMap::new();
         mapping.insert("n1".to_string(), "SpeciesA".to_string());

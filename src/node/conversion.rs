@@ -1,8 +1,8 @@
 //! Conversion functions between recursive Node and flat FlatTree representations.
 
-use super::{Node, FlatNode, FlatTree, RecTree};
-use std::collections::HashMap;
+use super::{FlatNode, FlatTree, Node, RecTree};
 use crate::error::RustreeError;
+use std::collections::HashMap;
 
 // Methods on Node for conversion
 impl Node {
@@ -18,7 +18,11 @@ impl Node {
     }
 
     /// Internal helper method for converting a `Node` to flat nodes.
-    fn node_to_flat_internal(&self, flat_nodes: &mut Vec<FlatNode>, parent_index: Option<usize>) -> usize {
+    fn node_to_flat_internal(
+        &self,
+        flat_nodes: &mut Vec<FlatNode>,
+        parent_index: Option<usize>,
+    ) -> usize {
         let index = flat_nodes.len();
         flat_nodes.push(FlatNode {
             name: self.name.clone(),
@@ -61,13 +65,13 @@ impl FlatTree {
     fn flat_to_node_internal(&self, index: usize) -> Node {
         let flat_node = &self.nodes[index];
 
-        let left_child = flat_node.left_child.map(|i| {
-            Box::new(self.flat_to_node_internal(i))
-        });
+        let left_child = flat_node
+            .left_child
+            .map(|i| Box::new(self.flat_to_node_internal(i)));
 
-        let right_child = flat_node.right_child.map(|i| {
-            Box::new(self.flat_to_node_internal(i))
-        });
+        let right_child = flat_node
+            .right_child
+            .map(|i| Box::new(self.flat_to_node_internal(i)));
 
         Node {
             name: flat_node.name.clone(),
@@ -90,7 +94,8 @@ impl FlatTree {
 
     /// Returns all structural leaf nodes (nodes with no children).
     pub fn get_leaves(&self) -> Vec<&FlatNode> {
-        self.nodes.iter()
+        self.nodes
+            .iter()
             .filter(|n| n.left_child.is_none() && n.right_child.is_none())
             .collect()
     }
@@ -107,7 +112,8 @@ impl FlatTree {
         }
         let mut counter = 0usize;
         for i in 0..self.nodes.len() {
-            let is_internal = self.nodes[i].left_child.is_some() || self.nodes[i].right_child.is_some();
+            let is_internal =
+                self.nodes[i].left_child.is_some() || self.nodes[i].right_child.is_some();
             if is_internal && self.nodes[i].name.is_empty() {
                 self.nodes[i].name = format!("internal{}", counter);
                 counter += 1;
@@ -119,7 +125,8 @@ impl FlatTree {
     /// Returns extant leaf nodes — leaves whose birth-death event is `BDEvent::Leaf`.
     pub fn get_extant_leaves(&self) -> Vec<&FlatNode> {
         use crate::bd::BDEvent;
-        self.nodes.iter()
+        self.nodes
+            .iter()
             .filter(|n| {
                 n.left_child.is_none()
                     && n.right_child.is_none()
@@ -178,7 +185,9 @@ pub fn map_by_topology(
     let target_postorder = target_tree.postorder_indices();
 
     if source_postorder.len() != target_postorder.len() {
-        return Err(RustreeError::Tree("Trees have different structures (postorder lengths differ)".to_string()));
+        return Err(RustreeError::Tree(
+            "Trees have different structures (postorder lengths differ)".to_string(),
+        ));
     }
 
     let mut mapping = HashMap::new();
@@ -233,8 +242,7 @@ pub fn rename_gene_tree(
     let mapping = map_by_topology(reference_tree, &rec_tree.gene_tree)?;
 
     for (target_idx, &source_idx) in mapping.iter() {
-        rec_tree.gene_tree.nodes[*target_idx].name =
-            reference_tree.nodes[source_idx].name.clone();
+        rec_tree.gene_tree.nodes[*target_idx].name = reference_tree.nodes[source_idx].name.clone();
     }
 
     Ok(())
@@ -341,6 +349,9 @@ mod mapping_tests {
         // Should fail due to different number of nodes
         let result = map_by_topology(&tree1, &tree2);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("different number of nodes"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("different number of nodes"));
     }
 }

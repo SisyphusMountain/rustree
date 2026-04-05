@@ -1,7 +1,7 @@
-use std::time::Instant;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rustree::bd::simulate_bd_tree_bwd;
+use std::time::Instant;
 
 fn fmt_num(n: usize) -> String {
     let s = n.to_string();
@@ -48,7 +48,8 @@ fn main() {
         let avg_nodes = total_nodes / runs_per_size;
         let trees_per_min = 60.0 / avg_time;
 
-        println!("{:.3}s avg, {:>12} nodes, {:.1} trees/min",
+        println!(
+            "{:.3}s avg, {:>12} nodes, {:.1} trees/min",
             avg_time,
             fmt_num(avg_nodes),
             trees_per_min

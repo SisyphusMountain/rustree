@@ -1,21 +1,30 @@
 // Utility functions for DTL simulation
 
 use crate::bd::BDEvent;
-use crate::node::{FlatTree, FlatNode, Event, RecTree};
-use std::sync::Arc;
+use crate::node::{Event, FlatNode, FlatTree, RecTree};
 use rand::Rng;
+use std::sync::Arc;
 
 /// Validate that all DTL rates are non-negative and finite
 #[inline]
 pub(crate) fn validate_rates(lambda_d: f64, lambda_t: f64, lambda_l: f64) -> Result<(), String> {
     if lambda_d < 0.0 || !lambda_d.is_finite() {
-        return Err(format!("Duplication rate must be non-negative and finite, got {}", lambda_d));
+        return Err(format!(
+            "Duplication rate must be non-negative and finite, got {}",
+            lambda_d
+        ));
     }
     if lambda_t < 0.0 || !lambda_t.is_finite() {
-        return Err(format!("Transfer rate must be non-negative and finite, got {}", lambda_t));
+        return Err(format!(
+            "Transfer rate must be non-negative and finite, got {}",
+            lambda_t
+        ));
     }
     if lambda_l < 0.0 || !lambda_l.is_finite() {
-        return Err(format!("Loss rate must be non-negative and finite, got {}", lambda_l));
+        return Err(format!(
+            "Loss rate must be non-negative and finite, got {}",
+            lambda_l
+        ));
     }
     Ok(())
 }
@@ -26,8 +35,11 @@ pub(crate) fn precompute_lca(
     species_tree: &FlatTree,
     transfer_alpha: Option<f64>,
 ) -> Option<Vec<Vec<f64>>> {
-    transfer_alpha.map(|_| species_tree.precompute_lca_depths()
-        .expect("Failed to precompute LCA depths - tree may have disconnected nodes"))
+    transfer_alpha.map(|_| {
+        species_tree
+            .precompute_lca_depths()
+            .expect("Failed to precompute LCA depths - tree may have disconnected nodes")
+    })
 }
 
 // ============================================================================
@@ -68,7 +80,8 @@ fn get_contemporaneous_recipients(
 ) -> Vec<usize> {
     let time_idx = find_time_index(depths, event_time);
     let contemporaries = &contemporaneity[time_idx];
-    contemporaries.iter()
+    contemporaries
+        .iter()
         .filter(|&&sp| sp != donor)
         .copied()
         .collect()
@@ -95,7 +108,8 @@ pub(crate) fn select_transfer_recipient<R: Rng>(
 
     // Pick the k-th eligible recipient (0-indexed)
     let k = rng.gen_range(0..count);
-    contemporaries.iter()
+    contemporaries
+        .iter()
         .filter(|&&sp| sp != donor)
         .nth(k)
         .copied()
@@ -208,7 +222,6 @@ pub(crate) fn find_time_index(depths: &[f64], time: f64) -> usize {
         }
     }
 }
-
 
 /// Finalizes simulation by finding the root and handling edge cases.
 pub(crate) fn finalize_simulation(
@@ -460,9 +473,9 @@ mod tests {
         let depths = vec![0.0, 1.0, 2.0];
         // contemporaneity[1] has species 0, 1, 2 alive in interval (0.0, 1.0]
         let contemporaneity = vec![
-            vec![],           // interval ending at 0.0
-            vec![0, 1, 2],   // interval (0.0, 1.0]
-            vec![1, 2],      // interval (1.0, 2.0]
+            vec![],        // interval ending at 0.0
+            vec![0, 1, 2], // interval (0.0, 1.0]
+            vec![1, 2],    // interval (1.0, 2.0]
         ];
         let recipients = get_contemporaneous_recipients(&depths, &contemporaneity, 0.5, 1);
         assert_eq!(recipients, vec![0, 2]);
@@ -473,7 +486,7 @@ mod tests {
         let depths = vec![0.0, 1.0];
         let contemporaneity = vec![
             vec![],
-            vec![3],  // only species 3 alive
+            vec![3], // only species 3 alive
         ];
         let recipients = get_contemporaneous_recipients(&depths, &contemporaneity, 0.5, 3);
         assert!(recipients.is_empty());

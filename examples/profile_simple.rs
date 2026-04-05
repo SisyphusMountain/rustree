@@ -1,8 +1,8 @@
 // Simple profiling benchmark - runs batch simulation for cleaner profiling
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use rustree::bd::simulate_bd_tree_bwd;
 use rustree::dtl::simulate_dtl_batch;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 
 fn main() {
     // Generate species tree
@@ -17,13 +17,16 @@ fn main() {
     let (_rec_trees, _events) = simulate_dtl_batch(
         &species_tree,
         species_tree.root,
-        0.2, 0.2, 0.1,
+        0.2,
+        0.2,
+        0.1,
         None,
         None,
         n_trees,
         false,
         &mut rng,
-    ).unwrap();
+    )
+    .unwrap();
 
     println!("Completed {} trees", n_trees);
 }

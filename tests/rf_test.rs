@@ -8,11 +8,11 @@
 // package which computes unrooted RF. The implementation needs to be rewritten
 // to use proper bipartition splits before this test can pass.
 
-use std::fs;
-use std::path::{Path, PathBuf};
 use rustree::node::FlatTree;
 use rustree::parse_newick;
 use rustree::robinson_foulds::unrooted_robinson_foulds;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 fn flat_tree_from_file<P: AsRef<Path>>(file_path: P) -> FlatTree {
     let tree_str = fs::read_to_string(&file_path)
@@ -33,8 +33,7 @@ fn flat_tree_from_file<P: AsRef<Path>>(file_path: P) -> FlatTree {
         panic!("No tree found in file: {:?}", file_path.as_ref());
     }
     let tree_newick = &trees[0];
-    let mut nodes = parse_newick(tree_newick)
-        .expect("Failed to parse Newick tree");
+    let mut nodes = parse_newick(tree_newick).expect("Failed to parse Newick tree");
     let root = nodes.pop().expect("No tree produced");
     root.to_flat_tree()
 }
@@ -78,9 +77,13 @@ fn test_rf_distance_comparison_table() {
             let computed_rf = unrooted_robinson_foulds(&flat_trees[i], &flat_trees[j]);
 
             assert_eq!(
-                computed_rf, expected_rf,
+                computed_rf,
+                expected_rf,
                 "RF mismatch for trees {} vs {}: expected {}, got {}",
-                i + 1, j + 1, expected_rf, computed_rf
+                i + 1,
+                j + 1,
+                expected_rf,
+                computed_rf
             );
         }
     }

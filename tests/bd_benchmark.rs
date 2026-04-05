@@ -1,8 +1,8 @@
 // Benchmark for birth-death tree simulation
 
-use rustree::bd::simulate_bd_tree_bwd;
-use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::SeedableRng;
+use rustree::bd::simulate_bd_tree_bwd;
 use std::time::Instant;
 
 /// Fast statistical test: simulate 100 BD trees with n=50 leaves and check
@@ -22,7 +22,9 @@ fn bd_statistical_leaf_count() {
     for _ in 0..n_trees {
         let (tree, _events) = simulate_bd_tree_bwd(n, lambda, mu, &mut rng).unwrap();
 
-        let leaf_count = tree.nodes.iter()
+        let leaf_count = tree
+            .nodes
+            .iter()
             .filter(|node| node.left_child.is_none() && node.right_child.is_none())
             .count();
         total_leaf_count += leaf_count;
@@ -38,16 +40,23 @@ fn bd_statistical_leaf_count() {
     // some extinct leaves too.
     assert!(
         avg_leaves >= n as f64,
-        "Average leaf count ({:.1}) should be at least n={}", avg_leaves, n
+        "Average leaf count ({:.1}) should be at least n={}",
+        avg_leaves,
+        n
     );
     // Internal nodes: for a binary tree with L leaves, there are L-1 internal nodes,
     // so total = 2L - 1. Check that node count is consistent.
     assert!(
         avg_nodes >= (2 * n - 1) as f64,
-        "Average node count ({:.1}) should be at least 2n-1={}", avg_nodes, 2 * n - 1
+        "Average node count ({:.1}) should be at least 2n-1={}",
+        avg_nodes,
+        2 * n - 1
     );
 
-    println!("BD statistical test: avg leaves={:.1}, avg nodes={:.1} (n={})", avg_leaves, avg_nodes, n);
+    println!(
+        "BD statistical test: avg leaves={:.1}, avg nodes={:.1} (n={})",
+        avg_leaves, avg_nodes, n
+    );
 }
 
 #[test]
@@ -72,7 +81,12 @@ fn benchmark_bd_tree_1000x1000() {
         if (i + 1) % 100 == 0 {
             let elapsed = start.elapsed();
             let trees_per_sec = (i + 1) as f64 / elapsed.as_secs_f64();
-            println!("Progress: {}/{} trees ({:.1} trees/sec)", i + 1, n_trees, trees_per_sec);
+            println!(
+                "Progress: {}/{} trees ({:.1} trees/sec)",
+                i + 1,
+                n_trees,
+                trees_per_sec
+            );
         }
     }
 
@@ -81,9 +95,15 @@ fn benchmark_bd_tree_1000x1000() {
 
     println!("\n=== Results ===");
     println!("Total time: {:.3} seconds", total_time.as_secs_f64());
-    println!("Average time per tree: {:.3} ms", total_time.as_millis() as f64 / n_trees as f64);
+    println!(
+        "Average time per tree: {:.3} ms",
+        total_time.as_millis() as f64 / n_trees as f64
+    );
     println!("Trees per second: {:.2}", trees_per_sec);
-    println!("Total nodes generated: ~{} million", (n_trees * n_leaves * 2) / 1_000_000);
+    println!(
+        "Total nodes generated: ~{} million",
+        (n_trees * n_leaves * 2) / 1_000_000
+    );
 }
 
 #[test]
@@ -108,7 +128,12 @@ fn benchmark_bd_tree_pure_birth_1000x1000() {
         if (i + 1) % 100 == 0 {
             let elapsed = start.elapsed();
             let trees_per_sec = (i + 1) as f64 / elapsed.as_secs_f64();
-            println!("Progress: {}/{} trees ({:.1} trees/sec)", i + 1, n_trees, trees_per_sec);
+            println!(
+                "Progress: {}/{} trees ({:.1} trees/sec)",
+                i + 1,
+                n_trees,
+                trees_per_sec
+            );
         }
     }
 
@@ -117,7 +142,10 @@ fn benchmark_bd_tree_pure_birth_1000x1000() {
 
     println!("\n=== Results ===");
     println!("Total time: {:.3} seconds", total_time.as_secs_f64());
-    println!("Average time per tree: {:.3} ms", total_time.as_millis() as f64 / n_trees as f64);
+    println!(
+        "Average time per tree: {:.3} ms",
+        total_time.as_millis() as f64 / n_trees as f64
+    );
     println!("Trees per second: {:.2}", trees_per_sec);
 }
 
@@ -135,7 +163,13 @@ fn benchmark_varying_sizes() {
     println!("{}", "-".repeat(40));
 
     for &n in &sizes {
-        let n_reps = if n <= 100 { 100 } else if n <= 1000 { 50 } else { 10 };
+        let n_reps = if n <= 100 {
+            100
+        } else if n <= 1000 {
+            50
+        } else {
+            10
+        };
 
         let start = Instant::now();
         for _ in 0..n_reps {

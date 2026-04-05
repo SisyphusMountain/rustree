@@ -1,10 +1,10 @@
 // Thread-safety and concurrency tests (#81)
 // Verify that parallel simulation produces correct results.
 
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use rustree::bd::simulate_bd_tree_bwd;
 use rustree::dtl::simulate_dtl;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use std::sync::Arc;
 
 #[test]
@@ -27,14 +27,20 @@ fn test_parallel_bd_simulation() {
         assert!(!tree.nodes.is_empty());
         assert!(!events.is_empty());
         let leaves = tree.get_leaves().len();
-        assert!(leaves >= 10, "Each tree should have at least 10 leaves (extant)");
+        assert!(
+            leaves >= 10,
+            "Each tree should have at least 10 leaves (extant)"
+        );
     }
 
     // Different seeds should generally produce different trees
     let sizes: Vec<usize> = results.iter().map(|(t, _)| t.nodes.len()).collect();
     let unique_sizes: std::collections::HashSet<usize> = sizes.iter().copied().collect();
     // With 20 trials and extinction, highly likely to get multiple distinct sizes
-    assert!(unique_sizes.len() > 1, "All 20 trees had identical sizes — suspicious");
+    assert!(
+        unique_sizes.len() > 1,
+        "All 20 trees had identical sizes — suspicious"
+    );
 }
 
 #[test]
@@ -71,7 +77,10 @@ fn test_parallel_dtl_shared_species_tree() {
             }
         }
     }
-    assert!(success_count > 0, "At least one DTL simulation should succeed");
+    assert!(
+        success_count > 0,
+        "At least one DTL simulation should succeed"
+    );
 }
 
 #[test]
@@ -90,8 +99,14 @@ fn test_parallel_determinism() {
     });
     let (tree_par, events_par) = handle.join().unwrap();
 
-    assert_eq!(tree_seq.nodes.len(), tree_par.nodes.len(),
-        "Same seed should produce same tree regardless of thread");
-    assert_eq!(events_seq.len(), events_par.len(),
-        "Same seed should produce same events regardless of thread");
+    assert_eq!(
+        tree_seq.nodes.len(),
+        tree_par.nodes.len(),
+        "Same seed should produce same tree regardless of thread"
+    );
+    assert_eq!(
+        events_seq.len(),
+        events_par.len(),
+        "Same seed should produce same events regardless of thread"
+    );
 }

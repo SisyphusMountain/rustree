@@ -1,8 +1,8 @@
 // rustree/src/newick/newick.rs
 // This module contains functions to parse Newick formatted strings into Tree structures
 // and to convert Tree structures back into Newick formatted strings.
-use crate::node::{Node, FlatTree};
 use crate::error::RustreeError;
+use crate::node::{FlatTree, Node};
 
 #[derive(Parser)]
 #[grammar = "newick/newick.pest"]
@@ -21,7 +21,11 @@ pub fn parse_newick(newick_str: &str) -> Result<Vec<Node>, RustreeError> {
     let mut pairs = NewickParser::parse(Rule::newick, newick_str)
         .map_err(|e| RustreeError::Parse(e.to_string()))?;
 
-    newick_to_tree(pairs.next().ok_or_else(|| RustreeError::Parse("No tree found in input".to_string()))?)
+    newick_to_tree(
+        pairs
+            .next()
+            .ok_or_else(|| RustreeError::Parse("No tree found in input".to_string()))?,
+    )
 }
 
 fn newick_to_tree(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Node>, RustreeError> {
@@ -46,8 +50,11 @@ pub fn handle_pair(pair: pest::iterators::Pair<Rule>) -> Result<Option<Node>, Ru
             Ok(None)
         }
         Rule::subtree => {
-            let inner = pair.into_inner().next()
-                .ok_or_else(|| RustreeError::Parse("Malformed Newick: subtree rule has no inner elements".to_string()))?;
+            let inner = pair.into_inner().next().ok_or_else(|| {
+                RustreeError::Parse(
+                    "Malformed Newick: subtree rule has no inner elements".to_string(),
+                )
+            })?;
             handle_pair(inner)
         }
         Rule::leaf => {
@@ -62,7 +69,10 @@ pub fn handle_pair(pair: pest::iterators::Pair<Rule>) -> Result<Option<Node>, Ru
                     Rule::LENGTH => {
                         let val = inner_pair.as_str();
                         length = val.parse::<f64>().map_err(|e| {
-                            RustreeError::Parse(format!("Failed to parse branch length '{}': {}", val, e))
+                            RustreeError::Parse(format!(
+                                "Failed to parse branch length '{}': {}",
+                                val, e
+                            ))
                         })?;
                     }
                     _ => {} // Ignore other rules
@@ -84,8 +94,11 @@ pub fn handle_pair(pair: pest::iterators::Pair<Rule>) -> Result<Option<Node>, Ru
             for inner_pair in pair.into_inner() {
                 match inner_pair.as_rule() {
                     Rule::subtree => {
-                        let subtree = handle_pair(inner_pair)?
-                            .ok_or_else(|| RustreeError::Parse("Malformed Newick: subtree produced no node".to_string()))?;
+                        let subtree = handle_pair(inner_pair)?.ok_or_else(|| {
+                            RustreeError::Parse(
+                                "Malformed Newick: subtree produced no node".to_string(),
+                            )
+                        })?;
                         subtrees.push(subtree);
                     }
                     Rule::LABEL | Rule::NAME => {
@@ -94,7 +107,10 @@ pub fn handle_pair(pair: pest::iterators::Pair<Rule>) -> Result<Option<Node>, Ru
                     Rule::LENGTH => {
                         let val = inner_pair.as_str();
                         length = val.parse::<f64>().map_err(|e| {
-                            RustreeError::Parse(format!("Failed to parse branch length '{}': {}", val, e))
+                            RustreeError::Parse(format!(
+                                "Failed to parse branch length '{}': {}",
+                                val, e
+                            ))
                         })?;
                     }
                     _ => {}
@@ -177,10 +193,7 @@ fn node_to_newick_recursive(node: &Node, index: usize) -> Result<String, Rustree
             let right_str = node_to_newick_recursive(right_child, index + 2)?;
             Ok(format!(
                 "({},{}){}:{:.6}",
-                left_str,
-                right_str,
-                node.name,
-                node.length
+                left_str, right_str, node.name, node.length
             ))
         }
         (None, None) => {
@@ -287,7 +300,11 @@ mod tests {
     #[test]
     fn test_parse_quoted_labels() {
         let result = parse_newick("('Species 1':1.0,'Species 2':2.0):0.0;");
-        assert!(result.is_ok(), "Failed to parse quoted labels: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to parse quoted labels: {:?}",
+            result.err()
+        );
         let nodes = result.unwrap();
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].left_child.as_ref().unwrap().name, "Species 1");
@@ -378,7 +395,9 @@ mod tests {
         let nodes = parse_newick("(((A:1,B:1):1,(C:1,D:1):1):1,E:3);").unwrap();
         assert_eq!(nodes.len(), 1);
         let tree = nodes[0].to_flat_tree();
-        let leaf_count = tree.nodes.iter()
+        let leaf_count = tree
+            .nodes
+            .iter()
             .filter(|n| n.left_child.is_none() && n.right_child.is_none())
             .count();
         assert_eq!(leaf_count, 5);

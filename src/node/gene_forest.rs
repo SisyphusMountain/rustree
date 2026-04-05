@@ -6,11 +6,11 @@
 //! - Batch reconciliation with ALERax
 //! - Batch export to Newick/XML/CSV
 
+use crate::node::rectree::Event;
+use crate::node::{FlatTree, RecTree};
+use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names};
 use std::collections::HashSet;
 use std::sync::Arc;
-use crate::node::{FlatTree, RecTree};
-use crate::node::rectree::Event;
-use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names};
 
 /// A collection of gene trees associated with a single species tree.
 ///
@@ -126,7 +126,10 @@ impl GeneForest {
         let mut sampled_trees = Vec::with_capacity(self.gene_trees.len());
         for rt in &self.gene_trees {
             let sampled = sample_single_gene_tree(
-                rt, &species_leaf_name_set, &species_old_to_new, &shared_species,
+                rt,
+                &species_leaf_name_set,
+                &species_old_to_new,
+                &shared_species,
             )?;
             sampled_trees.push(sampled);
         }
@@ -146,7 +149,9 @@ impl GeneForest {
     /// This is a convenience wrapper around `sample_leaves` that
     /// accepts a `FlatTree` instead of a list of leaf names.
     pub fn prune_to_species_tree(&self, target_species_tree: &FlatTree) -> Result<Self, String> {
-        let leaf_names: Vec<String> = target_species_tree.nodes.iter()
+        let leaf_names: Vec<String> = target_species_tree
+            .nodes
+            .iter()
             .filter(|n| n.left_child.is_none() && n.right_child.is_none())
             .map(|n| n.name.clone())
             .collect();
@@ -166,7 +171,10 @@ impl GeneForest {
 
         for rt in &self.gene_trees {
             // Find extant leaf indices
-            let extant_indices: HashSet<usize> = rt.gene_tree.nodes.iter()
+            let extant_indices: HashSet<usize> = rt
+                .gene_tree
+                .nodes
+                .iter()
                 .enumerate()
                 .filter(|(i, n)| {
                     n.left_child.is_none()
@@ -185,13 +193,14 @@ impl GeneForest {
                     .ok_or_else(|| "Failed to extract extant gene subtree".to_string())?;
 
             // Identity species mapping (species tree is unchanged)
-            let identity: Vec<Option<usize>> = (0..self.species_tree.nodes.len())
-                .map(Some)
-                .collect();
+            let identity: Vec<Option<usize>> =
+                (0..self.species_tree.nodes.len()).map(Some).collect();
 
             let (new_node_mapping, new_event_mapping) = remap_gene_tree_indices(
-                &sampled_gene_tree, &gene_old_to_new,
-                &rt.node_mapping, &rt.event_mapping,
+                &sampled_gene_tree,
+                &gene_old_to_new,
+                &rt.node_mapping,
+                &rt.event_mapping,
                 &identity,
             )?;
 
@@ -234,10 +243,9 @@ fn sample_single_gene_tree(
         if rt.node_mapping.iter().all(|m| m.is_none()) {
             return Err("No gene tree leaves map to the sampled species".to_string());
         } else {
-            return Err(
-                "No gene tree leaves map to the sampled species, \
-                 but some leaves were mapped to species".to_string()
-            );
+            return Err("No gene tree leaves map to the sampled species, \
+                 but some leaves were mapped to species"
+                .to_string());
         }
     }
 
@@ -246,8 +254,10 @@ fn sample_single_gene_tree(
             .ok_or_else(|| "Failed to extract gene subtree".to_string())?;
 
     let (new_node_mapping, new_event_mapping) = remap_gene_tree_indices(
-        &sampled_gene_tree, &gene_old_to_new,
-        &rt.node_mapping, &rt.event_mapping,
+        &sampled_gene_tree,
+        &gene_old_to_new,
+        &rt.node_mapping,
+        &rt.event_mapping,
         species_old_to_new,
     )?;
 
@@ -264,12 +274,17 @@ fn find_gene_leaves_for_species(
     rt: &RecTree,
     species_leaf_names: &HashSet<&str>,
 ) -> HashSet<usize> {
-    rt.gene_tree.nodes.iter().enumerate()
+    rt.gene_tree
+        .nodes
+        .iter()
+        .enumerate()
         .filter(|(idx, node)| {
             node.left_child.is_none()
                 && node.right_child.is_none()
                 && rt.node_mapping[*idx]
-                    .map(|sp_idx| species_leaf_names.contains(rt.species_tree.nodes[sp_idx].name.as_str()))
+                    .map(|sp_idx| {
+                        species_leaf_names.contains(rt.species_tree.nodes[sp_idx].name.as_str())
+                    })
                     .unwrap_or(false)
         })
         .map(|(idx, _)| idx)
@@ -362,7 +377,10 @@ mod tests {
         assert_eq!(forest.get(0).unwrap().gene_tree.nodes[0].name, "g0");
 
         // All gene trees share the same species tree Arc
-        assert!(Arc::ptr_eq(&forest.species_tree, &forest.gene_trees[0].species_tree));
+        assert!(Arc::ptr_eq(
+            &forest.species_tree,
+            &forest.gene_trees[0].species_tree
+        ));
     }
 
     #[test]
@@ -375,18 +393,30 @@ mod tests {
             nodes: vec![
                 crate::node::FlatNode {
                     name: "A_0".to_string(),
-                    left_child: None, right_child: None,
-                    parent: Some(2), depth: Some(0.0), length: 1.0, bd_event: None,
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(2),
+                    depth: Some(0.0),
+                    length: 1.0,
+                    bd_event: None,
                 },
                 crate::node::FlatNode {
                     name: "C_0".to_string(),
-                    left_child: None, right_child: None,
-                    parent: Some(2), depth: Some(0.0), length: 1.0, bd_event: None,
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(2),
+                    depth: Some(0.0),
+                    length: 1.0,
+                    bd_event: None,
                 },
                 crate::node::FlatNode {
                     name: "root".to_string(),
-                    left_child: Some(0), right_child: Some(1),
-                    parent: None, depth: Some(1.0), length: 0.0, bd_event: None,
+                    left_child: Some(0),
+                    right_child: Some(1),
+                    parent: None,
+                    depth: Some(1.0),
+                    length: 0.0,
+                    bd_event: None,
                 },
             ],
             root: 2,
@@ -395,9 +425,21 @@ mod tests {
         // Map leaves to species: A_0 -> A (idx 1), C_0 -> C (idx 3)
         // Species tree nodes: root(0), AB(1), A(2), B(3), CD(4), C(5), D(6)
         // Wait, let's find the actual indices
-        let a_idx = species_arc.nodes.iter().position(|n| n.name == "A").unwrap();
-        let c_idx = species_arc.nodes.iter().position(|n| n.name == "C").unwrap();
-        let root_sp_idx = species_arc.nodes.iter().position(|n| n.name == "root").unwrap();
+        let a_idx = species_arc
+            .nodes
+            .iter()
+            .position(|n| n.name == "A")
+            .unwrap();
+        let c_idx = species_arc
+            .nodes
+            .iter()
+            .position(|n| n.name == "C")
+            .unwrap();
+        let root_sp_idx = species_arc
+            .nodes
+            .iter()
+            .position(|n| n.name == "root")
+            .unwrap();
 
         let node_mapping = vec![Some(a_idx), Some(c_idx), Some(root_sp_idx)];
         let event_mapping = vec![Event::Leaf, Event::Leaf, Event::Speciation];
@@ -410,7 +452,10 @@ mod tests {
         let pruned = forest.prune_to_species_tree(&target).unwrap();
 
         // Check pruned species tree has only A and C as leaves
-        let leaf_names: Vec<String> = pruned.species_tree().nodes.iter()
+        let leaf_names: Vec<String> = pruned
+            .species_tree()
+            .nodes
+            .iter()
             .filter(|n| n.left_child.is_none() && n.right_child.is_none())
             .map(|n| n.name.clone())
             .collect();
@@ -428,7 +473,10 @@ mod tests {
         let species = make_species_tree("((A:1,B:1)AB:1,C:2)root:0;");
         let forest = GeneForest::new(species);
 
-        let empty_tree = FlatTree { nodes: vec![], root: 0 };
+        let empty_tree = FlatTree {
+            nodes: vec![],
+            root: 0,
+        };
         let result = forest.prune_to_species_tree(&empty_tree);
         assert!(result.is_err());
     }
@@ -440,13 +488,19 @@ mod tests {
 
         let rt1 = RecTree::new(
             Arc::clone(&species_arc),
-            FlatTree { nodes: vec![], root: 0 },
+            FlatTree {
+                nodes: vec![],
+                root: 0,
+            },
             vec![],
             vec![],
         );
         let rt2 = RecTree::new(
             Arc::new(make_species_tree("(X:1,Y:1)root:0;")), // different Arc
-            FlatTree { nodes: vec![], root: 0 },
+            FlatTree {
+                nodes: vec![],
+                root: 0,
+            },
             vec![],
             vec![],
         );
@@ -454,7 +508,13 @@ mod tests {
         let forest = GeneForest::from_rec_trees(Arc::clone(&species_arc), vec![rt1, rt2]);
 
         // Both should now share the same species tree Arc
-        assert!(Arc::ptr_eq(&forest.species_tree, &forest.gene_trees[0].species_tree));
-        assert!(Arc::ptr_eq(&forest.species_tree, &forest.gene_trees[1].species_tree));
+        assert!(Arc::ptr_eq(
+            &forest.species_tree,
+            &forest.gene_trees[0].species_tree
+        ));
+        assert!(Arc::ptr_eq(
+            &forest.species_tree,
+            &forest.gene_trees[1].species_tree
+        ));
     }
 }
