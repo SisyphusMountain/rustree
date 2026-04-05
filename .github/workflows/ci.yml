@@ -4,10 +4,21 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+
   rust:
-    name: Rust
+    name: Rust (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -24,18 +35,22 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: clippy
 
-      - name: Check (${{ matrix.name }})
+      - name: Install R
+        if: matrix.name == 'r'
+        uses: r-lib/actions/setup-r@v2
+
+      - name: Check
         run: cargo check ${{ matrix.features }}
 
-      - name: Test (${{ matrix.name }})
+      - name: Test
         run: cargo test ${{ matrix.features }}
 
-      - name: Clippy (${{ matrix.name }})
+      - name: Clippy
         run: cargo clippy ${{ matrix.features }} -- -D warnings
 
-      - name: Doc check (${{ matrix.name }})
+      - name: Doc check
         run: cargo doc --no-deps ${{ matrix.features }}
         env:
           RUSTDOCFLAGS: "-D warnings"
@@ -53,8 +68,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: |
-          pip install maturin pytest numpy pandas
+        run: pip install maturin pytest numpy pandas
 
       - name: Build rustree wheel
         run: maturin build --features python

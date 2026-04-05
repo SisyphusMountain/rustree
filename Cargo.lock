@@ -207,16 +207,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ctor"
-version = "0.2.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a2785755761f3ddc1492979ce1e48d2c00d09311c39e4466429188f3dd6501"
-dependencies = [
- "quote",
- "syn",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -252,16 +242,6 @@ dependencies = [
  "libR-sys",
  "once_cell",
  "paste",
-]
-
-[[package]]
-name = "extendr-engine"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "268440fc25ddc76a70e45510e4c4f35a0359cc3642479a627dac72650de45d69"
-dependencies = [
- "ctor",
- "libR-sys",
 ]
 
 [[package]]
@@ -798,7 +778,6 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "extendr-api",
- "extendr-engine",
  "log",
  "numpy",
  "pest",

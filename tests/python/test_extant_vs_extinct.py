@@ -12,13 +12,18 @@ print(f"Total nodes: {tree.num_nodes()} nodes\n")
 
 # Get BD events to distinguish extant from extinct
 events = tree.get_bd_events()
-print(f"Birth-death events:")
-print(f"  Leaves (extant): {len(events['leaves'])} events")
-print(f"  Extinctions: {len(events['extinctions'])} events")
-print(f"  Speciations: {len(events['speciations'])} events")
+event_types = events['event_type']
+n_leaves = event_types.count('Leaf')
+n_extinctions = event_types.count('Extinction')
+n_speciations = event_types.count('Speciation')
 
-print(f"\n✓ The tree includes BOTH extant AND extinct species as leaves!")
-print(f"✓ Extant leaves: {len(events['leaves'])}")
-print(f"✓ Extinct leaves: {len(events['extinctions'])}")
-print(f"✓ Total leaves: {tree.num_leaves()}")
-print(f"✓ Verification: {len(events['leaves']) + len(events['extinctions'])} = {tree.num_leaves()}")
+print(f"Birth-death events:")
+print(f"  Leaves (extant): {n_leaves} events")
+print(f"  Extinctions: {n_extinctions} events")
+print(f"  Speciations: {n_speciations} events")
+
+print(f"\nThe tree includes BOTH extant AND extinct species as leaves!")
+print(f"Extant leaves: {n_leaves}")
+print(f"Extinct leaves: {n_extinctions}")
+print(f"Total leaves: {tree.num_leaves()}")
+print(f"Verification: {n_leaves + n_extinctions} = {tree.num_leaves()}")
