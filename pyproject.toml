@@ -22,3 +22,6 @@ all = ["matplotlib", "pandas"]
 
 [tool.maturin]
 features = ["python"]
+
+[tool.pytest.ini_options]
+timeout = 60

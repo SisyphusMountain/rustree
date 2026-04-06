@@ -73,7 +73,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install maturin pytest numpy pandas
+        run: pip install maturin pytest pytest-timeout numpy pandas
 
       - name: Build rustree wheel
         run: maturin build --features python
