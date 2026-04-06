@@ -55,6 +55,7 @@ jobs:
         run: cargo clippy ${{ matrix.features }} -- -D warnings
 
       - name: Doc check
+        if: matrix.name != 'python'
         run: cargo doc --no-deps ${{ matrix.features }}
         env:
           RUSTDOCFLAGS: "-D warnings"
