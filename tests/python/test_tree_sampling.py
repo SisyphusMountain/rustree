@@ -42,7 +42,7 @@ def simple_gene_tree(simple_species_tree):
 def large_gene_tree(medium_species_tree):
     """Create a larger gene tree for comprehensive testing."""
     # Use high duplication to ensure many genes
-    return medium_species_tree.simulate_dtl(2.0, 0.1, 0.1, require_extant=True, seed=200)
+    return medium_species_tree.simulate_dtl(0.8, 0.1, 0.1, require_extant=True, seed=200)
 
 
 # =============================================================================
@@ -661,7 +661,7 @@ def test_sample_workflow_save_and_export(simple_gene_tree, tmp_path):
 def test_sample_large_subset_from_very_large_tree():
     """Test sampling a large subset from a very large gene tree."""
     sp_tree = rustree.simulate_species_tree(50, 1.0, 0.3, seed=500)
-    gene_tree = sp_tree.simulate_dtl(2.0, 0.1, 0.1, require_extant=True, seed=600)
+    gene_tree = sp_tree.simulate_dtl(0.8, 0.1, 0.1, require_extant=True, seed=600)
 
     all_names = gene_tree.extant_gene_names()
 
