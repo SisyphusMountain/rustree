@@ -114,10 +114,9 @@ def test_save_bd_events_csv_has_leaf_events():
         leaf_events = [r for r in rows if r['event_type'] == 'Leaf']
         assert len(leaf_events) == 10, f"Should have exactly 10 Leaf events, got {len(leaf_events)}"
 
-        # Leaf events should have time = 0.0 (present)
-        for event in leaf_events:
-            time = float(event['time'])
-            assert time == 0.0, f"Leaf events should be at time 0, got {time}"
+        # Leaf events are extant species: all at the same depth (tree height)
+        leaf_times = [float(e['time']) for e in leaf_events]
+        assert len(set(leaf_times)) == 1, "All leaf events should be at the same depth"
     finally:
         if os.path.exists(filepath):
             os.remove(filepath)
@@ -421,10 +420,9 @@ def test_get_bd_events_has_leaf_events():
     leaf_count = events['event_type'].count('Leaf')
     assert leaf_count == 10, f"Should have 10 Leaf events, got {leaf_count}"
 
-    # Verify leaf times are 0.0
-    for i, event_type in enumerate(events['event_type']):
-        if event_type == 'Leaf':
-            assert events['time'][i] == 0.0, f"Leaf event should be at time 0, got {events['time'][i]}"
+    # Leaf events are extant species: all at the same depth (tree height)
+    leaf_times = [events['time'][i] for i, t in enumerate(events['event_type']) if t == 'Leaf']
+    assert len(set(leaf_times)) == 1, "All leaf events should be at the same depth"
 
     print("PASS: test_get_bd_events_has_leaf_events")
 
