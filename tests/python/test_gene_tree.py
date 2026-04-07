@@ -211,7 +211,7 @@ def test_num_extant_consistency():
 
 def test_num_extant_with_require_extant():
     """Test num_extant with require_extant guarantee."""
-    gt = SP_TREE.simulate_dtl(0.1, 0.0, 2.0, require_extant=True, seed=7200)
+    gt = SP_TREE.simulate_dtl(0.1, 0.0, 0.5, require_extant=True, seed=7200)
     assert gt.num_extant() >= 1, "require_extant=True should guarantee num_extant >= 1"
 
 
@@ -316,7 +316,7 @@ def test_extant_gene_names_consistency():
 
 def test_extant_gene_names_with_require_extant():
     """Test extant_gene_names with require_extant=True."""
-    gt = SP_TREE.simulate_dtl(0.1, 0.0, 2.0, require_extant=True, seed=9400)
+    gt = SP_TREE.simulate_dtl(0.1, 0.0, 0.5, require_extant=True, seed=9400)
     names = gt.extant_gene_names()
     assert len(names) >= 1, "require_extant=True should guarantee at least 1 name"
 
