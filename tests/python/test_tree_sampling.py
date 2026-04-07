@@ -405,9 +405,9 @@ def test_sample_tree_with_single_extant_gene():
     # Create tree that might have few genes
     sp_tree = rustree.simulate_species_tree(5, 1.0, 0.3, seed=42)
 
-    # Try to get a tree with few extant genes
+    # Try to get a tree with few extant genes (use require_extant=False to avoid infinite retry)
     for i in range(50):
-        gene_tree = sp_tree.simulate_dtl(0.1, 0.0, 0.5, require_extant=True, seed=1000 + i)
+        gene_tree = sp_tree.simulate_dtl(0.1, 0.0, 0.5, require_extant=False, seed=1000 + i)
         names = gene_tree.extant_gene_names()
 
         if len(names) == 1:

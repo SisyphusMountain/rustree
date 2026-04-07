@@ -69,7 +69,7 @@ def test_simulate_dtl_require_extant_true():
     """Test require_extant=True ensures trees have at least 1 extant gene."""
     # Moderate loss rate: still exercises the retry path without risk of infinite loop
     for i in range(5):
-        gt = SP_TREE.simulate_dtl(0.1, 0.0, 0.5, require_extant=True, seed=1000 + i)
+        gt = SP_TREE.simulate_dtl(0.1, 0.0, 0.1, require_extant=True, seed=1000 + i)
         assert gt.num_extant() >= 1, f"require_extant=True should guarantee at least 1 extant gene (iteration {i})"
 
 
@@ -156,7 +156,7 @@ def test_simulate_dtl_batch_large():
 def test_simulate_dtl_batch_require_extant_true():
     """Test require_extant=True in batch mode."""
     # Moderate loss rate: exercises the retry path without risk of infinite loop
-    trees = SP_TREE.simulate_dtl_batch(5, 0.1, 0.0, 0.5, require_extant=True, seed=6300)
+    trees = SP_TREE.simulate_dtl_batch(5, 0.1, 0.0, 0.1, require_extant=True, seed=6300)
     for i, gt in enumerate(trees):
         assert gt.num_extant() >= 1, f"Tree {i} should have at least 1 extant gene with require_extant=True"
 
@@ -211,7 +211,7 @@ def test_num_extant_consistency():
 
 def test_num_extant_with_require_extant():
     """Test num_extant with require_extant guarantee."""
-    gt = SP_TREE.simulate_dtl(0.1, 0.0, 0.5, require_extant=True, seed=7200)
+    gt = SP_TREE.simulate_dtl(0.1, 0.0, 0.1, require_extant=True, seed=7200)
     assert gt.num_extant() >= 1, "require_extant=True should guarantee num_extant >= 1"
 
 
@@ -316,7 +316,7 @@ def test_extant_gene_names_consistency():
 
 def test_extant_gene_names_with_require_extant():
     """Test extant_gene_names with require_extant=True."""
-    gt = SP_TREE.simulate_dtl(0.1, 0.0, 0.5, require_extant=True, seed=9400)
+    gt = SP_TREE.simulate_dtl(0.1, 0.0, 0.1, require_extant=True, seed=9400)
     names = gt.extant_gene_names()
     assert len(names) >= 1, "require_extant=True should guarantee at least 1 name"
 
