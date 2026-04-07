@@ -101,31 +101,31 @@ fn run_spr_test(moved_node_name: &str, receiver_name: &str, expected_filename: &
 }
 
 #[test]
-fn test_spr_3_to_2() {
-    // For donor "3" and receiver "2", expected topology is in 3_to_2.nwk.
+fn test_spr_2_to_3() {
+    // For donor "2" and receiver "3", expected topology is in 3_to_2.nwk.
     run_spr_test("2", "3", "3_to_2.nwk");
 }
 
 #[test]
-fn test_spr_1_to_2() {
-    // For donor "1" and receiver "2", expected topology is in 1_to_2.nwk.
+fn test_spr_2_to_1() {
+    // For donor "2" and receiver "1", expected topology is in 1_to_2.nwk.
     run_spr_test("2", "1", "1_to_2.nwk");
 }
 
 #[test]
-fn test_spr_4_to_t10() {
-    // For donor "4" and receiver "T10", expected topology is in 4_to_T10.nwk.
+fn test_spr_t10_to_4() {
+    // For donor "T10" and receiver "4", expected topology is in 4_to_T10.nwk.
     run_spr_test("T10", "4", "4_to_T10.nwk");
 }
 
 #[test]
-fn test_spr_4_to_5() {
-    // For donor "4" and receiver "5", expected topology is in 4_to_5.nwk.
+fn test_spr_5_to_4() {
+    // For donor "5" and receiver "4", expected topology is in 4_to_5.nwk.
     run_spr_test("5", "4", "4_to_5.nwk");
 }
 
 #[test]
-fn test_spr_0_to_t7() {
-    // For donor "0" and receiver "T7", expected topology is in 0_to_T7.nwk.
+fn test_spr_t7_to_0() {
+    // For donor "T7" and receiver "0", expected topology is in 0_to_T7.nwk.
     run_spr_test("T7", "0", "0_to_T7.nwk");
 }

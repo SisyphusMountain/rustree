@@ -90,7 +90,7 @@ def main():
         print(f"\nVerifying first reconciliation sample:")
         best_tree = result.gene_trees[0]
         events = best_tree.count_events()
-        print(f"  Events in first sample: S={events[0]}, D={events[1]}, T={events[2]}, L={events[3]}")
+        print(f"  Events in first sample: S={events['speciations']}, D={events['duplications']}, T={events['transfers']}, L={events['losses']}")
         print(f"  Number of nodes:        {best_tree.num_nodes()}")
         print(f"  Number of extant genes: {best_tree.num_extant()}")
 

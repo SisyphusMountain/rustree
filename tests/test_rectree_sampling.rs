@@ -353,7 +353,7 @@ fn test_sample_species_leaves_with_duplication() {
                 event_mapping[idx] = Event::Duplication;
             } else {
                 // Root speciation node
-                node_mapping[idx] = Some(a_idx);
+                node_mapping[idx] = Some(species_tree.root);
                 event_mapping[idx] = Event::Speciation;
             }
         }

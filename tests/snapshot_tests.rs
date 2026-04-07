@@ -140,7 +140,7 @@ fn test_different_seeds_produce_different_trees() {
         let n2 = tree2.to_newick().unwrap();
         // Extremely unlikely both are identical — only fail if truly suspicious
         assert!(
-            n1 != n2 || true,
+            n1 != n2,
             "Different seeds produced identical trees — check RNG usage"
         );
     }

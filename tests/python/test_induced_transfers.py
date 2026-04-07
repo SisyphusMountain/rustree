@@ -19,7 +19,12 @@ gene_tree = species_tree.simulate_dtl(
 print(f"Gene tree: {gene_tree.num_extant()} extant genes")
 
 # Count events
-spec, dup, trans, loss, leaves = gene_tree.count_events()
+events = gene_tree.count_events()
+spec = events["speciations"]
+dup = events["duplications"]
+trans = events["transfers"]
+loss = events["losses"]
+leaves = events["leaves"]
 print(f"Events: {spec} speciations, {dup} duplications, {trans} transfers, {loss} losses, {leaves} leaves")
 
 # Sample a subset of species (first 20 leaves)
