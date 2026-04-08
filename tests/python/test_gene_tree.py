@@ -13,6 +13,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "target", "release"))
 import rustree
 import tempfile
+import numpy as np
 
 # Create a shared species tree for all tests
 SP_TREE = rustree.simulate_species_tree(30, 1.0, 0.3, seed=42)
@@ -745,6 +746,54 @@ def test_save_newick_overwrite():
     finally:
         if os.path.exists(filepath):
             os.remove(filepath)
+
+
+def test_rf_distance_error_on_mismatched_leaf_sets():
+    """Test rf_distance raises ValueError for different extant leaf labels."""
+    species_newick = "((A:1,B:1):1,(C:1,D:1):1):0;"
+    gt1 = rustree.from_reconciliation(
+        species_newick,
+        "(g1:1,g2:1):0;",
+        {"g1": "A", "g2": "B"},
+        {"g1": 3, "g2": 3},
+    )
+    gt2 = rustree.from_reconciliation(
+        species_newick,
+        "(g3:1,g4:1):0;",
+        {"g3": "C", "g4": "D"},
+        {"g3": 3, "g4": 3},
+    )
+
+    try:
+        gt1.rf_distance(gt2)
+        assert False, "rf_distance should raise on mismatched leaf labels"
+    except ValueError as e:
+        assert "identical leaf labels" in str(e)
+
+
+def test_compute_gcn_norm_invalid_shape():
+    """Test compute_gcn_norm rejects arrays that are not shape (2, E)."""
+    bad_edge_index = np.array([[0, 1, 2]], dtype=np.int32)
+
+    try:
+        rustree.compute_gcn_norm(bad_edge_index, 3)
+        assert False, "compute_gcn_norm should reject non-(2, E) arrays"
+    except ValueError as e:
+        assert "shape (2, E)" in str(e)
+
+
+def test_from_reconciliation_invalid_event_code():
+    """Test from_reconciliation rejects unknown event codes."""
+    try:
+        rustree.from_reconciliation(
+            "(A:1,B:1):0;",
+            "(g1:1,g2:1):0;",
+            {"g1": "A", "g2": "B"},
+            {"g1": 99, "g2": 3},
+        )
+        assert False, "from_reconciliation should reject invalid event codes"
+    except ValueError as e:
+        assert "Invalid event code 99" in str(e)
 
 
 # =============================================================================

@@ -25,7 +25,6 @@ use crate::dtl::{
     simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch,
 };
 use crate::dtl::{simulate_dtl_iter, simulate_dtl_per_species_iter};
-use crate::induced_transfers::induced_transfers;
 use crate::node::{remap_gene_tree_indices, Event, FlatTree, GeneForest, RecTree};
 use crate::sampling::{extract_induced_subtree, extract_induced_subtree_by_names};
 

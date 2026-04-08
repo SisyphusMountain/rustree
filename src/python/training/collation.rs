@@ -723,11 +723,28 @@ pub fn compute_gcn_norm(
 ) -> PyResult<(PyObject, PyObject)> {
     use numpy::ndarray::Array2;
     use numpy::ToPyArray;
-    use numpy::{PyArray1, PyArrayMethods};
+    use numpy::{PyArray1, PyArrayMethods, PyUntypedArrayMethods};
+
+    let shape = edge_index.shape();
+    if shape[0] != 2 {
+        return Err(PyValueError::new_err(format!(
+            "compute_gcn_norm: edge_index must have shape (2, E), got ({}, {})",
+            shape[0], shape[1]
+        )));
+    }
 
     let ei = unsafe { edge_index.as_array() };
     let src: Vec<i32> = ei.row(0).to_vec();
     let dst: Vec<i32> = ei.row(1).to_vec();
+
+    for (&s, &d) in src.iter().zip(dst.iter()) {
+        if s < 0 || d < 0 || s as usize >= num_nodes || d as usize >= num_nodes {
+            return Err(PyValueError::new_err(format!(
+                "compute_gcn_norm: edge indices must be in [0, {}), got ({}, {})",
+                num_nodes, s, d
+            )));
+        }
+    }
 
     let (new_src, new_dst, weights) = gcn_norm_internal(&src, &dst, num_nodes);
 

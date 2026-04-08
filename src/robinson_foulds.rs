@@ -1,3 +1,4 @@
+use crate::error::RustreeError;
 use crate::node::FlatTree;
 use std::collections::{BTreeSet, HashSet};
 
@@ -31,75 +32,43 @@ fn subtree_leaves(tree: &FlatTree, index: usize) -> BTreeSet<String> {
     leaves
 }
 
-/// Extracts the splits from the given tree as a set of strings representing clades.
-/// For rooted trees, each internal node defines a unique clade (set of descendant leaves).
-fn get_splits(tree: &FlatTree) -> HashSet<String> {
-    let mut splits = HashSet::new();
-
-    // For each node, if it's an internal node with a parent, count its clade
-    for (index, node) in tree.nodes.iter().enumerate() {
-        // Skip the root (which has no parent)
-        if node.parent.is_none() {
-            continue;
-        }
-
-        // Only count internal nodes (skip leaves)
-        let is_leaf = node.left_child.is_none() && node.right_child.is_none();
-        if is_leaf {
-            continue;
-        }
-
-        // Get the clade (set of leaves below this node) and represent as sorted string
-        // Sort leaves using natural/numerical ordering for consistent comparison
-        let sub_leaves = subtree_leaves(tree, index);
-        let mut leaves_vec: Vec<String> = sub_leaves.iter().cloned().collect();
-        leaves_vec.sort_by(|a, b| {
-            // Extract numeric suffix if present (e.g., "t10" -> 10)
-            let num_a = a
-                .trim_start_matches(|c: char| !c.is_numeric())
-                .parse::<i32>()
-                .unwrap_or(0);
-            let num_b = b
-                .trim_start_matches(|c: char| !c.is_numeric())
-                .parse::<i32>()
-                .unwrap_or(0);
-            num_a.cmp(&num_b)
-        });
-        let clade = leaves_vec.join(",");
-        splits.insert(clade);
-    }
-    splits
+fn encode_partition(leaves: &BTreeSet<String>) -> String {
+    leaves.iter().cloned().collect::<Vec<_>>().join(",")
 }
 
-/// Computes the Robinson-Foulds distance between two FlatTree objects.
-///
-/// This function computes the RF distance by counting clades (monophyletic groups) in rooted trees.
-/// Each internal node defines a clade, and the RF distance is the number of clades that differ
-/// between the two trees.
-///
-/// Note: Despite the function name "unrooted", this implementation works with rooted trees
-/// and counts clades rather than canonical bipartitions. This matches common usage in phylogenetics
-/// where rooted trees are compared.
-///
-/// # Panics
-///
-/// Panics if the trees do not have identical leaf labels or do not have the same number of leaves.
-#[must_use]
-pub fn unrooted_robinson_foulds(tree1: &FlatTree, tree2: &FlatTree) -> usize {
-    // Verify that both trees have exactly the same set of leaves.
+fn validate_matching_leaves(
+    tree1: &FlatTree,
+    tree2: &FlatTree,
+) -> Result<BTreeSet<String>, RustreeError> {
     let leaves1 = collect_leaves(tree1);
     let leaves2 = collect_leaves(tree2);
     if leaves1 != leaves2 {
-        panic!("The trees do not have identical leaf labels.");
+        return Err(RustreeError::Validation(
+            "The trees do not have identical leaf labels.".to_string(),
+        ));
+    }
+    Ok(leaves1)
+}
+
+/// Extracts rooted clades from a tree.
+///
+/// Each non-root internal node defines a clade in rooted RF distance.
+fn get_rooted_clades(tree: &FlatTree) -> HashSet<String> {
+    let mut clades = HashSet::new();
+
+    for (index, node) in tree.nodes.iter().enumerate() {
+        if node.parent.is_none() {
+            continue;
+        }
+        if node.left_child.is_none() && node.right_child.is_none() {
+            continue;
+        }
+
+        let sub_leaves = subtree_leaves(tree, index);
+        clades.insert(encode_partition(&sub_leaves));
     }
 
-    let splits1 = get_splits(tree1);
-    let splits2 = get_splits(tree2);
-
-    // Compute the number of splits that are not shared.
-    let common: HashSet<_> = splits1.intersection(&splits2).collect();
-
-    (splits1.len() - common.len()) + (splits2.len() - common.len())
+    clades
 }
 
 /// Extracts unrooted bipartitions from a rooted tree.
@@ -107,8 +76,7 @@ pub fn unrooted_robinson_foulds(tree1: &FlatTree, tree2: &FlatTree) -> usize {
 /// Each internal edge defines a bipartition of the leaf set. We represent each
 /// bipartition by the smaller side (by cardinality, then lexicographically).
 /// This makes the result independent of root placement.
-fn get_unrooted_bipartitions(tree: &FlatTree) -> HashSet<String> {
-    let all_leaves = collect_leaves(tree);
+fn get_unrooted_bipartitions(tree: &FlatTree, all_leaves: &BTreeSet<String>) -> HashSet<String> {
     let n = all_leaves.len();
     let mut bipartitions = HashSet::new();
 
@@ -136,35 +104,77 @@ fn get_unrooted_bipartitions(tree: &FlatTree) -> HashSet<String> {
             }
         };
 
-        if side.len() > 1 || side.len() < n - 1 {
-            // Only non-trivial bipartitions (not single leaf vs rest)
-            let mut leaves_vec: Vec<String> = side.into_iter().collect();
-            leaves_vec.sort();
-            bipartitions.insert(leaves_vec.join(","));
+        if side.len() > 1 && side.len() < n - 1 {
+            bipartitions.insert(encode_partition(&side));
         }
     }
     bipartitions
 }
 
-/// Computes the true unrooted Robinson-Foulds distance between two trees.
+fn symmetric_difference_size(left: &HashSet<String>, right: &HashSet<String>) -> usize {
+    let common: HashSet<_> = left.intersection(right).collect();
+    (left.len() - common.len()) + (right.len() - common.len())
+}
+
+/// Computes the rooted Robinson-Foulds distance between two trees.
 ///
-/// Compares bipartitions (splits) rather than rooted clades, so two trees
-/// that differ only in root placement will have RF distance 0.
-///
-/// # Panics
-///
-/// Panics if the trees do not have identical leaf labels.
 #[must_use]
-pub fn true_unrooted_robinson_foulds(tree1: &FlatTree, tree2: &FlatTree) -> usize {
-    let leaves1 = collect_leaves(tree1);
-    let leaves2 = collect_leaves(tree2);
-    if leaves1 != leaves2 {
-        panic!("The trees do not have identical leaf labels.");
+pub fn robinson_foulds(tree1: &FlatTree, tree2: &FlatTree) -> Result<usize, RustreeError> {
+    validate_matching_leaves(tree1, tree2)?;
+    let clades1 = get_rooted_clades(tree1);
+    let clades2 = get_rooted_clades(tree2);
+    Ok(symmetric_difference_size(&clades1, &clades2))
+}
+
+/// Computes the unrooted Robinson-Foulds distance between two trees.
+///
+/// Compares bipartitions rather than rooted clades, so two trees that differ
+/// only in root placement have RF distance 0.
+#[must_use]
+pub fn unrooted_robinson_foulds(
+    tree1: &FlatTree,
+    tree2: &FlatTree,
+) -> Result<usize, RustreeError> {
+    let all_leaves = validate_matching_leaves(tree1, tree2)?;
+    let bip1 = get_unrooted_bipartitions(tree1, &all_leaves);
+    let bip2 = get_unrooted_bipartitions(tree2, &all_leaves);
+    Ok(symmetric_difference_size(&bip1, &bip2))
+}
+
+/// Backward-compatible alias for the validated unrooted RF implementation.
+#[must_use]
+pub fn true_unrooted_robinson_foulds(
+    tree1: &FlatTree,
+    tree2: &FlatTree,
+) -> Result<usize, RustreeError> {
+    unrooted_robinson_foulds(tree1, tree2)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{robinson_foulds, unrooted_robinson_foulds};
+    use crate::newick::parse_newick;
+
+    fn flat_tree(newick: &str) -> crate::node::FlatTree {
+        let mut nodes = parse_newick(newick).expect("failed to parse test tree");
+        nodes.pop().expect("missing root").to_flat_tree()
     }
 
-    let bip1 = get_unrooted_bipartitions(tree1);
-    let bip2 = get_unrooted_bipartitions(tree2);
+    #[test]
+    fn test_unrooted_rf_is_root_invariant() {
+        let tree1 = flat_tree("((A:1,B:1):1,(C:1,D:1):1):0;");
+        let tree2 = flat_tree("(A:1,(B:1,(C:1,D:1):1):1):0;");
 
-    let common: HashSet<_> = bip1.intersection(&bip2).collect();
-    (bip1.len() - common.len()) + (bip2.len() - common.len())
+        assert_eq!(robinson_foulds(&tree1, &tree2).unwrap(), 2);
+        assert_eq!(unrooted_robinson_foulds(&tree1, &tree2).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_rf_rejects_mismatched_leaf_sets() {
+        let tree1 = flat_tree("((A:1,B:1):1,C:2):0;");
+        let tree2 = flat_tree("((A:1,B:1):1,D:2):0;");
+
+        let err = unrooted_robinson_foulds(&tree1, &tree2).unwrap_err();
+        assert!(err.to_string().contains("identical leaf labels"));
+    }
 }

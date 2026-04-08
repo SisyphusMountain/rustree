@@ -94,15 +94,21 @@ get_dtl_events <- function(gene_tree) {
 #' @param species_tree The complete species tree
 #' @param sampled_leaf_names Character vector of species to keep
 #' @param dtl_events DTL events list (from get_dtl_events())
+#' @param mode Algorithm mode: "projection" (default) or "damien"
+#' @param remove_undetectable Logical; only used in `mode="damien"`.
 #' @return A data.frame with columns: time, gene_id, from_complete,
 #'         to_complete, from_sampled, to_sampled
 induced_transfers <- function(species_tree, sampled_leaf_names,
-                              dtl_events) {
+                              dtl_events,
+                              mode = "projection",
+                              remove_undetectable = FALSE) {
   result <- .Call(
     "wrap__induced_transfers_r",
     species_tree,
     as.character(sampled_leaf_names),
-    dtl_events
+    dtl_events,
+    as.character(mode),
+    as.logical(remove_undetectable)
   )
   as.data.frame(result, stringsAsFactors = FALSE)
 }

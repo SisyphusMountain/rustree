@@ -570,6 +570,48 @@ simulate_dtl_stream_xml(
 )
 ```
 
+### Induced Transfers
+
+Use `induced_transfers()` to project/infer transfer events onto a sampled species subset.
+
+```r
+# DTL events are attached on simulated gene trees
+dtl_events <- get_dtl_events(gene_tree)
+
+# Species subset to keep
+sampled_species <- tree_leaf_names(sp_tree)[1:20]
+
+# 1) Projection mode (default): one projected row per transfer event
+ind_proj <- induced_transfers(
+  sp_tree,
+  sampled_species,
+  dtl_events,
+  mode = "projection"
+)
+
+# 2) Damien-style mode
+ind_damien <- induced_transfers(
+  sp_tree,
+  sampled_species,
+  dtl_events,
+  mode = "damien",
+  remove_undetectable = FALSE
+)
+
+# Optional Damien filtering (equivalent to removeUndetectable=TRUE)
+ind_damien_filtered <- induced_transfers(
+  sp_tree,
+  sampled_species,
+  dtl_events,
+  mode = "damien",
+  remove_undetectable = TRUE
+)
+
+cat("projection:", nrow(ind_proj), "rows\n")
+cat("damien:", nrow(ind_damien), "rows\n")
+cat("damien filtered:", nrow(ind_damien_filtered), "rows\n")
+```
+
 ---
 
 ## Export and Visualization
@@ -805,6 +847,8 @@ boxplot(results,
 |----------|-------------|---------|
 | `extract_induced_subtree_by_names(tree, leaf_names)` | Extract subtree | `list` |
 | `sample_leaves(gene_tree, species_leaf_names)` | Sample species and filter gene tree | `list` |
+| `get_dtl_events(gene_tree)` | Get attached DTL event table | `list` or `NULL` |
+| `induced_transfers(species_tree, sampled_leaf_names, dtl_events, mode, remove_undetectable)` | Compute induced transfers (`projection` or `damien`) | `data.frame` |
 | `pairwise_distances(tree, distance_type, leaves_only)` | Compute distances | `data.frame` |
 | `save_pairwise_distances_csv(tree, filepath, distance_type, leaves_only)` | Save distances | `NULL` |
 
@@ -853,6 +897,8 @@ For per-species model: rates are per alive species
 - `replacement_transfer`: Probability of replacement transfer (numeric or `NULL`)
 
 #### Other
+- `mode`: induced transfer algorithm (`"projection"` or `"damien"`)
+- `remove_undetectable`: Damien-mode post-filter toggle (logical)
 - `require_extant`: If `TRUE`, retry until ≥ 1 extant gene (logical)
 - `leaves_only`: If `TRUE`, only compute leaf-to-leaf distances (logical)
 - `seed`: Random seed for reproducibility (integer with `L` suffix or `NULL`)

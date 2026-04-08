@@ -534,7 +534,7 @@ pub fn create_training_sample_from_sim(py: Python, gene_tree: &PyGeneTree) -> Py
 /// * `sp_newick` - Species tree in Newick format (string, not file path)
 /// * `g_newick` - Gene tree in Newick format (string, not file path)
 /// * `node_species` - Dict mapping gene node name -> species node name
-/// * `node_events` - Dict mapping gene node name -> event code (0=Speciation, 1=Duplication, 2=Transfer, 3=Leaf)
+/// * `node_events` - Dict mapping gene node name -> event code (0=Speciation, 1=Duplication, 2=Transfer, 3=Leaf, 4=Loss)
 ///
 /// # Returns
 /// A PyGeneTree with the given reconciliation annotations.
@@ -612,7 +612,13 @@ pub fn from_reconciliation(
                 1 => Event::Duplication,
                 2 => Event::Transfer,
                 3 => Event::Leaf,
-                _ => Event::Speciation, // fallback
+                4 => Event::Loss,
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "Invalid event code {} for gene node '{}'. Expected one of 0=Speciation, 1=Duplication, 2=Transfer, 3=Leaf, 4=Loss",
+                        evt_code, name
+                    )));
+                }
             };
         } else {
             // Default: leaf if no children, speciation otherwise

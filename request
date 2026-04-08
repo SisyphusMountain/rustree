@@ -1,0 +1,1 @@
+I would like you to give me a jupyter notebook in which I can take the files in /home/enzo/Documents/git/rustree/testdata/induced_tr and parse complete_tree.nwk and sampled_tree.nwk, make the file complete_events.tsv into a reconciled gene tree (the list of events should suffice), and verify that we get the same induced transfers as can be found in expected_induced.tsv 

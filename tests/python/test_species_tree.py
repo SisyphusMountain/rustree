@@ -786,6 +786,16 @@ def test_pairwise_distances_default_leaves_only():
     print("PASS: test_pairwise_distances_default_leaves_only")
 
 
+def test_unrooted_rf_root_placement_invariant():
+    """Test unrooted RF ignores root placement while rooted RF does not."""
+    tree1 = rustree.parse_species_tree("((A:1,B:1):1,(C:1,D:1):1):0;")
+    tree2 = rustree.parse_species_tree("(A:1,(B:1,(C:1,D:1):1):1):0;")
+
+    assert tree1.robinson_foulds(tree2) == 2
+    assert tree1.unrooted_robinson_foulds(tree2) == 0
+    print("PASS: test_unrooted_rf_root_placement_invariant")
+
+
 # =============================================================================
 # Integration tests
 # =============================================================================
@@ -963,6 +973,7 @@ if __name__ == "__main__":
         test_pairwise_distances_invalid_type,
         test_pairwise_distances_aliases,
         test_pairwise_distances_default_leaves_only,
+        test_unrooted_rf_root_placement_invariant,
 
         # Integration tests
         test_integration_full_workflow,

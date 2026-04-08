@@ -362,7 +362,7 @@ def from_reconciliation(
         g_newick: Gene tree in Newick format (string, not file path).
         node_species: Dict mapping gene node name to species node name.
         node_events: Dict mapping gene node name to event code
-            (0=Speciation, 1=Duplication, 2=Transfer, 3=Leaf).
+            (0=Speciation, 1=Duplication, 2=Transfer, 3=Leaf, 4=Loss).
 
     Returns:
         A PyGeneTree with the given reconciliation annotations.
@@ -872,6 +872,33 @@ class PySpeciesTree:
         Returns:
             A pandas DataFrame with columns: ``node_index``, ``node_name``,
             ``ghost_length``.
+        """
+        ...
+
+    def compute_induced_transfers(
+        self,
+        sampled_leaf_names: List[str],
+        transfers: List[Tuple[float, int, str, str]],
+    ) -> pd.DataFrame:
+        """Compute induced transfers from an externally-supplied list of events.
+
+        Mirrors :py:meth:`PyGeneTree.compute_induced_transfers`, but takes the
+        transfer events as input instead of pulling them from a simulated
+        gene tree. Use this when the events come from a file or another
+        simulator.
+
+        Args:
+            sampled_leaf_names: Names of species leaves to keep.
+            transfers: List of ``(time, gene_id, donor_species_name,
+                recipient_species_name)`` tuples.
+
+        Returns:
+            A pandas DataFrame with columns: ``time``, ``gene_id``,
+            ``from_species_complete``, ``to_species_complete``,
+            ``from_species_sampled``, ``to_species_sampled``.
+
+        Raises:
+            ValueError: If a species name is not found or projection fails.
         """
         ...
 

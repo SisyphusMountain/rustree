@@ -86,6 +86,8 @@ fn parse_recphyloxml_r(filepath: &str) -> Result<List> {
 /// @param species_tree_list The complete species tree
 /// @param sampled_leaf_names Character vector of species leaf names to keep
 /// @param dtl_events_list DTL events list (from attr(gene_tree, "dtl_events"))
+/// @param mode Algorithm mode: "projection" (default) or "damien"
+/// @param remove_undetectable Logical. Used in "damien" mode only.
 /// @return A data.frame with columns: time, gene_id, from_complete, to_complete,
 ///         from_sampled, to_sampled
 /// @export
@@ -94,6 +96,8 @@ fn induced_transfers_r(
     species_tree_list: List,
     sampled_leaf_names: Robj,
     dtl_events_list: List,
+    mode: &str,
+    remove_undetectable: bool,
 ) -> Result<List> {
     let species_tree = rlist_to_flattree(&species_tree_list)?;
 
@@ -107,7 +111,27 @@ fn induced_transfers_r(
 
     let events = rlist_to_dtl_events(&dtl_events_list, &species_tree)?;
 
-    let result = induced_transfers(&species_tree, &names, &events)?;
+    let algorithm = match mode.to_ascii_lowercase().as_str() {
+        "projection" => crate::induced_transfers::InducedTransferAlgorithm::Projection,
+        "damien" | "damien_style" | "damien-style" => {
+            crate::induced_transfers::InducedTransferAlgorithm::DamienStyle
+        }
+        other => {
+            return Err(format!(
+                "Unknown mode '{}'. Expected 'projection' or 'damien'",
+                other
+            )
+            .into())
+        }
+    };
+
+    let result = crate::induced_transfers::induced_transfers_with_algorithm(
+        &species_tree,
+        &names,
+        &events,
+        algorithm,
+        remove_undetectable,
+    )?;
 
     // Build the sampled tree to resolve sampled indices to names
     let (sampled_tree, _) = extract_induced_subtree_by_names(&species_tree, &names)

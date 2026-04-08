@@ -968,36 +968,135 @@ impl PySpeciesTree {
         Ok(df.into())
     }
 
+    /// Compute induced transfers from an externally-supplied list of transfer events.
+    ///
+    /// Mirrors `PyGeneTree.compute_induced_transfers`, but takes the transfer
+    /// events as input instead of pulling them from a simulated gene tree.
+    /// Use this when the events come from a file or another simulator.
+    ///
+    /// Args:
+    ///     sampled_leaf_names: Names of species leaves to keep.
+    ///     transfers: List of `(time, gene_id, donor_species_name, recipient_species_name)`.
+    ///
+    /// Returns:
+    ///     A pandas DataFrame with the same columns as
+    ///     `PyGeneTree.compute_induced_transfers`: `time`, `gene_id`,
+    ///     `from_species_complete`, `to_species_complete`,
+    ///     `from_species_sampled`, `to_species_sampled`.
+    #[pyo3(signature = (sampled_leaf_names, transfers, mode="projection", remove_undetectable=false))]
+    fn compute_induced_transfers(
+        &self,
+        py: Python,
+        sampled_leaf_names: Vec<String>,
+        transfers: Vec<(f64, usize, String, String)>,
+        mode: &str,
+        remove_undetectable: bool,
+    ) -> PyResult<PyObject> {
+        use crate::dtl::DTLEvent;
+        use crate::induced_transfers::{
+            induced_transfers_with_algorithm, InducedTransferAlgorithm,
+        };
+
+        // Resolve species names → indices in self.tree (single pass).
+        let mut name_to_idx: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::with_capacity(self.tree.nodes.len());
+        for (idx, node) in self.tree.nodes.iter().enumerate() {
+            name_to_idx.insert(node.name.as_str(), idx);
+        }
+
+        let mut events: Vec<DTLEvent> = Vec::with_capacity(transfers.len());
+        for (time, gene_id, from_name, to_name) in &transfers {
+            let from_species = *name_to_idx.get(from_name.as_str()).ok_or_else(|| {
+                PyValueError::new_err(format!("Unknown donor species '{}'", from_name))
+            })?;
+            let to_species = *name_to_idx.get(to_name.as_str()).ok_or_else(|| {
+                PyValueError::new_err(format!("Unknown recipient species '{}'", to_name))
+            })?;
+            events.push(DTLEvent::Transfer {
+                time: *time,
+                gene_id: *gene_id,
+                species_id: from_species,
+                from_species,
+                to_species,
+                // donor_child / recipient_child are unused by `induced_transfers`,
+                // so we leave them as harmless placeholders.
+                donor_child: 0,
+                recipient_child: 0,
+            });
+        }
+
+        let algorithm = match mode.to_ascii_lowercase().as_str() {
+            "projection" => InducedTransferAlgorithm::Projection,
+            "damien" | "damien_style" | "damien-style" => {
+                InducedTransferAlgorithm::DamienStyle
+            }
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "Unknown mode '{}'. Expected 'projection' or 'damien'",
+                    other
+                )))
+            }
+        };
+
+        let induced = induced_transfers_with_algorithm(
+            &self.tree,
+            &sampled_leaf_names,
+            &events,
+            algorithm,
+            remove_undetectable,
+        )
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        // Build the sampled tree once so we can resolve sampled-side indices to names.
+        let (sampled_tree, _) = extract_induced_subtree_by_names(&self.tree, &sampled_leaf_names)
+            .ok_or_else(|| {
+                PyValueError::new_err(
+                    "Failed to extract induced subtree from sampled_leaf_names".to_string(),
+                )
+            })?;
+
+        let time: Vec<f64> = induced.iter().map(|t| t.time).collect();
+        let gene_id: Vec<usize> = induced.iter().map(|t| t.gene_id).collect();
+        let from_complete: Vec<&str> = induced
+            .iter()
+            .map(|t| self.tree.nodes[t.from_species_complete].name.as_str())
+            .collect();
+        let to_complete: Vec<&str> = induced
+            .iter()
+            .map(|t| self.tree.nodes[t.to_species_complete].name.as_str())
+            .collect();
+        let from_sampled: Vec<Option<&str>> = induced
+            .iter()
+            .map(|t| t.from_species_sampled.map(|i| sampled_tree.nodes[i].name.as_str()))
+            .collect();
+        let to_sampled: Vec<Option<&str>> = induced
+            .iter()
+            .map(|t| t.to_species_sampled.map(|i| sampled_tree.nodes[i].name.as_str()))
+            .collect();
+
+        let pandas = super::import_pymodule(py, "pandas")?;
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("time", time)?;
+        dict.set_item("gene_id", gene_id)?;
+        dict.set_item("from_species_complete", from_complete)?;
+        dict.set_item("to_species_complete", to_complete)?;
+        dict.set_item("from_species_sampled", from_sampled)?;
+        dict.set_item("to_species_sampled", to_sampled)?;
+
+        let df = pandas.call_method1("DataFrame", (dict,))?;
+        Ok(df.into())
+    }
+
     /// Compute the Robinson-Foulds distance to another species tree.
     fn robinson_foulds(&self, other: &PySpeciesTree) -> PyResult<usize> {
-        let rf = std::panic::catch_unwind(|| {
-            crate::robinson_foulds::unrooted_robinson_foulds(&self.tree, &other.tree)
-        })
-        .map_err(|e| {
-            let msg = e
-                .downcast_ref::<String>()
-                .map(|s| s.as_str())
-                .or_else(|| e.downcast_ref::<&str>().copied())
-                .unwrap_or("Robinson-Foulds computation failed");
-            PyValueError::new_err(msg.to_string())
-        })?;
-        Ok(rf)
+        crate::robinson_foulds::robinson_foulds(&self.tree, &other.tree)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Compute the true unrooted Robinson-Foulds distance to another species tree.
     fn unrooted_robinson_foulds(&self, other: &PySpeciesTree) -> PyResult<usize> {
-        let rf = std::panic::catch_unwind(|| {
-            crate::robinson_foulds::true_unrooted_robinson_foulds(&self.tree, &other.tree)
-        })
-        .map_err(|e| {
-            let msg = e
-                .downcast_ref::<String>()
-                .map(|s| s.as_str())
-                .or_else(|| e.downcast_ref::<&str>().copied())
-                .unwrap_or("Robinson-Foulds computation failed");
-            PyValueError::new_err(msg.to_string())
-        })?;
-        Ok(rf)
+        crate::robinson_foulds::unrooted_robinson_foulds(&self.tree, &other.tree)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Find the index of a node by its name.

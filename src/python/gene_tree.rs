@@ -822,10 +822,13 @@ impl PyGeneTree {
     }
 
     /// Compute induced transfers by projecting transfers onto a sampled species tree.
+    #[pyo3(signature = (sampled_leaf_names, mode="projection", remove_undetectable=false))]
     fn compute_induced_transfers(
         &self,
         py: Python,
         sampled_leaf_names: Vec<String>,
+        mode: &str,
+        remove_undetectable: bool,
     ) -> PyResult<PyObject> {
         let events = self.rec_tree.dtl_events.as_ref().ok_or_else(|| {
             PyValueError::new_err(
@@ -833,8 +836,29 @@ impl PyGeneTree {
             )
         })?;
 
-        use crate::induced_transfers::induced_transfers;
-        let induced = induced_transfers(&self.rec_tree.species_tree, &sampled_leaf_names, events)
+        use crate::induced_transfers::{
+            induced_transfers_with_algorithm, InducedTransferAlgorithm,
+        };
+        let algorithm = match mode.to_ascii_lowercase().as_str() {
+            "projection" => InducedTransferAlgorithm::Projection,
+            "damien" | "damien_style" | "damien-style" => {
+                InducedTransferAlgorithm::DamienStyle
+            }
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "Unknown mode '{}'. Expected 'projection' or 'damien'",
+                    other
+                )))
+            }
+        };
+
+        let induced = induced_transfers_with_algorithm(
+            &self.rec_tree.species_tree,
+            &sampled_leaf_names,
+            events,
+            algorithm,
+            remove_undetectable,
+        )
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let time: Vec<f64> = induced.iter().map(|t| t.time).collect();
@@ -888,13 +912,11 @@ impl PyGeneTree {
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         if rooted {
-            Ok(crate::robinson_foulds::unrooted_robinson_foulds(
-                &tree1, &tree2,
-            ))
+            crate::robinson_foulds::robinson_foulds(&tree1, &tree2)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
         } else {
-            Ok(crate::robinson_foulds::true_unrooted_robinson_foulds(
-                &tree1, &tree2,
-            ))
+            crate::robinson_foulds::unrooted_robinson_foulds(&tree1, &tree2)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
         }
     }
 
