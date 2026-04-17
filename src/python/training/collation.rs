@@ -837,12 +837,16 @@ pub fn build_inference_batch(
         for copy_idx in 0..n_copies {
             let copy_seed = seed.wrapping_add(copy_idx as u64 * 1000003);
             let mut rng = StdRng::seed_from_u64(copy_seed);
+            // Inference must always operate on the full reconstructed tree
+            // (unrooted, all internal nodes present). Using the training-time
+            // partial-coloring path here creates variable-size copies, which
+            // breaks batched inference reshapes on the Python side.
             let t = build_task_tensors_internal(
                 &base,
                 &sp_name_to_id,
                 &mut rng,
                 false,
-                false,
+                true,
                 sample_order,
             )?;
             map_tensors.push(t);
