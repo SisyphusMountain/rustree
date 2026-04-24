@@ -8,6 +8,258 @@ use crate::bd::{BDEvent, TreeEvent};
 use crate::dtl::DTLEvent;
 use crate::node::{Event, FlatNode, FlatTree};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ApeOrder {
+    Cladewise,
+    Postorder,
+}
+
+impl ApeOrder {
+    fn parse(order: &str) -> Result<Self> {
+        match order {
+            "cladewise" => Ok(Self::Cladewise),
+            "postorder" | "pruningwise" => Ok(Self::Postorder),
+            other => Err(Error::Other(format!(
+                "Unsupported ape edge order '{}'. Expected 'cladewise' or 'postorder'.",
+                other
+            ))),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Cladewise => "cladewise",
+            Self::Postorder => "postorder",
+        }
+    }
+}
+
+fn preorder_indices_checked(tree: &FlatTree) -> Result<Vec<usize>> {
+    let n = tree.nodes.len();
+    if n == 0 {
+        return Err(Error::Other(
+            "tree must contain at least one node".to_string(),
+        ));
+    }
+    if tree.root >= n {
+        return Err(Error::Other(format!(
+            "tree root index {} is outside the valid node range 0..{}",
+            tree.root,
+            n.saturating_sub(1)
+        )));
+    }
+
+    let mut stack = Vec::with_capacity(n);
+    let mut visited = vec![false; n];
+    let mut preorder = Vec::with_capacity(n);
+    stack.push(tree.root);
+
+    while let Some(idx) = stack.pop() {
+        if idx >= n {
+            return Err(Error::Other(format!(
+                "tree contains child index {} outside the valid node range 0..{}",
+                idx,
+                n.saturating_sub(1)
+            )));
+        }
+        if visited[idx] {
+            return Err(Error::Other(
+                "tree contains a cycle or a node with multiple parents".to_string(),
+            ));
+        }
+
+        visited[idx] = true;
+        preorder.push(idx);
+
+        let node = &tree.nodes[idx];
+        if let Some(right) = node.right_child {
+            stack.push(right);
+        }
+        if let Some(left) = node.left_child {
+            stack.push(left);
+        }
+    }
+
+    if preorder.len() != n {
+        return Err(Error::Other(
+            "tree contains nodes that are not reachable from the root".to_string(),
+        ));
+    }
+
+    Ok(preorder)
+}
+
+pub(crate) fn flattree_to_ape_phylo(
+    tree: &FlatTree,
+    order: &str,
+    use_node_labels: bool,
+    include_root_edge: bool,
+) -> Result<Robj> {
+    let order = ApeOrder::parse(order)?;
+    let n = tree.nodes.len();
+    if n > i32::MAX as usize {
+        return Err(Error::Other(format!(
+            "ape phylo objects use 32-bit R integer node IDs; tree has {} nodes",
+            n
+        )));
+    }
+
+    let preorder = preorder_indices_checked(tree)?;
+    let mut tip_nodes = Vec::new();
+    let mut internal_nodes = Vec::new();
+
+    for &idx in &preorder {
+        let node = &tree.nodes[idx];
+        match (node.left_child, node.right_child) {
+            (None, None) => tip_nodes.push(idx),
+            (Some(_), Some(_)) => internal_nodes.push(idx),
+            _ => {
+                return Err(Error::Other(format!(
+                    "ape conversion expects binary or leaf nodes; node {} ('{}') has exactly one child",
+                    idx, node.name
+                )));
+            }
+        }
+    }
+
+    if tip_nodes.is_empty() {
+        return Err(Error::Other(
+            "tree must contain at least one tip".to_string(),
+        ));
+    }
+
+    let n_tip = tip_nodes.len();
+    let n_node = internal_nodes.len();
+    let mut rustree_to_ape = vec![0_i32; n];
+
+    for (pos, &idx) in tip_nodes.iter().enumerate() {
+        rustree_to_ape[idx] = (pos + 1) as i32;
+    }
+    for (pos, &idx) in internal_nodes.iter().enumerate() {
+        rustree_to_ape[idx] = (n_tip + pos + 1) as i32;
+    }
+
+    let mut derived_parent = vec![None; n];
+    for &idx in &preorder {
+        let node = &tree.nodes[idx];
+        for child in [node.left_child, node.right_child].into_iter().flatten() {
+            if child >= n {
+                return Err(Error::Other(format!(
+                    "tree contains child index {} outside the valid node range 0..{}",
+                    child,
+                    n.saturating_sub(1)
+                )));
+            }
+            if let Some(existing_parent) = derived_parent[child] {
+                return Err(Error::Other(format!(
+                    "node {} has multiple parents: {} and {}",
+                    child, existing_parent, idx
+                )));
+            }
+            derived_parent[child] = Some(idx);
+        }
+    }
+
+    for (idx, node) in tree.nodes.iter().enumerate() {
+        let expected_parent = if idx == tree.root {
+            None
+        } else {
+            derived_parent[idx]
+        };
+        if node.parent != expected_parent {
+            return Err(Error::Other(format!(
+                "parent and child links are inconsistent at node {} ('{}'): parent={:?}, child-derived parent={:?}",
+                idx, node.name, node.parent, expected_parent
+            )));
+        }
+    }
+
+    let mut edge_order = preorder.clone();
+    if order == ApeOrder::Postorder {
+        edge_order.reverse();
+    }
+    edge_order.retain(|&idx| idx != tree.root);
+    let n_edge = edge_order.len();
+    if n_edge > i32::MAX as usize {
+        return Err(Error::Other(format!(
+            "ape phylo edge matrices use 32-bit R dimensions; tree has {} edges",
+            n_edge
+        )));
+    }
+
+    for &idx in &edge_order {
+        if derived_parent[idx].is_none() {
+            return Err(Error::Other(format!("non-root node {} has no parent", idx)));
+        }
+    }
+
+    let edge = Robj::from(RMatrix::<i32>::new_matrix(n_edge, 2, |row, col| {
+        let idx = edge_order[row];
+        match col {
+            0 => {
+                let parent = derived_parent[idx].expect("edge parent checked before allocation");
+                rustree_to_ape[parent]
+            }
+            _ => rustree_to_ape[idx],
+        }
+    }));
+
+    let edge_lengths: Vec<f64> = edge_order
+        .iter()
+        .map(|&idx| tree.nodes[idx].length)
+        .collect();
+    let tip_labels: Vec<String> = tip_nodes
+        .iter()
+        .map(|&idx| tree.nodes[idx].name.clone())
+        .collect();
+
+    let mut names = vec!["edge", "edge.length", "tip.label", "Nnode"];
+    let mut values = vec![
+        edge,
+        Robj::from(edge_lengths),
+        Robj::from(tip_labels),
+        Robj::from(n_node as i32),
+    ];
+
+    if use_node_labels && n_node > 0 {
+        let node_labels: Vec<String> = internal_nodes
+            .iter()
+            .map(|&idx| tree.nodes[idx].name.clone())
+            .collect();
+        if node_labels.iter().any(|label| !label.is_empty()) {
+            names.push("node.label");
+            values.push(Robj::from(node_labels));
+        }
+    }
+
+    let root_length = tree.nodes[tree.root].length;
+    if include_root_edge && root_length.is_finite() && root_length != 0.0 {
+        names.push("root.edge");
+        values.push(Robj::from(root_length));
+    }
+
+    let phylo = List::from_names_and_values(names, values)?;
+    let phylo = Robj::from(phylo).set_class(["phylo"])?;
+    phylo.set_attrib(Symbol::from_string("order"), order.as_str())
+}
+
+pub(crate) fn flattrees_to_ape_multiphylo<'a, I>(
+    trees: I,
+    order: &str,
+    use_node_labels: bool,
+    include_root_edge: bool,
+) -> Result<Robj>
+where
+    I: IntoIterator<Item = &'a FlatTree>,
+{
+    let phylo_values: Vec<Robj> = trees
+        .into_iter()
+        .map(|tree| flattree_to_ape_phylo(tree, order, use_node_labels, include_root_edge))
+        .collect::<Result<Vec<_>>>()?;
+
+    Robj::from(List::from_values(phylo_values)).set_class(["multiPhylo"])
+}
+
 // ============================================================================
 // FlatTree ↔ R list
 // ============================================================================
@@ -65,6 +317,36 @@ pub(crate) fn flattree_to_rlist(tree: &FlatTree) -> List {
     )
 }
 
+fn derive_missing_depth(idx: usize, nodes: &mut [FlatNode], visiting: &mut [bool]) -> Result<f64> {
+    if idx >= nodes.len() {
+        return Err(Error::Other(format!(
+            "node index {} is outside the valid node range 0..{}",
+            idx,
+            nodes.len().saturating_sub(1)
+        )));
+    }
+    if let Some(depth) = nodes[idx].depth {
+        return Ok(depth);
+    }
+    if visiting[idx] {
+        return Err(Error::Other(
+            "tree parent links contain a cycle while deriving node depths".to_string(),
+        ));
+    }
+
+    visiting[idx] = true;
+    let parent = nodes[idx].parent;
+    let length = nodes[idx].length;
+    let depth = match parent {
+        Some(parent) => derive_missing_depth(parent, nodes, visiting)? + length,
+        None => 0.0,
+    };
+    nodes[idx].depth = Some(depth);
+    visiting[idx] = false;
+
+    Ok(depth)
+}
+
 pub(crate) fn rlist_to_flattree(list: &List) -> Result<FlatTree> {
     let names: Vec<String> = list
         .dollar("name")?
@@ -89,10 +371,15 @@ pub(crate) fn rlist_to_flattree(list: &List) -> Result<FlatTree> {
         .dollar("length")?
         .as_real_vector()
         .ok_or("Failed to get length column")?;
-    let depths: Vec<f64> = list
-        .dollar("depth")?
-        .as_real_vector()
-        .ok_or("Failed to get depth column")?;
+    let depths: Option<Vec<f64>> = match list.dollar("depth") {
+        Ok(depths) if depths.is_null() => None,
+        Ok(depths) => Some(
+            depths
+                .as_real_vector()
+                .ok_or("Failed to get depth column")?,
+        ),
+        Err(_) => None,
+    };
     let root: i32 = list
         .dollar("root")?
         .as_integer()
@@ -102,7 +389,7 @@ pub(crate) fn rlist_to_flattree(list: &List) -> Result<FlatTree> {
     // Use Rstr to properly handle NA values
     let bd_events_robj = list.dollar("bd_event").ok();
 
-    let nodes: Vec<FlatNode> = (0..names.len())
+    let mut nodes: Vec<FlatNode> = (0..names.len())
         .map(|i| {
             let bd_event = bd_events_robj.as_ref().and_then(|robj| {
                 // Get the i-th element as Rstr to check for NA
@@ -137,15 +424,21 @@ pub(crate) fn rlist_to_flattree(list: &List) -> Result<FlatTree> {
                     Some(right_children[i] as usize)
                 },
                 length: lengths[i],
-                depth: if depths[i].is_na() {
-                    None
-                } else {
-                    Some(depths[i])
-                },
+                depth: depths
+                    .as_ref()
+                    .and_then(|values| values.get(i))
+                    .and_then(|depth| if depth.is_na() { None } else { Some(*depth) }),
                 bd_event,
             }
         })
         .collect();
+
+    if nodes.iter().any(|node| node.depth.is_none()) {
+        let mut visiting = vec![false; nodes.len()];
+        for idx in 0..nodes.len() {
+            derive_missing_depth(idx, &mut nodes, &mut visiting)?;
+        }
+    }
 
     Ok(FlatTree {
         nodes,

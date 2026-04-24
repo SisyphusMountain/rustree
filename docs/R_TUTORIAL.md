@@ -27,6 +27,7 @@ Comprehensive guide to building and using the rustree R bindings for phylogeneti
    - [Parsing RecPhyloXML](#parsing-recphyloxml)
    - [Streaming Simulation](#streaming-simulation-memory-efficient)
 7. [Export and Visualization](#export-and-visualization)
+   - [ape `phylo` Format](#ape-phylo-format)
    - [Newick Format](#newick-format)
    - [RecPhyloXML Format](#recphyloxml-format)
    - [CSV Export](#csv-export)
@@ -616,6 +617,70 @@ cat("damien filtered:", nrow(ind_damien_filtered), "rows\n")
 
 ## Export and Visualization
 
+### ape `phylo` Format
+
+The R package `ape` represents both species trees and gene trees as S3
+`phylo` objects. rustree can build those objects directly from its flat tree
+lists in Rust, avoiding a slower `tree_to_newick()` / `ape::read.tree()` round trip.
+The converter allocates the final R vectors and matrices for the ape object and
+fills them directly, so there is no intermediate Newick string or R-side tree
+walk.
+
+```r
+library(ape)
+
+sp_phylo <- as_ape_phylo(sp_tree)
+gt_phylo <- gene_tree_to_ape(gene_tree)
+gt_many <- gene_trees_to_ape(gene_trees)
+
+attr(sp_phylo, "order")
+head(sp_phylo$edge)
+
+# Fastest path when ape output is all you need:
+sp_phylo2 <- simulate_species_tree_ape(50L, 1.0, 0.3, seed = 42L)
+gt_phylo2 <- simulate_dtl_ape(sp_tree, 0.5, 0.2, 0.3, seed = 123L)
+gt_many2 <- simulate_dtl_batch_ape(sp_tree, 100L, 0.5, 0.2, 0.3, seed = 123L)
+
+plot(sp_phylo)
+plot(gt_many[[1]])
+```
+
+`tree_to_ape()` and `gene_tree_to_ape()` are aliases for `as_ape_phylo()`.
+`gene_trees_to_ape()` is an alias for `as_ape_multiPhylo()`.
+
+The direct simulation helpers are the lowest-overhead route when the ape object
+is the final result. Use the regular `simulate_dtl()` / `simulate_dtl_batch()`
+functions instead if you need reconciliation metadata, DTL event tables, CSV, or
+RecPhyloXML export.
+
+#### Translation Rules
+
+rustree R trees are flat lists with zero-based structural indices in `parent`,
+`left_child`, `right_child`, and `root`. Do not convert those indices to
+one-based R indices before calling `as_ape_phylo()`. The returned ape object uses
+ape's standard one-based node identifiers:
+
+| rustree data | ape field | Translation |
+|--------------|-----------|-------------|
+| Leaf nodes (`left_child` and `right_child` are `NA`) | `tip.label` | Tips are numbered `1..Ntip` in preorder leaf order. |
+| Internal nodes | `Nnode`, `node.label` | Internal nodes are numbered `Ntip + 1 .. Ntip + Nnode`; the root is `Ntip + 1`. Non-empty internal names become `node.label` when `use_node_labels = TRUE`. |
+| Parent/child links | `edge` | The two-column integer matrix stores `(parent_id, child_id)` using ape node IDs. |
+| Child branch length | `edge.length` | Each edge length is the rustree `length` of the child node in the same row of `edge`. |
+| Root branch length | `root.edge` | Included only when `include_root_edge = TRUE` and the rustree root length is finite and non-zero. |
+| Requested row order | `attr(phy, "order")` | `order = "cladewise"` is preorder; `order = "postorder"` also accepts ape's `"pruningwise"` alias. |
+
+The converter validates that the tree is reachable from the root, parent and
+child links are consistent, and every node is either a leaf or binary internal
+node. Missing `depth` values are derived from parent links and branch lengths.
+
+Gene-tree conversion preserves the structural tree exactly, including loss
+leaves. Call `sample_extant(gene_tree)` before conversion if an extant-only ape
+tree is needed:
+
+```r
+gt_extant_phylo <- gene_tree_to_ape(sample_extant(gene_tree))
+```
+
 ### Newick Format
 
 ```r
@@ -824,8 +889,10 @@ boxplot(results,
 | Function | Description | Returns |
 |----------|-------------|---------|
 | `simulate_species_tree(n, lambda, mu, seed)` | Simulate birth-death tree | `list` |
+| `simulate_species_tree_ape(n, lambda, mu, seed, ...)` | Simulate directly to ape `phylo` | `phylo` |
 | `parse_newick(newick_str)` | Parse Newick string | `list` |
 | `tree_to_newick(tree)` | Convert to Newick | `character` |
+| `as_ape_phylo(tree)` / `tree_to_ape(tree)` | Convert directly to ape `phylo` | `phylo` |
 | `tree_num_leaves(tree)` | Count leaves | `integer` |
 | `tree_leaf_names(tree)` | Get leaf names | `character vector` |
 
@@ -833,12 +900,18 @@ boxplot(results,
 
 | Function | Description | Returns |
 |----------|-------------|---------|
-| `simulate_dtl(sp_tree, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, seed)` | Simulate gene tree (per-copy) | `list` |
+| `simulate_dtl(sp_tree, lambda_d, lambda_t, lambda_l, transfer_alpha, require_extant, seed, replacement_transfer)` | Simulate gene tree (per-copy) | `list` |
 | `simulate_dtl_batch(sp_tree, n, ...)` | Simulate batch (per-copy) | `list of lists` |
-| `simulate_dtl_per_species(sp_tree, ...)` | Simulate gene tree (per-species) | `list` |
+| `simulate_dtl_ape(sp_tree, ...)` | Simulate directly to ape `phylo` (no reconciliation metadata) | `phylo` |
+| `simulate_dtl_batch_ape(sp_tree, n, ...)` | Simulate directly to ape `multiPhylo` (no reconciliation metadata) | `multiPhylo` |
+| `simulate_dtl_per_species(sp_tree, ..., replacement_transfer)` | Simulate gene tree (per-species) | `list` |
 | `simulate_dtl_per_species_batch(sp_tree, n, ...)` | Simulate batch (per-species) | `list of lists` |
+| `simulate_dtl_per_species_ape(sp_tree, ...)` | Per-species simulation directly to ape `phylo` | `phylo` |
+| `simulate_dtl_per_species_batch_ape(sp_tree, n, ...)` | Per-species simulation directly to ape `multiPhylo` | `multiPhylo` |
 | `gene_tree_num_extant(gt)` | Count extant genes | `integer` |
 | `gene_tree_to_newick(gt)` | Convert to Newick | `character` |
+| `as_ape_phylo(gt)` / `gene_tree_to_ape(gt)` | Convert directly to ape `phylo` | `phylo` |
+| `as_ape_multiPhylo(gene_trees)` / `gene_trees_to_ape(gene_trees)` | Convert a tree list to ape `multiPhylo` | `multiPhylo` |
 | `gene_tree_to_xml(gt)` | Convert to RecPhyloXML | `character` |
 
 ### Analysis Functions
@@ -951,7 +1024,8 @@ gt$species_tree    # Nested list with species tree structure
 
 ### Working with Indices
 
-R uses 1-based indexing, but the wrapper handles conversion automatically:
+The structural index columns in rustree lists are zero-based because they come
+directly from Rust. Add 1 when using them to index R vectors manually:
 
 ```r
 # Access node by index (R uses 1-based)
@@ -961,7 +1035,7 @@ parent_idx <- sp_tree$parent[node_idx]
 
 # Navigate the tree
 if (!is.na(parent_idx)) {
-  parent_name <- sp_tree$name[parent_idx]
+  parent_name <- sp_tree$name[parent_idx + 1L]
   cat("Node", node_name, "has parent", parent_name, "\n")
 }
 
@@ -970,8 +1044,8 @@ left_idx <- sp_tree$left_child[node_idx]
 right_idx <- sp_tree$right_child[node_idx]
 
 if (!is.na(left_idx)) {
-  left_name <- sp_tree$name[left_idx]
-  right_name <- sp_tree$name[right_idx]
+  left_name <- sp_tree$name[left_idx + 1L]
+  right_name <- sp_tree$name[right_idx + 1L]
   cat("Node", node_name, "has children", left_name, "and", right_name, "\n")
 }
 ```

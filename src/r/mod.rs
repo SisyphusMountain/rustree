@@ -77,6 +77,9 @@ extendr_module! {
     fn parse_newick_r;
     fn name_internal_nodes_r;
     fn tree_to_newick_r;
+    fn tree_to_ape_r;
+    fn trees_to_ape_multi_r;
+    fn simulate_species_tree_ape_r;
     fn tree_num_leaves_r;
     fn tree_leaf_names_r;
     fn gene_tree_num_extant_r;
@@ -86,6 +89,10 @@ extendr_module! {
     fn simulate_dtl_batch_r;
     fn simulate_dtl_per_species_r;
     fn simulate_dtl_per_species_batch_r;
+    fn simulate_dtl_ape_r;
+    fn simulate_dtl_batch_ape_r;
+    fn simulate_dtl_per_species_ape_r;
+    fn simulate_dtl_per_species_batch_ape_r;
     fn save_newick_r;
     fn save_xml_r;
     fn save_csv_r;

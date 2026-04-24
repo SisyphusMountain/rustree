@@ -28,30 +28,211 @@ tree_leaf_names <- function(tree) {
   .Call("wrap__tree_leaf_names_r", tree)
 }
 
+# Ape conversion helpers
+
+.is_rustree_tree <- function(tree) {
+  is.list(tree) &&
+    all(c("name", "parent", "left_child", "right_child", "length", "root") %in% names(tree))
+}
+
+#' Convert a rustree tree to an ape phylo object.
+#'
+#' Both species trees and reconciled gene-tree lists use rustree's flat tree
+#' columns, so this converter works for either object type. The ape layout is
+#' constructed in Rust without serializing through Newick.
+#'
+#' @param tree A rustree species tree or gene tree list.
+#' @param order Edge row order for the returned phylo object.
+#' @param use_node_labels Include non-empty internal node names as node.label.
+#' @param include_root_edge Store a non-zero rustree root branch length as root.edge.
+#' @return An object of class `"phylo"` compatible with ape.
+#' @export
+as_ape_phylo <- function(tree,
+                         order = c("cladewise", "postorder"),
+                         use_node_labels = TRUE,
+                         include_root_edge = TRUE) {
+  order <- match.arg(order)
+
+  if (inherits(tree, "phylo")) {
+    return(tree)
+  }
+  if (!.is_rustree_tree(tree)) {
+    stop("tree must be a rustree tree list with name, parent, child, length, and root fields",
+         call. = FALSE)
+  }
+
+  .Call("wrap__tree_to_ape_r", tree, order, as.logical(use_node_labels),
+        as.logical(include_root_edge))
+}
+
+#' Convert a list of rustree trees to an ape multiPhylo object.
+#'
+#' @param trees A list of rustree tree lists or phylo objects.
+#' @param order Edge row order for the returned phylo objects.
+#' @param use_node_labels Include non-empty internal node names as node.label.
+#' @param include_root_edge Store non-zero rustree root branch lengths as root.edge.
+#' @return An object of class `"multiPhylo"` compatible with ape.
+#' @export
+as_ape_multiPhylo <- function(trees,
+                              order = c("cladewise", "postorder"),
+                              use_node_labels = TRUE,
+                              include_root_edge = TRUE) {
+  order <- match.arg(order)
+  if (.is_rustree_tree(trees)) {
+    stop("trees is a single rustree tree; use as_ape_phylo() instead", call. = FALSE)
+  }
+  if (!is.list(trees)) {
+    stop("trees must be a list of rustree tree lists or phylo objects", call. = FALSE)
+  }
+
+  is_rustree <- vapply(trees, .is_rustree_tree, logical(1))
+  if (all(is_rustree)) {
+    return(.Call("wrap__trees_to_ape_multi_r", trees, order,
+                 as.logical(use_node_labels), as.logical(include_root_edge)))
+  }
+
+  converted <- lapply(trees, function(tree) {
+    if (inherits(tree, "phylo")) {
+      tree
+    } else {
+      as_ape_phylo(tree, order = order, use_node_labels = use_node_labels,
+                   include_root_edge = include_root_edge)
+    }
+  })
+  names(converted) <- names(trees)
+  class(converted) <- "multiPhylo"
+  converted
+}
+
+tree_to_ape <- as_ape_phylo
+gene_tree_to_ape <- as_ape_phylo
+gene_trees_to_ape <- as_ape_multiPhylo
+
+simulate_species_tree_ape <- function(n, lambda, mu, seed = NULL,
+                                      order = c("cladewise", "postorder"),
+                                      use_node_labels = TRUE,
+                                      include_root_edge = TRUE) {
+  if (is.null(seed)) seed <- NA_integer_
+  order <- match.arg(order)
+  .Call("wrap__simulate_species_tree_ape_r", as.integer(n), as.double(lambda),
+        as.double(mu), as.integer(seed), order, as.logical(use_node_labels),
+        as.logical(include_root_edge))
+}
+
 # Gene Tree Functions
 
-simulate_dtl <- function(species_tree, lambda_d, lambda_t, lambda_l, transfer_alpha = NULL, require_extant = FALSE, seed = NULL) {
+simulate_dtl <- function(species_tree, lambda_d, lambda_t, lambda_l, transfer_alpha = NULL,
+                         require_extant = FALSE, seed = NULL, replacement_transfer = NULL) {
   if (is.null(seed)) seed <- NA_integer_
   if (is.null(transfer_alpha)) transfer_alpha <- NA_real_
-  .Call("wrap__simulate_dtl_r", species_tree, as.double(lambda_d), as.double(lambda_t), as.double(lambda_l), as.double(transfer_alpha), as.logical(require_extant), as.integer(seed))
+  if (is.null(replacement_transfer)) replacement_transfer <- NA_real_
+  .Call("wrap__simulate_dtl_r", species_tree, as.double(lambda_d), as.double(lambda_t),
+        as.double(lambda_l), as.double(transfer_alpha), as.double(replacement_transfer),
+        as.logical(require_extant), as.integer(seed))
 }
 
-simulate_dtl_batch <- function(species_tree, n, lambda_d, lambda_t, lambda_l, transfer_alpha = NULL, require_extant = FALSE, seed = NULL) {
+simulate_dtl_batch <- function(species_tree, n, lambda_d, lambda_t, lambda_l, transfer_alpha = NULL,
+                               require_extant = FALSE, seed = NULL, replacement_transfer = NULL) {
   if (is.null(seed)) seed <- NA_integer_
   if (is.null(transfer_alpha)) transfer_alpha <- NA_real_
-  .Call("wrap__simulate_dtl_batch_r", species_tree, as.integer(n), as.double(lambda_d), as.double(lambda_t), as.double(lambda_l), as.double(transfer_alpha), as.logical(require_extant), as.integer(seed))
+  if (is.null(replacement_transfer)) replacement_transfer <- NA_real_
+  .Call("wrap__simulate_dtl_batch_r", species_tree, as.integer(n), as.double(lambda_d),
+        as.double(lambda_t), as.double(lambda_l), as.double(transfer_alpha),
+        as.double(replacement_transfer), as.logical(require_extant), as.integer(seed))
 }
 
-simulate_dtl_per_species <- function(species_tree, lambda_d, lambda_t, lambda_l, transfer_alpha = NULL, require_extant = FALSE, seed = NULL) {
+simulate_dtl_per_species <- function(species_tree, lambda_d, lambda_t, lambda_l,
+                                     transfer_alpha = NULL, require_extant = FALSE,
+                                     seed = NULL, replacement_transfer = NULL) {
   if (is.null(seed)) seed <- NA_integer_
   if (is.null(transfer_alpha)) transfer_alpha <- NA_real_
-  .Call("wrap__simulate_dtl_per_species_r", species_tree, as.double(lambda_d), as.double(lambda_t), as.double(lambda_l), as.double(transfer_alpha), as.logical(require_extant), as.integer(seed))
+  if (is.null(replacement_transfer)) replacement_transfer <- NA_real_
+  .Call("wrap__simulate_dtl_per_species_r", species_tree, as.double(lambda_d),
+        as.double(lambda_t), as.double(lambda_l), as.double(transfer_alpha),
+        as.double(replacement_transfer), as.logical(require_extant), as.integer(seed))
 }
 
-simulate_dtl_per_species_batch <- function(species_tree, n, lambda_d, lambda_t, lambda_l, transfer_alpha = NULL, require_extant = FALSE, seed = NULL) {
+simulate_dtl_per_species_batch <- function(species_tree, n, lambda_d, lambda_t, lambda_l,
+                                           transfer_alpha = NULL, require_extant = FALSE,
+                                           seed = NULL, replacement_transfer = NULL) {
   if (is.null(seed)) seed <- NA_integer_
   if (is.null(transfer_alpha)) transfer_alpha <- NA_real_
-  .Call("wrap__simulate_dtl_per_species_batch_r", species_tree, as.integer(n), as.double(lambda_d), as.double(lambda_t), as.double(lambda_l), as.double(transfer_alpha), as.logical(require_extant), as.integer(seed))
+  if (is.null(replacement_transfer)) replacement_transfer <- NA_real_
+  .Call("wrap__simulate_dtl_per_species_batch_r", species_tree, as.integer(n),
+        as.double(lambda_d), as.double(lambda_t), as.double(lambda_l),
+        as.double(transfer_alpha), as.double(replacement_transfer),
+        as.logical(require_extant), as.integer(seed))
+}
+
+simulate_dtl_ape <- function(species_tree, lambda_d, lambda_t, lambda_l,
+                             transfer_alpha = NULL, require_extant = FALSE,
+                             seed = NULL, replacement_transfer = NULL,
+                             order = c("cladewise", "postorder"),
+                             use_node_labels = TRUE,
+                             include_root_edge = TRUE) {
+  if (is.null(seed)) seed <- NA_integer_
+  if (is.null(transfer_alpha)) transfer_alpha <- NA_real_
+  if (is.null(replacement_transfer)) replacement_transfer <- NA_real_
+  order <- match.arg(order)
+  .Call("wrap__simulate_dtl_ape_r", species_tree, as.double(lambda_d),
+        as.double(lambda_t), as.double(lambda_l), as.double(transfer_alpha),
+        as.double(replacement_transfer), as.logical(require_extant),
+        as.integer(seed), order, as.logical(use_node_labels),
+        as.logical(include_root_edge))
+}
+
+simulate_dtl_batch_ape <- function(species_tree, n, lambda_d, lambda_t, lambda_l,
+                                   transfer_alpha = NULL, require_extant = FALSE,
+                                   seed = NULL, replacement_transfer = NULL,
+                                   order = c("cladewise", "postorder"),
+                                   use_node_labels = TRUE,
+                                   include_root_edge = TRUE) {
+  if (is.null(seed)) seed <- NA_integer_
+  if (is.null(transfer_alpha)) transfer_alpha <- NA_real_
+  if (is.null(replacement_transfer)) replacement_transfer <- NA_real_
+  order <- match.arg(order)
+  .Call("wrap__simulate_dtl_batch_ape_r", species_tree, as.integer(n),
+        as.double(lambda_d), as.double(lambda_t), as.double(lambda_l),
+        as.double(transfer_alpha), as.double(replacement_transfer),
+        as.logical(require_extant), as.integer(seed), order,
+        as.logical(use_node_labels), as.logical(include_root_edge))
+}
+
+simulate_dtl_per_species_ape <- function(species_tree, lambda_d, lambda_t, lambda_l,
+                                         transfer_alpha = NULL,
+                                         require_extant = FALSE, seed = NULL,
+                                         replacement_transfer = NULL,
+                                         order = c("cladewise", "postorder"),
+                                         use_node_labels = TRUE,
+                                         include_root_edge = TRUE) {
+  if (is.null(seed)) seed <- NA_integer_
+  if (is.null(transfer_alpha)) transfer_alpha <- NA_real_
+  if (is.null(replacement_transfer)) replacement_transfer <- NA_real_
+  order <- match.arg(order)
+  .Call("wrap__simulate_dtl_per_species_ape_r", species_tree,
+        as.double(lambda_d), as.double(lambda_t), as.double(lambda_l),
+        as.double(transfer_alpha), as.double(replacement_transfer),
+        as.logical(require_extant), as.integer(seed), order,
+        as.logical(use_node_labels), as.logical(include_root_edge))
+}
+
+simulate_dtl_per_species_batch_ape <- function(species_tree, n, lambda_d, lambda_t, lambda_l,
+                                               transfer_alpha = NULL,
+                                               require_extant = FALSE, seed = NULL,
+                                               replacement_transfer = NULL,
+                                               order = c("cladewise", "postorder"),
+                                               use_node_labels = TRUE,
+                                               include_root_edge = TRUE) {
+  if (is.null(seed)) seed <- NA_integer_
+  if (is.null(transfer_alpha)) transfer_alpha <- NA_real_
+  if (is.null(replacement_transfer)) replacement_transfer <- NA_real_
+  order <- match.arg(order)
+  .Call("wrap__simulate_dtl_per_species_batch_ape_r", species_tree,
+        as.integer(n), as.double(lambda_d), as.double(lambda_t),
+        as.double(lambda_l), as.double(transfer_alpha),
+        as.double(replacement_transfer), as.logical(require_extant),
+        as.integer(seed), order, as.logical(use_node_labels),
+        as.logical(include_root_edge))
 }
 
 gene_tree_num_extant <- function(gene_tree) {

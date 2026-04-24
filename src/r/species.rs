@@ -32,25 +32,43 @@ fn simulate_species_tree_r(n: i32, lambda: f64, mu: f64, seed: Robj) -> Result<L
         }
     };
 
-    let (mut tree, events) = simulate_bd_tree_bwd(n as usize, lambda, mu, &mut rng)
-        .map_err(Error::Other)?;
+    let (mut tree, events) =
+        simulate_bd_tree_bwd(n as usize, lambda, mu, &mut rng).map_err(Error::Other)?;
     tree.assign_depths();
 
     let names: Vec<String> = tree.nodes.iter().map(|n| n.name.clone()).collect();
-    let parents: Vec<Rint> = tree.nodes.iter()
+    let parents: Vec<Rint> = tree
+        .nodes
+        .iter()
         .map(|n| n.parent.map(|p| Rint::from(p as i32)).unwrap_or(Rint::na()))
         .collect();
-    let left_children: Vec<Rint> = tree.nodes.iter()
-        .map(|n| n.left_child.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
+    let left_children: Vec<Rint> = tree
+        .nodes
+        .iter()
+        .map(|n| {
+            n.left_child
+                .map(|c| Rint::from(c as i32))
+                .unwrap_or(Rint::na())
+        })
         .collect();
-    let right_children: Vec<Rint> = tree.nodes.iter()
-        .map(|n| n.right_child.map(|c| Rint::from(c as i32)).unwrap_or(Rint::na()))
+    let right_children: Vec<Rint> = tree
+        .nodes
+        .iter()
+        .map(|n| {
+            n.right_child
+                .map(|c| Rint::from(c as i32))
+                .unwrap_or(Rint::na())
+        })
         .collect();
     let lengths: Vec<f64> = tree.nodes.iter().map(|n| n.length).collect();
-    let depths: Vec<Rfloat> = tree.nodes.iter()
+    let depths: Vec<Rfloat> = tree
+        .nodes
+        .iter()
         .map(|n| n.depth.map(Rfloat::from).unwrap_or(Rfloat::na()))
         .collect();
-    let bd_events: Vec<Rstr> = tree.nodes.iter()
+    let bd_events: Vec<Rstr> = tree
+        .nodes
+        .iter()
         .map(|n| match n.bd_event {
             Some(e) => Rstr::from(e.as_str()),
             None => Rstr::na(),
@@ -81,11 +99,10 @@ fn simulate_species_tree_r(n: i32, lambda: f64, mu: f64, seed: Robj) -> Result<L
 fn parse_newick_r(newick_str: &str) -> Result<List> {
     use crate::newick::parse_newick;
 
-    let mut nodes = parse_newick(newick_str)
-        .map_err(|e| format!("Failed to parse Newick: {}", e))?;
+    let mut nodes =
+        parse_newick(newick_str).map_err(|e| format!("Failed to parse Newick: {}", e))?;
 
-    let mut root = nodes.pop()
-        .ok_or("No tree found in Newick string")?;
+    let mut root = nodes.pop().ok_or("No tree found in Newick string")?;
 
     root.zero_root_length();
     root.assign_depths(0.0);
@@ -114,7 +131,9 @@ fn tree_to_newick_r(tree_list: List) -> Result<String> {
 #[extendr]
 fn tree_num_leaves_r(tree_list: List) -> Result<i32> {
     let tree = rlist_to_flattree(&tree_list)?;
-    let count = tree.nodes.iter()
+    let count = tree
+        .nodes
+        .iter()
         .filter(|n| n.left_child.is_none() && n.right_child.is_none())
         .count();
     Ok(count as i32)
@@ -128,11 +147,122 @@ fn tree_num_leaves_r(tree_list: List) -> Result<i32> {
 #[extendr]
 fn tree_leaf_names_r(tree_list: List) -> Result<Vec<String>> {
     let tree = rlist_to_flattree(&tree_list)?;
-    let names: Vec<String> = tree.nodes.iter()
+    let names: Vec<String> = tree
+        .nodes
+        .iter()
         .filter(|n| n.left_child.is_none() && n.right_child.is_none())
         .map(|n| n.name.clone())
         .collect();
     Ok(names)
+}
+
+/// Convert a rustree tree list to an ape phylo object.
+///
+/// @param tree_list A tree list from simulate_species_tree_r, parse_newick_r, or simulate_dtl_r
+/// @param order Edge row order: "cladewise" or "postorder"
+/// @param use_node_labels Include non-empty internal node names as node.label
+/// @param include_root_edge Store a non-zero rustree root branch length as root.edge
+/// @return An ape-compatible phylo object
+/// @export
+#[extendr]
+fn tree_to_ape_r(
+    tree_list: List,
+    order: &str,
+    use_node_labels: bool,
+    include_root_edge: bool,
+) -> Result<Robj> {
+    let tree = rlist_to_flattree(&tree_list)?;
+    flattree_to_ape_phylo(&tree, order, use_node_labels, include_root_edge)
+}
+
+/// Convert a list of rustree tree lists to an ape multiPhylo object.
+///
+/// @param tree_lists A list of rustree tree lists
+/// @param order Edge row order: "cladewise" or "postorder"
+/// @param use_node_labels Include non-empty internal node names as node.label
+/// @param include_root_edge Store non-zero rustree root branch lengths as root.edge
+/// @return An ape-compatible multiPhylo object
+/// @export
+#[extendr]
+fn trees_to_ape_multi_r(
+    tree_lists: List,
+    order: &str,
+    use_node_labels: bool,
+    include_root_edge: bool,
+) -> Result<Robj> {
+    let names: Option<Vec<String>> = tree_lists
+        .names()
+        .map(|iter| iter.map(|s| s.to_string()).collect());
+
+    let trees: Vec<FlatTree> = tree_lists
+        .values()
+        .enumerate()
+        .map(|(i, robj)| {
+            let tree_list: List = robj.try_into().map_err(|_| {
+                Error::Other(format!("Element {} is not a rustree tree list", i + 1))
+            })?;
+            rlist_to_flattree(&tree_list)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let mut multi =
+        flattrees_to_ape_multiphylo(trees.iter(), order, use_node_labels, include_root_edge)?;
+
+    if let Some(names) = names {
+        multi = multi.set_names(names)?;
+    }
+
+    Ok(multi)
+}
+
+/// Simulate a birth-death species tree and return it directly as an ape phylo object.
+///
+/// @param n Number of extant species
+/// @param lambda Speciation rate
+/// @param mu Extinction rate
+/// @param seed Optional random seed
+/// @param order Edge row order: "cladewise" or "postorder"
+/// @param use_node_labels Include non-empty internal node names as node.label
+/// @param include_root_edge Store a non-zero rustree root branch length as root.edge
+/// @return An ape-compatible phylo object
+/// @export
+#[extendr]
+fn simulate_species_tree_ape_r(
+    n: i32,
+    lambda: f64,
+    mu: f64,
+    seed: Robj,
+    order: &str,
+    use_node_labels: bool,
+    include_root_edge: bool,
+) -> Result<Robj> {
+    if n <= 0 {
+        return Err("Number of species must be positive".into());
+    }
+    if lambda <= 0.0 {
+        return Err("Speciation rate must be positive".into());
+    }
+    if mu < 0.0 {
+        return Err("Extinction rate must be non-negative".into());
+    }
+    if lambda <= mu {
+        return Err("Speciation rate must be greater than extinction rate".into());
+    }
+
+    let mut rng = if seed.is_null() || seed.is_na() {
+        StdRng::from_entropy()
+    } else {
+        match seed.as_integer() {
+            Some(s) => StdRng::seed_from_u64(s as u64),
+            None => return Err("seed must be an integer".into()),
+        }
+    };
+
+    let (mut tree, _) =
+        simulate_bd_tree_bwd(n as usize, lambda, mu, &mut rng).map_err(Error::Other)?;
+    tree.assign_depths();
+
+    flattree_to_ape_phylo(&tree, order, use_node_labels, include_root_edge)
 }
 
 /// Name unnamed internal nodes as `internal0`, `internal1`, etc.
@@ -157,15 +287,20 @@ fn name_internal_nodes_r(tree_list: List) -> Result<List> {
 /// @export
 #[extendr]
 fn gene_tree_num_extant_r(gene_tree_list: List) -> Result<i32> {
-    let events: Vec<String> = gene_tree_list.dollar("event")?.as_str_vector()
+    let events: Vec<String> = gene_tree_list
+        .dollar("event")?
+        .as_str_vector()
         .ok_or("Failed to get event column")?
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let left_children: Vec<i32> = gene_tree_list.dollar("left_child")?.as_integer_vector()
+    let left_children: Vec<i32> = gene_tree_list
+        .dollar("left_child")?
+        .as_integer_vector()
         .ok_or("Failed to get left_child column")?;
 
-    let count = events.iter()
+    let count = events
+        .iter()
         .zip(left_children.iter())
         .filter(|(e, lc)| *e == "Leaf" && lc.is_na())
         .count();
@@ -192,7 +327,8 @@ fn gene_tree_to_newick_r(gene_tree_list: List) -> Result<String> {
 /// @export
 #[extendr]
 fn gene_tree_to_xml_r(gene_tree_list: List) -> Result<String> {
-    let (gene_tree, species_tree, node_mapping, event_mapping) = rlist_to_genetree(&gene_tree_list)?;
+    let (gene_tree, species_tree, node_mapping, event_mapping) =
+        rlist_to_genetree(&gene_tree_list)?;
     let rec_tree = RecTree::new_owned(species_tree, gene_tree, node_mapping, event_mapping);
     Ok(rec_tree.to_xml())
 }
