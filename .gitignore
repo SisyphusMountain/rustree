@@ -7,8 +7,12 @@ out/
 *.svg
 
 # Test data (generated outputs live under testdata/)
-testdata/
-tests/RF_trees
+testdata/*
+!testdata/induced_tr/
+!testdata/induced_tr/**
+tests/RF_trees/*
+!tests/RF_trees/
+!tests/RF_trees/*.newick
 tests/python/__pycache__
 
 # Misc

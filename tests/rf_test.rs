@@ -45,10 +45,11 @@ fn flat_tree_by_number(dir_path: &Path, number: usize) -> FlatTree {
 #[test]
 fn test_unrooted_rf_matches_reference_pairs() {
     let dir_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/RF_trees");
-    if !dir_path.exists() {
-        eprintln!("skipping RF fixture test: missing {}", dir_path.display());
-        return;
-    }
+    assert!(
+        dir_path.exists(),
+        "missing RF fixture directory: {}",
+        dir_path.display()
+    );
 
     let reference_pairs = [
         (1, 2, 12),

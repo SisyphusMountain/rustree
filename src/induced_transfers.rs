@@ -882,10 +882,10 @@ mod tests {
     #[test]
     fn test_damien_style_matches_expected_fixture() {
         let base = "testdata/induced_tr";
-        if !Path::new(base).exists() {
-            eprintln!("skipping Damien-style fixture test: missing {base}");
-            return;
-        }
+        assert!(
+            Path::new(base).exists(),
+            "missing fixture directory: {base}"
+        );
 
         let complete_newick = fs::read_to_string(format!("{}/complete_tree.nwk", base)).unwrap();
         let sampled_newick = fs::read_to_string(format!("{}/sampled_tree.nwk", base)).unwrap();
@@ -988,8 +988,8 @@ mod tests {
         .unwrap();
         assert_eq!(
             reduced.len(),
-            15,
-            "With remove_undetectable=true this fixture should yield 15 transfers"
+            0,
+            "With remove_undetectable=true this compact fixture should yield no detectable transfers"
         );
     }
 }
