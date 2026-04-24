@@ -44,7 +44,7 @@ tree_leaf_names <- function(tree) {
 #' @param tree A rustree species tree or gene tree list.
 #' @param order Edge row order for the returned phylo object.
 #' @param use_node_labels Include non-empty internal node names as node.label.
-#' @param include_root_edge Store a non-zero rustree root branch length as root.edge.
+#' @param include_root_edge Store a finite rustree root branch length as root.edge.
 #' @return An object of class `"phylo"` compatible with ape.
 #' @export
 as_ape_phylo <- function(tree,
@@ -70,7 +70,7 @@ as_ape_phylo <- function(tree,
 #' @param trees A list of rustree tree lists or phylo objects.
 #' @param order Edge row order for the returned phylo objects.
 #' @param use_node_labels Include non-empty internal node names as node.label.
-#' @param include_root_edge Store non-zero rustree root branch lengths as root.edge.
+#' @param include_root_edge Store finite rustree root branch lengths as root.edge.
 #' @return An object of class `"multiPhylo"` compatible with ape.
 #' @export
 as_ape_multiPhylo <- function(trees,

@@ -174,11 +174,23 @@ pub(crate) fn flattree_to_ape_phylo(
         }
     }
 
-    let mut edge_order = preorder.clone();
-    if order == ApeOrder::Postorder {
-        edge_order.reverse();
-    }
-    edge_order.retain(|&idx| idx != tree.root);
+    let edge_order = match order {
+        ApeOrder::Cladewise => {
+            let mut edge_order = preorder.clone();
+            edge_order.retain(|&idx| idx != tree.root);
+            edge_order
+        }
+        ApeOrder::Postorder => {
+            let mut edge_order = Vec::with_capacity(n.saturating_sub(1));
+            for &parent in internal_nodes.iter().rev() {
+                let node = &tree.nodes[parent];
+                for child in [node.left_child, node.right_child].into_iter().flatten() {
+                    edge_order.push(child);
+                }
+            }
+            edge_order
+        }
+    };
     let n_edge = edge_order.len();
     if n_edge > i32::MAX as usize {
         return Err(Error::Other(format!(
@@ -233,7 +245,7 @@ pub(crate) fn flattree_to_ape_phylo(
     }
 
     let root_length = tree.nodes[tree.root].length;
-    if include_root_edge && root_length.is_finite() && root_length != 0.0 {
+    if include_root_edge && root_length.is_finite() {
         names.push("root.edge");
         values.push(Robj::from(root_length));
     }

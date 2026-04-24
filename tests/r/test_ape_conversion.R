@@ -93,8 +93,19 @@ reference_as_ape_phylo <- function(tree,
   ape_id[tip_nodes + 1L] <- seq_along(tip_nodes)
   ape_id[internal_nodes + 1L] <- length(tip_nodes) + seq_along(internal_nodes)
 
-  edge_order <- if (identical(attr_order, "postorder")) rev(preorder) else preorder
-  edge_order <- edge_order[edge_order != root]
+  if (identical(attr_order, "postorder")) {
+    edge_order <- integer(0)
+    for (parent in rev(internal_nodes)) {
+      for (child in c(tree$left_child[[parent + 1L]],
+                      tree$right_child[[parent + 1L]])) {
+        if (!is.na(child)) {
+          edge_order <- c(edge_order, as.integer(child))
+        }
+      }
+    }
+  } else {
+    edge_order <- preorder[preorder != root]
+  }
   edge <- matrix(integer(length(edge_order) * 2L), ncol = 2L)
   if (length(edge_order) > 0L) {
     parents <- tree$parent[edge_order + 1L]
@@ -115,7 +126,7 @@ reference_as_ape_phylo <- function(tree,
   }
 
   root_length <- as.numeric(tree$length[[root + 1L]])
-  if (isTRUE(include_root_edge) && is.finite(root_length) && root_length != 0.0) {
+  if (isTRUE(include_root_edge) && is.finite(root_length)) {
     phy$root.edge <- root_length
   }
 
@@ -137,6 +148,35 @@ assert_phylo_equal <- function(actual, expected, msg = "") {
                    paste(msg, "node.label"))
   assert_identical(actual$root.edge, expected$root.edge,
                    paste(msg, "root.edge"))
+  assert_identical(attr(actual, "order"), attr(expected, "order"),
+                   paste(msg, "order"))
+}
+
+assert_phylo_equal_tolerant <- function(actual, expected, msg = "",
+                                        tolerance = 1e-6) {
+  assert_numeric_equal_abs <- function(x, y, field) {
+    if (is.null(x) || is.null(y)) {
+      assert_identical(x, y, paste(msg, field))
+    } else {
+      assert_identical(length(x), length(y), paste(msg, field, "length"))
+      if (length(x) > 0L) {
+        assert_true(max(abs(x - y)) <= tolerance, paste(msg, field))
+      }
+    }
+  }
+
+  assert_identical(class(actual), class(expected), paste(msg, "class"))
+  assert_true(identical(unname(actual$edge), unname(expected$edge)),
+              paste(msg, "edge"))
+  assert_numeric_equal_abs(actual$edge.length, expected$edge.length,
+                           "edge.length")
+  assert_identical(actual$tip.label, expected$tip.label,
+                   paste(msg, "tip.label"))
+  assert_identical(actual$Nnode, expected$Nnode, paste(msg, "Nnode"))
+  assert_identical(actual$node.label, expected$node.label,
+                   paste(msg, "node.label"))
+  assert_numeric_equal_abs(actual$root.edge, expected$root.edge,
+                           "root.edge")
   assert_identical(attr(actual, "order"), attr(expected, "order"),
                    paste(msg, "order"))
 }
@@ -174,15 +214,16 @@ run_test("as_ape_phylo: postorder edge rows put children before parents", {
   phy <- as_ape_phylo(example_tree(), order = "postorder")
   expected_edge <- matrix(
     c(
-      4L, 3L,
-      5L, 2L,
       5L, 1L,
-      4L, 5L
+      5L, 2L,
+      4L, 5L,
+      4L, 3L
     ),
     ncol = 2L,
     byrow = TRUE
   )
   assert_true(identical(unname(phy$edge), expected_edge), "postorder edge matrix mismatch")
+  assert_identical(phy$edge.length, c(1.0, 1.2, 0.5, 2.0))
   assert_identical(attr(phy, "order"), "postorder")
 })
 
@@ -241,6 +282,37 @@ run_test("Rust ape conversion matches R reference for simulated trees", {
     reference_as_ape_phylo(gene_tree, order = "postorder"),
     "gene tree"
   )
+})
+
+run_test("Rust ape conversion matches ape Newick roundtrip", {
+  if (!requireNamespace("ape", quietly = TRUE)) {
+    cat("SKIP: ape package is not installed\n")
+  } else {
+    check_ape_roundtrip <- function(tree, label) {
+      via_newick <- ape::read.tree(text = tree_to_newick(tree))
+      assert_phylo_equal_tolerant(
+        as_ape_phylo(tree),
+        via_newick,
+        paste(label, "cladewise")
+      )
+      assert_phylo_equal_tolerant(
+        as_ape_phylo(tree, order = "postorder"),
+        ape::reorder.phylo(via_newick, order = "postorder"),
+        paste(label, "postorder")
+      )
+    }
+
+    check_ape_roundtrip(example_tree(), "example tree")
+
+    for (seed in 1:5) {
+      sp_tree <- simulate_species_tree(20L, 1.0, 0.3, seed = seed)
+      check_ape_roundtrip(sp_tree, paste("species tree", seed))
+
+      gene_tree <- simulate_dtl(sp_tree, 0.5, 0.2, 0.3,
+                                require_extant = TRUE, seed = seed + 100L)
+      check_ape_roundtrip(gene_tree, paste("gene tree", seed))
+    }
+  }
 })
 
 cat("\n=== Test Summary ===\n")

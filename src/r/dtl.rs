@@ -298,7 +298,7 @@ fn simulate_dtl_per_species_batch_r(
 /// @param seed Optional random seed
 /// @param order Edge row order: "cladewise" or "postorder"
 /// @param use_node_labels Include non-empty internal node names as node.label
-/// @param include_root_edge Store a non-zero rustree root branch length as root.edge
+/// @param include_root_edge Store a finite rustree root branch length as root.edge
 /// @return An ape-compatible phylo object
 /// @export
 #[extendr]
@@ -360,7 +360,7 @@ fn simulate_dtl_ape_r(
 /// @param seed Optional random seed
 /// @param order Edge row order: "cladewise" or "postorder"
 /// @param use_node_labels Include non-empty internal node names as node.label
-/// @param include_root_edge Store non-zero rustree root branch lengths as root.edge
+/// @param include_root_edge Store finite rustree root branch lengths as root.edge
 /// @return An ape-compatible multiPhylo object
 /// @export
 #[extendr]

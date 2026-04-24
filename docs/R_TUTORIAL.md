@@ -666,7 +666,7 @@ ape's standard one-based node identifiers:
 | Internal nodes | `Nnode`, `node.label` | Internal nodes are numbered `Ntip + 1 .. Ntip + Nnode`; the root is `Ntip + 1`. Non-empty internal names become `node.label` when `use_node_labels = TRUE`. |
 | Parent/child links | `edge` | The two-column integer matrix stores `(parent_id, child_id)` using ape node IDs. |
 | Child branch length | `edge.length` | Each edge length is the rustree `length` of the child node in the same row of `edge`. |
-| Root branch length | `root.edge` | Included only when `include_root_edge = TRUE` and the rustree root length is finite and non-zero. |
+| Root branch length | `root.edge` | Included when `include_root_edge = TRUE` and the rustree root length is finite, including zero-length root edges. |
 | Requested row order | `attr(phy, "order")` | `order = "cladewise"` is preorder; `order = "postorder"` also accepts ape's `"pruningwise"` alias. |
 
 The converter validates that the tree is reachable from the root, parent and

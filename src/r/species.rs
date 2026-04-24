@@ -161,7 +161,7 @@ fn tree_leaf_names_r(tree_list: List) -> Result<Vec<String>> {
 /// @param tree_list A tree list from simulate_species_tree_r, parse_newick_r, or simulate_dtl_r
 /// @param order Edge row order: "cladewise" or "postorder"
 /// @param use_node_labels Include non-empty internal node names as node.label
-/// @param include_root_edge Store a non-zero rustree root branch length as root.edge
+/// @param include_root_edge Store a finite rustree root branch length as root.edge
 /// @return An ape-compatible phylo object
 /// @export
 #[extendr]
@@ -180,7 +180,7 @@ fn tree_to_ape_r(
 /// @param tree_lists A list of rustree tree lists
 /// @param order Edge row order: "cladewise" or "postorder"
 /// @param use_node_labels Include non-empty internal node names as node.label
-/// @param include_root_edge Store non-zero rustree root branch lengths as root.edge
+/// @param include_root_edge Store finite rustree root branch lengths as root.edge
 /// @return An ape-compatible multiPhylo object
 /// @export
 #[extendr]
@@ -223,7 +223,7 @@ fn trees_to_ape_multi_r(
 /// @param seed Optional random seed
 /// @param order Edge row order: "cladewise" or "postorder"
 /// @param use_node_labels Include non-empty internal node names as node.label
-/// @param include_root_edge Store a non-zero rustree root branch length as root.edge
+/// @param include_root_edge Store a finite rustree root branch length as root.edge
 /// @return An ape-compatible phylo object
 /// @export
 #[extendr]
