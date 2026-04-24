@@ -118,7 +118,6 @@ fn symmetric_difference_size(left: &HashSet<String>, right: &HashSet<String>) ->
 
 /// Computes the rooted Robinson-Foulds distance between two trees.
 ///
-#[must_use]
 pub fn robinson_foulds(tree1: &FlatTree, tree2: &FlatTree) -> Result<usize, RustreeError> {
     validate_matching_leaves(tree1, tree2)?;
     let clades1 = get_rooted_clades(tree1);
@@ -130,11 +129,7 @@ pub fn robinson_foulds(tree1: &FlatTree, tree2: &FlatTree) -> Result<usize, Rust
 ///
 /// Compares bipartitions rather than rooted clades, so two trees that differ
 /// only in root placement have RF distance 0.
-#[must_use]
-pub fn unrooted_robinson_foulds(
-    tree1: &FlatTree,
-    tree2: &FlatTree,
-) -> Result<usize, RustreeError> {
+pub fn unrooted_robinson_foulds(tree1: &FlatTree, tree2: &FlatTree) -> Result<usize, RustreeError> {
     let all_leaves = validate_matching_leaves(tree1, tree2)?;
     let bip1 = get_unrooted_bipartitions(tree1, &all_leaves);
     let bip2 = get_unrooted_bipartitions(tree2, &all_leaves);
@@ -142,7 +137,6 @@ pub fn unrooted_robinson_foulds(
 }
 
 /// Backward-compatible alias for the validated unrooted RF implementation.
-#[must_use]
 pub fn true_unrooted_robinson_foulds(
     tree1: &FlatTree,
     tree2: &FlatTree,

@@ -841,9 +841,7 @@ impl PyGeneTree {
         };
         let algorithm = match mode.to_ascii_lowercase().as_str() {
             "projection" => InducedTransferAlgorithm::Projection,
-            "damien" | "damien_style" | "damien-style" => {
-                InducedTransferAlgorithm::DamienStyle
-            }
+            "damien" | "damien_style" | "damien-style" => InducedTransferAlgorithm::DamienStyle,
             other => {
                 return Err(PyValueError::new_err(format!(
                     "Unknown mode '{}'. Expected 'projection' or 'damien'",
@@ -859,7 +857,7 @@ impl PyGeneTree {
             algorithm,
             remove_undetectable,
         )
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let time: Vec<f64> = induced.iter().map(|t| t.time).collect();
         let gene_id: Vec<usize> = induced.iter().map(|t| t.gene_id).collect();

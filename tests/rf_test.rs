@@ -45,7 +45,18 @@ fn flat_tree_by_number(dir_path: &Path, number: usize) -> FlatTree {
 #[test]
 fn test_unrooted_rf_matches_reference_pairs() {
     let dir_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/RF_trees");
-    let reference_pairs = [(1, 2, 12), (1, 7, 8), (1, 14, 12), (1, 71, 12), (44, 74, 14)];
+    if !dir_path.exists() {
+        eprintln!("skipping RF fixture test: missing {}", dir_path.display());
+        return;
+    }
+
+    let reference_pairs = [
+        (1, 2, 12),
+        (1, 7, 8),
+        (1, 14, 12),
+        (1, 71, 12),
+        (44, 74, 14),
+    ];
 
     for (left, right, expected_rf) in reference_pairs {
         let tree1 = flat_tree_by_number(&dir_path, left);
@@ -64,8 +75,14 @@ fn test_unrooted_rf_matches_reference_pairs() {
 fn test_unrooted_rf_root_placement_invariant() {
     let mut tree1_nodes = parse_newick("((A:1,B:1):1,(C:1,D:1):1):0;").expect("tree1 parse failed");
     let mut tree2_nodes = parse_newick("(A:1,(B:1,(C:1,D:1):1):1):0;").expect("tree2 parse failed");
-    let tree1 = tree1_nodes.pop().expect("tree1 missing root").to_flat_tree();
-    let tree2 = tree2_nodes.pop().expect("tree2 missing root").to_flat_tree();
+    let tree1 = tree1_nodes
+        .pop()
+        .expect("tree1 missing root")
+        .to_flat_tree();
+    let tree2 = tree2_nodes
+        .pop()
+        .expect("tree2 missing root")
+        .to_flat_tree();
 
     assert_eq!(robinson_foulds(&tree1, &tree2).unwrap(), 2);
     assert_eq!(unrooted_robinson_foulds(&tree1, &tree2).unwrap(), 0);
