@@ -214,17 +214,11 @@ fn test_parse_all_event_types() {
     let rec_tree = result.unwrap();
 
     // Check that we have different event types
-    let has_duplication = rec_tree
-        .event_mapping
-        .iter()
-        .any(|e| *e == Event::Duplication);
-    let has_speciation = rec_tree
-        .event_mapping
-        .iter()
-        .any(|e| *e == Event::Speciation);
-    let has_loss = rec_tree.event_mapping.iter().any(|e| *e == Event::Loss);
-    let has_leaf = rec_tree.event_mapping.iter().any(|e| *e == Event::Leaf);
-    let has_transfer = rec_tree.event_mapping.iter().any(|e| *e == Event::Transfer);
+    let has_duplication = rec_tree.event_mapping.contains(&Event::Duplication);
+    let has_speciation = rec_tree.event_mapping.contains(&Event::Speciation);
+    let has_loss = rec_tree.event_mapping.contains(&Event::Loss);
+    let has_leaf = rec_tree.event_mapping.contains(&Event::Leaf);
+    let has_transfer = rec_tree.event_mapping.contains(&Event::Transfer);
 
     assert!(has_duplication, "Should have duplication event");
     assert!(has_speciation, "Should have speciation event");

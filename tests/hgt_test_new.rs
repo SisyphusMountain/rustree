@@ -8,10 +8,12 @@ use std::path::PathBuf;
 fn run_spr_test(moved_node_name: &str, receiver_name: &str, expected_filename: &str) {
     // Read the original tree file.
     let orig_path = PathBuf::from("./tests/hgt_trees/original_tree.nwk");
-    let orig_str = fs::read_to_string(&orig_path).expect(&format!(
-        "Failed to read original tree file: {:?}",
-        orig_path
-    ));
+    let orig_str = fs::read_to_string(&orig_path).unwrap_or_else(|err| {
+        panic!(
+            "Failed to read original tree file: {:?}: {}",
+            orig_path, err
+        )
+    });
 
     // Parse the original tree.
     let mut nodes = parse_newick(orig_str.trim()).expect("Failed to parse original tree");
@@ -39,10 +41,12 @@ fn run_spr_test(moved_node_name: &str, receiver_name: &str, expected_filename: &
     );
 
     // --- Perform the SPR event using the surgery module function ---
-    spr_topology(&mut flat_tree, donor_index, receiver_index).expect(&format!(
-        "SPR operation failed for {} -> {}",
-        moved_node_name, receiver_name
-    ));
+    spr_topology(&mut flat_tree, donor_index, receiver_index).unwrap_or_else(|err| {
+        panic!(
+            "SPR operation failed for {} -> {}: {}",
+            moved_node_name, receiver_name, err
+        )
+    });
     // --- SPR function should update flat_tree.root internally if needed ---
 
     // For testing topology, set all branch lengths to 1.0 AFTER SPR.
@@ -68,10 +72,12 @@ fn run_spr_test(moved_node_name: &str, receiver_name: &str, expected_filename: &
 
     // Read and parse the expected tree.
     let expected_path = PathBuf::from(format!("./tests/hgt_trees/{}", expected_filename));
-    let expected_str = fs::read_to_string(&expected_path).expect(&format!(
-        "Failed to read expected tree file: {:?}",
-        expected_path
-    ));
+    let expected_str = fs::read_to_string(&expected_path).unwrap_or_else(|err| {
+        panic!(
+            "Failed to read expected tree file: {:?}: {}",
+            expected_path, err
+        )
+    });
     let mut expected_nodes =
         parse_newick(expected_str.trim()).expect("Failed to parse expected tree");
     let expected_tree = expected_nodes.pop().expect("No expected tree found");

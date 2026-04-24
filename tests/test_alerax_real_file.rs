@@ -66,11 +66,11 @@ fn test_parse_alerax_file() {
 
     // Verify structure
     assert!(
-        rec_tree.species_tree.nodes.len() > 0,
+        !rec_tree.species_tree.nodes.is_empty(),
         "Species tree should have nodes"
     );
     assert!(
-        rec_tree.gene_tree.nodes.len() > 0,
+        !rec_tree.gene_tree.nodes.is_empty(),
         "Gene tree should have nodes"
     );
     assert_eq!(rec_tree.gene_tree.nodes.len(), rec_tree.node_mapping.len());

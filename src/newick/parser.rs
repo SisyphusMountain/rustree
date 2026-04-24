@@ -344,7 +344,7 @@ mod tests {
         let root = &nodes[0];
         let left_name = root.left_child.as_ref().unwrap().name.as_str();
         let right_name = root.right_child.as_ref().unwrap().name.as_str();
-        let names = vec![left_name, right_name];
+        let names = [left_name, right_name];
         assert!(names.contains(&"Alpha"), "Should contain 'Alpha'");
         assert!(names.contains(&"Beta"), "Should contain 'Beta'");
     }
@@ -355,7 +355,7 @@ mod tests {
         let root = &nodes[0];
         let left_len = root.left_child.as_ref().unwrap().length;
         let right_len = root.right_child.as_ref().unwrap().length;
-        let lengths = vec![left_len, right_len];
+        let lengths = [left_len, right_len];
         assert!(lengths.contains(&1.5));
         assert!(lengths.contains(&2.5));
     }

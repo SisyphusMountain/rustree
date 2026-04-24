@@ -996,16 +996,16 @@ mod tests {
 
         let lca_depths = tree.precompute_lca_depths().unwrap();
 
-        for i in 0..tree.nodes.len() {
-            for j in 0..tree.nodes.len() {
+        for (i, row) in lca_depths.iter().enumerate().take(tree.nodes.len()) {
+            for (j, lca_depth) in row.iter().enumerate().take(tree.nodes.len()) {
                 let lca = tree.find_lca(i, j).unwrap();
                 let expected_depth = tree.nodes[lca].depth.unwrap();
                 assert!(
-                    (lca_depths[i][j] - expected_depth).abs() < 1e-10,
+                    (*lca_depth - expected_depth).abs() < 1e-10,
                     "LCA depth mismatch for ({}, {}): matrix={}, find_lca={}",
                     i,
                     j,
-                    lca_depths[i][j],
+                    lca_depth,
                     expected_depth
                 );
             }
@@ -1018,16 +1018,16 @@ mod tests {
 
         let lca_depths = tree.precompute_lca_depths().unwrap();
 
-        for i in 0..tree.nodes.len() {
-            for j in 0..tree.nodes.len() {
+        for (i, row) in lca_depths.iter().enumerate().take(tree.nodes.len()) {
+            for (j, lca_depth) in row.iter().enumerate().take(tree.nodes.len()) {
                 let lca = tree.find_lca(i, j).unwrap();
                 let expected_depth = tree.nodes[lca].depth.unwrap();
                 assert!(
-                    (lca_depths[i][j] - expected_depth).abs() < 1e-10,
+                    (*lca_depth - expected_depth).abs() < 1e-10,
                     "LCA depth mismatch for ({}, {}): matrix={}, find_lca={}",
                     i,
                     j,
-                    lca_depths[i][j],
+                    lca_depth,
                     expected_depth
                 );
             }

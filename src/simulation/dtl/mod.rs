@@ -263,7 +263,7 @@ mod tests {
         let lca_depths = species_tree
             .precompute_lca_depths()
             .expect("Failed to precompute LCA depths");
-        assert!(lca_depths.len() > 0, "LCA depths should be computed");
+        assert!(!lca_depths.is_empty(), "LCA depths should be computed");
     }
 
     // Tests for per-species (Zombi-style) simulation
