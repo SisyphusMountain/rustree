@@ -322,8 +322,7 @@ fn induced_transfers_damien_style(
         .collect();
 
     let mut transfer_node_info: HashMap<i64, (f64, usize)> = HashMap::new();
-    let mut curr_transfer_node = original_count;
-    for tr in &transfer_events {
+    for (curr_transfer_node, tr) in (original_count..).zip(transfer_events.iter()) {
         split_edge_with_transfer_nodes(
             &mut edges,
             tr.from_species as i64,
@@ -331,7 +330,6 @@ fn induced_transfers_damien_style(
             curr_transfer_node,
         )?;
         transfer_node_info.insert(-curr_transfer_node, (tr.time, tr.gene_id));
-        curr_transfer_node += 1;
     }
 
     let child_to_parent: HashMap<i64, i64> = edges.iter().map(|&(p, c)| (c, p)).collect();

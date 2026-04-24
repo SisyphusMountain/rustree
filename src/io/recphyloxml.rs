@@ -152,10 +152,8 @@ fn parse_species_tree(xml_content: &str) -> Result<SpeciesNode, ParseError> {
                     _ => {}
                 }
             }
-            Ok(XmlEvent::Text(e)) => {
-                if in_name || in_branch_length {
-                    current_text.push_str(&e.unescape()?);
-                }
+            Ok(XmlEvent::Text(e)) if in_name || in_branch_length => {
+                current_text.push_str(&e.unescape()?);
             }
             Ok(XmlEvent::End(ref e)) => {
                 let name = e.name();
@@ -320,10 +318,8 @@ fn parse_gene_tree(xml_content: &str) -> Result<GeneNode, ParseError> {
                     _ => {}
                 }
             }
-            Ok(XmlEvent::Text(e)) => {
-                if in_name || in_branch_length {
-                    current_text.push_str(&e.unescape()?);
-                }
+            Ok(XmlEvent::Text(e)) if in_name || in_branch_length => {
+                current_text.push_str(&e.unescape()?);
             }
             Ok(XmlEvent::End(ref e)) => {
                 let name = e.name();

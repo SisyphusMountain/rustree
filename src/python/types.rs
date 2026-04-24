@@ -133,7 +133,7 @@ impl PyReconciliationStatistics {
         // Sort by species name for consistent output
         let mut sorted_species: Vec<(&String, &PyEventCounts)> =
             self.events_per_species.iter().collect();
-        sorted_species.sort_by(|(a, _), (b, _)| a.cmp(b));
+        sorted_species.sort_by_key(|(species, _)| *species);
 
         for (species, counts) in sorted_species {
             species_names.push(species.clone());
