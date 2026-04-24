@@ -56,6 +56,91 @@ example_tree <- function() {
   )
 }
 
+reference_as_ape_phylo <- function(tree,
+                                   order = c("cladewise", "postorder", "pruningwise"),
+                                   use_node_labels = TRUE,
+                                   include_root_edge = TRUE) {
+  order <- match.arg(order)
+  attr_order <- if (identical(order, "pruningwise")) "postorder" else order
+  n <- length(tree$name)
+  root <- as.integer(tree$root[[1L]])
+
+  stack <- root
+  preorder <- integer(0)
+  visited <- rep(FALSE, n)
+  while (length(stack) > 0L) {
+    idx <- stack[[length(stack)]]
+    stack <- stack[-length(stack)]
+    if (visited[[idx + 1L]]) {
+      stop("reference converter saw a repeated node")
+    }
+    visited[[idx + 1L]] <- TRUE
+    preorder <- c(preorder, idx)
+
+    right <- tree$right_child[[idx + 1L]]
+    left <- tree$left_child[[idx + 1L]]
+    if (!is.na(right)) stack <- c(stack, as.integer(right))
+    if (!is.na(left)) stack <- c(stack, as.integer(left))
+  }
+
+  left_children <- tree$left_child[preorder + 1L]
+  right_children <- tree$right_child[preorder + 1L]
+  is_tip <- is.na(left_children) & is.na(right_children)
+  tip_nodes <- preorder[is_tip]
+  internal_nodes <- preorder[!is_tip]
+
+  ape_id <- integer(n)
+  ape_id[tip_nodes + 1L] <- seq_along(tip_nodes)
+  ape_id[internal_nodes + 1L] <- length(tip_nodes) + seq_along(internal_nodes)
+
+  edge_order <- if (identical(attr_order, "postorder")) rev(preorder) else preorder
+  edge_order <- edge_order[edge_order != root]
+  edge <- matrix(integer(length(edge_order) * 2L), ncol = 2L)
+  if (length(edge_order) > 0L) {
+    parents <- tree$parent[edge_order + 1L]
+    edge[, 1L] <- ape_id[parents + 1L]
+    edge[, 2L] <- ape_id[edge_order + 1L]
+  }
+
+  phy <- list(
+    edge = edge,
+    edge.length = as.numeric(tree$length[edge_order + 1L]),
+    tip.label = as.character(tree$name[tip_nodes + 1L]),
+    Nnode = as.integer(length(internal_nodes))
+  )
+
+  node_labels <- as.character(tree$name[internal_nodes + 1L])
+  if (isTRUE(use_node_labels) && length(node_labels) > 0L && any(nzchar(node_labels))) {
+    phy$node.label <- node_labels
+  }
+
+  root_length <- as.numeric(tree$length[[root + 1L]])
+  if (isTRUE(include_root_edge) && is.finite(root_length) && root_length != 0.0) {
+    phy$root.edge <- root_length
+  }
+
+  class(phy) <- "phylo"
+  attr(phy, "order") <- attr_order
+  phy
+}
+
+assert_phylo_equal <- function(actual, expected, msg = "") {
+  assert_identical(class(actual), class(expected), paste(msg, "class"))
+  assert_true(identical(unname(actual$edge), unname(expected$edge)),
+              paste(msg, "edge"))
+  assert_identical(actual$edge.length, expected$edge.length,
+                   paste(msg, "edge.length"))
+  assert_identical(actual$tip.label, expected$tip.label,
+                   paste(msg, "tip.label"))
+  assert_identical(actual$Nnode, expected$Nnode, paste(msg, "Nnode"))
+  assert_identical(actual$node.label, expected$node.label,
+                   paste(msg, "node.label"))
+  assert_identical(actual$root.edge, expected$root.edge,
+                   paste(msg, "root.edge"))
+  assert_identical(attr(actual, "order"), attr(expected, "order"),
+                   paste(msg, "order"))
+}
+
 cat("=== ape Conversion Tests ===\n\n")
 
 run_test("as_ape_phylo: class and required fields", {
@@ -131,6 +216,31 @@ run_test("aliases: tree_to_ape and gene_tree_to_ape", {
   assert_true(inherits(gene_tree_to_ape(tree), "phylo"), "gene_tree_to_ape should return phylo")
   assert_true(inherits(gene_trees_to_ape(list(tree)), "multiPhylo"),
               "gene_trees_to_ape should return multiPhylo")
+})
+
+run_test("Rust ape conversion matches pure-R reference conversion", {
+  tree <- example_tree()
+  for (order in c("cladewise", "postorder", "pruningwise")) {
+    actual <- as_ape_phylo(tree, order = order)
+    expected <- reference_as_ape_phylo(tree, order = order)
+    assert_phylo_equal(actual, expected, paste("order", order))
+  }
+})
+
+run_test("Rust ape conversion matches R reference for simulated trees", {
+  sp_tree <- simulate_species_tree(12L, 1.0, 0.3, seed = 99L)
+  assert_phylo_equal(
+    as_ape_phylo(sp_tree),
+    reference_as_ape_phylo(sp_tree),
+    "species tree"
+  )
+
+  gene_tree <- simulate_dtl(sp_tree, 0.5, 0.2, 0.3, seed = 100L)
+  assert_phylo_equal(
+    gene_tree_to_ape(gene_tree, order = "postorder"),
+    reference_as_ape_phylo(gene_tree, order = "postorder"),
+    "gene tree"
+  )
 })
 
 cat("\n=== Test Summary ===\n")

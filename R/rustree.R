@@ -48,7 +48,7 @@ tree_leaf_names <- function(tree) {
 #' @return An object of class `"phylo"` compatible with ape.
 #' @export
 as_ape_phylo <- function(tree,
-                         order = c("cladewise", "postorder"),
+                         order = c("cladewise", "postorder", "pruningwise"),
                          use_node_labels = TRUE,
                          include_root_edge = TRUE) {
   order <- match.arg(order)
@@ -74,7 +74,7 @@ as_ape_phylo <- function(tree,
 #' @return An object of class `"multiPhylo"` compatible with ape.
 #' @export
 as_ape_multiPhylo <- function(trees,
-                              order = c("cladewise", "postorder"),
+                              order = c("cladewise", "postorder", "pruningwise"),
                               use_node_labels = TRUE,
                               include_root_edge = TRUE) {
   order <- match.arg(order)
@@ -109,7 +109,7 @@ gene_tree_to_ape <- as_ape_phylo
 gene_trees_to_ape <- as_ape_multiPhylo
 
 simulate_species_tree_ape <- function(n, lambda, mu, seed = NULL,
-                                      order = c("cladewise", "postorder"),
+                                      order = c("cladewise", "postorder", "pruningwise"),
                                       use_node_labels = TRUE,
                                       include_root_edge = TRUE) {
   if (is.null(seed)) seed <- NA_integer_
@@ -167,7 +167,7 @@ simulate_dtl_per_species_batch <- function(species_tree, n, lambda_d, lambda_t, 
 simulate_dtl_ape <- function(species_tree, lambda_d, lambda_t, lambda_l,
                              transfer_alpha = NULL, require_extant = FALSE,
                              seed = NULL, replacement_transfer = NULL,
-                             order = c("cladewise", "postorder"),
+                             order = c("cladewise", "postorder", "pruningwise"),
                              use_node_labels = TRUE,
                              include_root_edge = TRUE) {
   if (is.null(seed)) seed <- NA_integer_
@@ -184,7 +184,7 @@ simulate_dtl_ape <- function(species_tree, lambda_d, lambda_t, lambda_l,
 simulate_dtl_batch_ape <- function(species_tree, n, lambda_d, lambda_t, lambda_l,
                                    transfer_alpha = NULL, require_extant = FALSE,
                                    seed = NULL, replacement_transfer = NULL,
-                                   order = c("cladewise", "postorder"),
+                                   order = c("cladewise", "postorder", "pruningwise"),
                                    use_node_labels = TRUE,
                                    include_root_edge = TRUE) {
   if (is.null(seed)) seed <- NA_integer_
@@ -202,7 +202,7 @@ simulate_dtl_per_species_ape <- function(species_tree, lambda_d, lambda_t, lambd
                                          transfer_alpha = NULL,
                                          require_extant = FALSE, seed = NULL,
                                          replacement_transfer = NULL,
-                                         order = c("cladewise", "postorder"),
+                                         order = c("cladewise", "postorder", "pruningwise"),
                                          use_node_labels = TRUE,
                                          include_root_edge = TRUE) {
   if (is.null(seed)) seed <- NA_integer_
@@ -220,7 +220,7 @@ simulate_dtl_per_species_batch_ape <- function(species_tree, n, lambda_d, lambda
                                                transfer_alpha = NULL,
                                                require_extant = FALSE, seed = NULL,
                                                replacement_transfer = NULL,
-                                               order = c("cladewise", "postorder"),
+                                               order = c("cladewise", "postorder", "pruningwise"),
                                                use_node_labels = TRUE,
                                                include_root_edge = TRUE) {
   if (is.null(seed)) seed <- NA_integer_
