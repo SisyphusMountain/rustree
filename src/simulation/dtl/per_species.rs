@@ -87,7 +87,7 @@ pub fn simulate_dtl_per_species_iter_with_config<'a, R: Rng>(
     validate_rates(config.lambda_d, config.lambda_t, config.lambda_l)?;
 
     let species_arc = Arc::new(species_tree.clone());
-    let species_events = generate_events_from_tree(species_tree)?;
+    let species_events = generate_events_from_tree(species_tree).map_err(|e| e.to_string())?;
 
     // Include origin start time in depths so the stem period is covered
     // by contemporaneity (make_subdivision only has node depths, not branch starts).

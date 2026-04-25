@@ -66,7 +66,7 @@ fn save_bd_events_csv_r(species_tree_list: List, filepath: &str) -> Result<()> {
             rlist_to_bd_events(&events_list)?
         }
         _ => {
-            generate_events_from_tree(&tree).map_err(Error::Other)?
+            generate_events_from_tree(&tree).map_err(|e| Error::Other(e.to_string()))?
         }
     };
 

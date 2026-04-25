@@ -21,6 +21,26 @@ pub enum RustreeError {
     Xml(String),
     /// External tool errors (ALERax, etc.).
     ExternalTool(String),
+    /// A tree operation requires assigned node depths, but one is missing.
+    MissingDepth {
+        operation: &'static str,
+        node_index: usize,
+        node_name: String,
+    },
+    /// A node depth exists but is not usable for the requested operation.
+    InvalidDepth {
+        operation: &'static str,
+        node_index: usize,
+        node_name: String,
+        depth: f64,
+    },
+    /// A node branch length exists but is not usable for the requested operation.
+    InvalidLength {
+        operation: &'static str,
+        node_index: usize,
+        node_name: String,
+        length: f64,
+    },
 }
 
 impl fmt::Display for RustreeError {
@@ -34,6 +54,32 @@ impl fmt::Display for RustreeError {
             RustreeError::Io(err) => write!(f, "IO error: {err}"),
             RustreeError::Xml(msg) => write!(f, "XML error: {msg}"),
             RustreeError::ExternalTool(msg) => write!(f, "External tool error: {msg}"),
+            RustreeError::MissingDepth {
+                operation,
+                node_index,
+                node_name,
+            } => write!(
+                f,
+                "Missing depth in {operation}: node {node_index} ('{node_name}') has no assigned depth"
+            ),
+            RustreeError::InvalidDepth {
+                operation,
+                node_index,
+                node_name,
+                depth,
+            } => write!(
+                f,
+                "Invalid depth in {operation}: node {node_index} ('{node_name}') has depth {depth}"
+            ),
+            RustreeError::InvalidLength {
+                operation,
+                node_index,
+                node_name,
+                length,
+            } => write!(
+                f,
+                "Invalid branch length in {operation}: node {node_index} ('{node_name}') has length {length}"
+            ),
         }
     }
 }
@@ -80,6 +126,46 @@ impl From<crate::io::recphyloxml::ParseError> for RustreeError {
 impl RustreeError {
     pub fn from_string_error(s: String) -> Self {
         RustreeError::Tree(s)
+    }
+
+    pub fn missing_depth(
+        operation: &'static str,
+        node_index: usize,
+        node_name: impl Into<String>,
+    ) -> Self {
+        RustreeError::MissingDepth {
+            operation,
+            node_index,
+            node_name: node_name.into(),
+        }
+    }
+
+    pub fn invalid_depth(
+        operation: &'static str,
+        node_index: usize,
+        node_name: impl Into<String>,
+        depth: f64,
+    ) -> Self {
+        RustreeError::InvalidDepth {
+            operation,
+            node_index,
+            node_name: node_name.into(),
+            depth,
+        }
+    }
+
+    pub fn invalid_length(
+        operation: &'static str,
+        node_index: usize,
+        node_name: impl Into<String>,
+        length: f64,
+    ) -> Self {
+        RustreeError::InvalidLength {
+            operation,
+            node_index,
+            node_name: node_name.into(),
+            length,
+        }
     }
 }
 

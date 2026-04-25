@@ -4,6 +4,7 @@
 // event annotations. If the tree is dated, we can use depths
 // to discriminate between extinctions and leaves.
 
+use crate::error::RustreeError;
 use crate::node::FlatTree;
 
 use super::types::{BDEvent, TreeEvent};
@@ -30,13 +31,19 @@ use super::types::{BDEvent, TreeEvent};
 /// flat_tree.assign_depths();
 /// let events = generate_events_from_tree(&flat_tree).unwrap();
 /// ```
-pub fn generate_events_from_tree(tree: &FlatTree) -> Result<Vec<TreeEvent>, String> {
+pub fn generate_events_from_tree(tree: &FlatTree) -> Result<Vec<TreeEvent>, RustreeError> {
+    const OPERATION: &str = "generate_events_from_tree";
     let mut events = Vec::with_capacity(tree.nodes.len());
 
     for (idx, node) in tree.nodes.iter().enumerate() {
-        let depth = node.depth.ok_or_else(||
-            format!("Node {} ('{}') has no assigned depth. Call assign_depths() before generating events.", idx, node.name)
-        )?;
+        let depth = node
+            .depth
+            .ok_or_else(|| RustreeError::missing_depth(OPERATION, idx, &node.name))?;
+        if !depth.is_finite() {
+            return Err(RustreeError::invalid_depth(
+                OPERATION, idx, &node.name, depth,
+            ));
+        }
 
         // Use bd_event annotation if available, otherwise infer from structure
         let event_type = if let Some(bd_event) = node.bd_event {
@@ -95,14 +102,27 @@ pub fn generate_events_from_tree(tree: &FlatTree) -> Result<Vec<TreeEvent>, Stri
 pub fn generate_events_with_extinction(
     tree: &FlatTree,
     eps: f64,
-) -> Result<Vec<TreeEvent>, String> {
+) -> Result<Vec<TreeEvent>, RustreeError> {
+    const OPERATION: &str = "generate_events_with_extinction";
+
+    if !eps.is_finite() || eps < 0.0 {
+        return Err(RustreeError::Validation(format!(
+            "eps must be finite and non-negative, got {eps}"
+        )));
+    }
+
     // First pass: find max depth among childless nodes
     let mut max_depth: f64 = 0.0;
-    for node in &tree.nodes {
+    for (idx, node) in tree.nodes.iter().enumerate() {
         if node.left_child.is_none() && node.right_child.is_none() {
-            let depth = node.depth.ok_or_else(||
-                format!("Node '{}' has no assigned depth. Call assign_depths() before generating events.", node.name)
-            )?;
+            let depth = node
+                .depth
+                .ok_or_else(|| RustreeError::missing_depth(OPERATION, idx, &node.name))?;
+            if !depth.is_finite() {
+                return Err(RustreeError::invalid_depth(
+                    OPERATION, idx, &node.name, depth,
+                ));
+            }
             if depth > max_depth {
                 max_depth = depth;
             }
@@ -110,16 +130,24 @@ pub fn generate_events_with_extinction(
     }
 
     if max_depth == 0.0 {
-        return Err("No leaves with positive depth found in the tree.".to_string());
+        return Err(RustreeError::Tree(
+            "Cannot infer extant leaves by depth: no childless nodes have positive depth"
+                .to_string(),
+        ));
     }
 
     // Second pass: classify all nodes
     let mut events = Vec::with_capacity(tree.nodes.len());
 
     for (idx, node) in tree.nodes.iter().enumerate() {
-        let depth = node.depth.ok_or_else(||
-            format!("Node {} ('{}') has no assigned depth. Call assign_depths() before generating events.", idx, node.name)
-        )?;
+        let depth = node
+            .depth
+            .ok_or_else(|| RustreeError::missing_depth(OPERATION, idx, &node.name))?;
+        if !depth.is_finite() {
+            return Err(RustreeError::invalid_depth(
+                OPERATION, idx, &node.name, depth,
+            ));
+        }
 
         let event_type = if node.left_child.is_some() || node.right_child.is_some() {
             BDEvent::Speciation
@@ -141,4 +169,78 @@ pub fn generate_events_with_extinction(
     events.sort_by(|a, b| a.time.total_cmp(&b.time));
 
     Ok(events)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::node::FlatNode;
+
+    fn single_leaf_tree(depth: Option<f64>) -> FlatTree {
+        FlatTree {
+            nodes: vec![FlatNode {
+                name: "A".to_string(),
+                left_child: None,
+                right_child: None,
+                parent: None,
+                depth,
+                length: 0.0,
+                bd_event: None,
+            }],
+            root: 0,
+        }
+    }
+
+    #[test]
+    fn generate_events_from_tree_reports_missing_depth() {
+        let tree = single_leaf_tree(None);
+        let err = generate_events_from_tree(&tree).unwrap_err();
+
+        match err {
+            RustreeError::MissingDepth {
+                operation,
+                node_index,
+                node_name,
+            } => {
+                assert_eq!(operation, "generate_events_from_tree");
+                assert_eq!(node_index, 0);
+                assert_eq!(node_name, "A");
+            }
+            other => panic!("expected MissingDepth, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn generate_events_with_extinction_reports_invalid_leaf_depth() {
+        let tree = single_leaf_tree(Some(f64::NAN));
+        let err = generate_events_with_extinction(&tree, 0.01).unwrap_err();
+
+        match err {
+            RustreeError::InvalidDepth {
+                operation,
+                node_index,
+                node_name,
+                depth,
+            } => {
+                assert_eq!(operation, "generate_events_with_extinction");
+                assert_eq!(node_index, 0);
+                assert_eq!(node_name, "A");
+                assert!(depth.is_nan());
+            }
+            other => panic!("expected InvalidDepth, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn generate_events_with_extinction_rejects_invalid_eps() {
+        let tree = single_leaf_tree(Some(1.0));
+        let err = generate_events_with_extinction(&tree, f64::INFINITY).unwrap_err();
+
+        match err {
+            RustreeError::Validation(msg) => {
+                assert!(msg.contains("eps must be finite and non-negative"));
+            }
+            other => panic!("expected Validation, got {other:?}"),
+        }
+    }
 }

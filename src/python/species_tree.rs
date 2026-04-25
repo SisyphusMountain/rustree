@@ -462,7 +462,7 @@ impl PySpeciesTree {
             Some(eps) => generate_events_with_extinction(&self.tree, eps),
             None => generate_events_from_tree(&self.tree),
         }
-        .map_err(PyValueError::new_err)?;
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         save_bd_events_to_csv(&events, &self.tree, filepath)
             .map_err(|e| PyValueError::new_err(format!("Failed to write CSV file: {}", e)))?;
@@ -480,7 +480,7 @@ impl PySpeciesTree {
             Some(eps) => generate_events_with_extinction(&self.tree, eps),
             None => generate_events_from_tree(&self.tree),
         }
-        .map_err(PyValueError::new_err)?;
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         let dict = PyDict::new(py);
 
@@ -524,7 +524,7 @@ impl PySpeciesTree {
             Some(eps) => generate_events_with_extinction(&self.tree, eps),
             None => generate_events_from_tree(&self.tree),
         }
-        .map_err(PyValueError::new_err)?;
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         events.sort_by(|a, b| a.time.total_cmp(&b.time));
 
@@ -787,8 +787,8 @@ impl PySpeciesTree {
         validate_replacement_transfer(replacement_transfer)?;
 
         let species_arc = Arc::clone(&self.tree);
-        let species_events =
-            generate_events_from_tree(&self.tree).map_err(PyValueError::new_err)?;
+        let species_events = generate_events_from_tree(&self.tree)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let depths = self.tree.make_subdivision();
         let contemporaneity = self.tree.find_contemporaneity(&depths);
         let lca_depths = transfer_alpha.map(|_| {
@@ -838,8 +838,8 @@ impl PySpeciesTree {
         validate_replacement_transfer(replacement_transfer)?;
 
         let species_arc = Arc::clone(&self.tree);
-        let species_events =
-            generate_events_from_tree(&self.tree).map_err(PyValueError::new_err)?;
+        let species_events = generate_events_from_tree(&self.tree)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let depths = self.tree.make_subdivision();
         let contemporaneity = self.tree.find_contemporaneity(&depths);
         let lca_depths = transfer_alpha.map(|_| {
