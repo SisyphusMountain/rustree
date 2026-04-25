@@ -918,6 +918,29 @@ impl PyGeneTree {
         }
     }
 
+    /// Compute a stable hash for this gene-tree topology.
+    ///
+    /// By default this hashes only the extant gene subtree, matching the RF
+    /// comparison behavior. When `unlabeled` is true, leaf names are ignored
+    /// and only the unrooted tree shape is hashed.
+    #[pyo3(signature = (unlabeled=false, extant_only=true))]
+    fn unrooted_topology_hash(&self, unlabeled: bool, extant_only: bool) -> PyResult<u64> {
+        let tree = if extant_only {
+            extract_extant_gene_tree(&self.rec_tree)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?
+        } else {
+            self.rec_tree.gene_tree.clone()
+        };
+
+        if unlabeled {
+            tree.unrooted_shape_hash()
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        } else {
+            tree.unrooted_topology_hash()
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        }
+    }
+
     /// Find the index of a gene node by its name.
     fn find_node_index(&self, name: &str) -> PyResult<usize> {
         self.rec_tree

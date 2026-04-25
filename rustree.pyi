@@ -407,6 +407,18 @@ class PySpeciesTree:
         """Get leaf names."""
         ...
 
+    def unrooted_topology_hash(self, unlabeled: bool = False) -> int:
+        """Compute a stable hash for the unrooted species-tree topology.
+
+        Args:
+            unlabeled: If True, ignore leaf names and hash only the unrooted
+                tree shape.
+
+        Raises:
+            ValueError: If topology hashing fails.
+        """
+        ...
+
     def get_node(self, index: int) -> PySpeciesNode:
         """Get a node by its index.
 
@@ -1287,6 +1299,24 @@ class PyGeneTree:
 
         Raises:
             ValueError: If comparison fails.
+        """
+        ...
+
+    def unrooted_topology_hash(
+        self,
+        unlabeled: bool = False,
+        extant_only: bool = True,
+    ) -> int:
+        """Compute a stable hash for this gene-tree topology.
+
+        Args:
+            unlabeled: If True, ignore leaf names and hash only the unrooted
+                tree shape.
+            extant_only: If True, hash only the extant induced subtree,
+                matching ``rf_distance()`` behavior.
+
+        Raises:
+            ValueError: If topology hashing fails.
         """
         ...
 

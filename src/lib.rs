@@ -28,6 +28,7 @@ pub mod metric_functions;
 pub mod robinson_foulds;
 pub mod sampling;
 pub mod surgery;
+pub mod topology;
 
 // Analysis
 pub mod induced_transfers;
@@ -51,3 +52,4 @@ pub mod r;
 pub use newick::parse_newick;
 pub use node::{parse_recphyloxml, parse_recphyloxml_file, Event, GeneForest, RecTree};
 pub use node::{FlatNode, FlatTree, Node, TraversalOrder};
+pub use topology::{UnlabeledShape, UnrootedShapeKey, UnrootedTopologyKey};

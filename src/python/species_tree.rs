@@ -1103,6 +1103,23 @@ impl PySpeciesTree {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
+    /// Compute a stable hash for the unrooted species-tree topology.
+    ///
+    /// When `unlabeled` is true, leaf names are ignored and only the
+    /// unrooted tree shape is hashed.
+    #[pyo3(signature = (unlabeled=false))]
+    fn unrooted_topology_hash(&self, unlabeled: bool) -> PyResult<u64> {
+        if unlabeled {
+            self.tree
+                .unrooted_shape_hash()
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        } else {
+            self.tree
+                .unrooted_topology_hash()
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        }
+    }
+
     /// Find the index of a node by its name.
     fn find_node_index(&self, name: &str) -> PyResult<usize> {
         self.tree
