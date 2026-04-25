@@ -7,9 +7,9 @@ use std::fs;
 use std::process::Command;
 use std::sync::Arc;
 
-use crate::bd::generate_events_from_tree;
 use crate::dtl::{
-    simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species, simulate_dtl_per_species_batch,
+    prepare_simulation, simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species,
+    simulate_dtl_per_species_batch, DTLConfig,
 };
 use crate::node::{FlatTree, RecTree};
 use crate::sampling::{
@@ -630,7 +630,7 @@ impl PySpeciesTree {
             require_extant,
             &mut rng,
         )
-        .map_err(PyValueError::new_err)?;
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         rec_tree.species_tree = Arc::clone(&self.tree);
         rec_tree.dtl_events = Some(events);
@@ -667,7 +667,7 @@ impl PySpeciesTree {
             require_extant,
             &mut rng,
         )
-        .map_err(PyValueError::new_err)?;
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         let gene_trees: Vec<RecTree> = rec_trees
             .into_iter()
@@ -714,7 +714,7 @@ impl PySpeciesTree {
             require_extant,
             &mut rng,
         )
-        .map_err(PyValueError::new_err)?;
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         rec_tree.species_tree = Arc::clone(&self.tree);
         rec_tree.dtl_events = Some(events);
@@ -750,7 +750,7 @@ impl PySpeciesTree {
             require_extant,
             &mut rng,
         )
-        .map_err(PyValueError::new_err)?;
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         let gene_trees: Vec<RecTree> = rec_trees
             .into_iter()
@@ -786,33 +786,27 @@ impl PySpeciesTree {
         validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
         validate_replacement_transfer(replacement_transfer)?;
 
-        let species_arc = Arc::clone(&self.tree);
-        let species_events = generate_events_from_tree(&self.tree)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let depths = self.tree.make_subdivision();
-        let contemporaneity = self.tree.find_contemporaneity(&depths);
-        let lca_depths = transfer_alpha.map(|_| {
-            self.tree
-                .precompute_lca_depths()
-                .expect("Failed to precompute LCA depths")
-        });
-        let rng = init_rng(seed);
         let origin_species = self.tree.root;
+        let config = DTLConfig::new(
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            transfer_alpha,
+            replacement_transfer,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let prepared = prepare_simulation(&self.tree, origin_species, &config)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let rng = init_rng(seed);
 
         Ok(PyDtlSimIter {
-            species_arc,
-            species_events,
-            depths,
-            contemporaneity,
-            lca_depths,
+            species_arc: prepared.species_tree,
+            species_events: prepared.species_events,
+            depths: prepared.depths,
+            contemporaneity: prepared.contemporaneity,
+            lca_depths: prepared.lca_depths,
             origin_species,
-            config: crate::dtl::DTLConfig {
-                lambda_d,
-                lambda_t,
-                lambda_l,
-                transfer_alpha,
-                replacement_transfer,
-            },
+            config,
             n_simulations: n,
             require_extant,
             mode: DTLMode::PerGene,
@@ -837,33 +831,27 @@ impl PySpeciesTree {
         validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
         validate_replacement_transfer(replacement_transfer)?;
 
-        let species_arc = Arc::clone(&self.tree);
-        let species_events = generate_events_from_tree(&self.tree)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let depths = self.tree.make_subdivision();
-        let contemporaneity = self.tree.find_contemporaneity(&depths);
-        let lca_depths = transfer_alpha.map(|_| {
-            self.tree
-                .precompute_lca_depths()
-                .expect("Failed to precompute LCA depths")
-        });
-        let rng = init_rng(seed);
         let origin_species = self.tree.root;
+        let config = DTLConfig::new(
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            transfer_alpha,
+            replacement_transfer,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let prepared = prepare_simulation(&self.tree, origin_species, &config)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let rng = init_rng(seed);
 
         Ok(PyDtlSimIter {
-            species_arc,
-            species_events,
-            depths,
-            contemporaneity,
-            lca_depths,
+            species_arc: prepared.species_tree,
+            species_events: prepared.species_events,
+            depths: prepared.depths,
+            contemporaneity: prepared.contemporaneity,
+            lca_depths: prepared.lca_depths,
             origin_species,
-            config: crate::dtl::DTLConfig {
-                lambda_d,
-                lambda_t,
-                lambda_l,
-                transfer_alpha,
-                replacement_transfer,
-            },
+            config,
             n_simulations: n,
             require_extant,
             mode: DTLMode::PerSpecies,

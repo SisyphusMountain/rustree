@@ -10,26 +10,14 @@ use crate::sampling::extract_induced_subtree;
 
 /// Validate that DTL rates are all non-negative.
 pub fn validate_dtl_rates(lambda_d: f64, lambda_t: f64, lambda_l: f64) -> Result<(), RustreeError> {
-    if lambda_d < 0.0 || lambda_t < 0.0 || lambda_l < 0.0 {
-        return Err(RustreeError::Validation(
-            "Rates must be non-negative".to_string(),
-        ));
-    }
-    Ok(())
+    crate::dtl::DTLConfig::new(lambda_d, lambda_t, lambda_l, None, None).map(|_| ())
 }
 
 /// Validate that replacement_transfer probability is in [0.0, 1.0].
 pub fn validate_replacement_transfer(
     replacement_transfer: Option<f64>,
 ) -> Result<(), RustreeError> {
-    if let Some(p) = replacement_transfer {
-        if !(0.0..=1.0).contains(&p) {
-            return Err(RustreeError::Validation(
-                "replacement_transfer must be between 0.0 and 1.0".to_string(),
-            ));
-        }
-    }
-    Ok(())
+    crate::dtl::DTLConfig::new(0.0, 0.0, 0.0, None, replacement_transfer).map(|_| ())
 }
 
 /// Parse a distance type string into a DistanceType enum.

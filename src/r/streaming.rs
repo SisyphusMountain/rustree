@@ -51,9 +51,9 @@ fn simulate_dtl_stream_xml_r(
         alpha, repl,
         n as usize, require_extant, &mut rng,
     )
-    .map_err(Error::Other)?
+    .map_err(|e| Error::Other(e.to_string()))?
     .save_xml(output_dir)
-    .map_err(Error::Other)?;
+    .map_err(|e| Error::Other(e.to_string()))?;
 
     Ok(output_dir.to_string())
 }
@@ -109,9 +109,9 @@ fn simulate_dtl_stream_newick_r(
         alpha, repl,
         n as usize, require_extant, &mut rng,
     )
-    .map_err(Error::Other)?
+    .map_err(|e| Error::Other(e.to_string()))?
     .save_newick(output_dir)
-    .map_err(Error::Other)?;
+    .map_err(|e| Error::Other(e.to_string()))?;
 
     Ok(output_dir.to_string())
 }
@@ -167,9 +167,9 @@ fn simulate_dtl_per_species_stream_xml_r(
         alpha, repl,
         n as usize, require_extant, &mut rng,
     )
-    .map_err(Error::Other)?
+    .map_err(|e| Error::Other(e.to_string()))?
     .save_xml(output_dir)
-    .map_err(Error::Other)?;
+    .map_err(|e| Error::Other(e.to_string()))?;
 
     Ok(output_dir.to_string())
 }
@@ -226,9 +226,9 @@ fn simulate_dtl_per_species_stream_newick_r(
         alpha, repl,
         n as usize, require_extant, &mut rng,
     )
-    .map_err(Error::Other)?
+    .map_err(|e| Error::Other(e.to_string()))?
     .save_newick(output_dir)
-    .map_err(Error::Other)?;
+    .map_err(|e| Error::Other(e.to_string()))?;
 
     Ok(output_dir.to_string())
 }

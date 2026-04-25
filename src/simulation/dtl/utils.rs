@@ -1,32 +1,88 @@
 // Utility functions for DTL simulation
 
-use crate::bd::BDEvent;
+use crate::bd::{generate_events_from_tree, BDEvent, TreeEvent};
+use crate::error::RustreeError;
 use crate::node::{Event, FlatNode, FlatTree, RecTree};
 use rand::Rng;
 use std::sync::Arc;
 
-/// Validate that all DTL rates are non-negative and finite
-#[inline]
-pub(crate) fn validate_rates(lambda_d: f64, lambda_t: f64, lambda_l: f64) -> Result<(), String> {
-    if lambda_d < 0.0 || !lambda_d.is_finite() {
-        return Err(format!(
-            "Duplication rate must be non-negative and finite, got {}",
-            lambda_d
+use super::DTLConfig;
+
+/// Shared precomputed state used by DTL iterators.
+pub(crate) struct PreparedDtlSimulation {
+    pub species_tree: Arc<FlatTree>,
+    pub species_events: Vec<TreeEvent>,
+    pub depths: Vec<f64>,
+    pub contemporaneity: Vec<Vec<usize>>,
+    pub lca_depths: Option<Vec<Vec<f64>>>,
+}
+
+/// Prepare shared, reusable DTL simulation state.
+pub(crate) fn prepare_simulation(
+    species_tree: &FlatTree,
+    origin_species: usize,
+    config: &DTLConfig,
+) -> Result<PreparedDtlSimulation, RustreeError> {
+    const OPERATION: &str = "prepare_dtl_simulation";
+
+    config.validate()?;
+
+    let origin_node = species_tree.nodes.get(origin_species).ok_or_else(|| {
+        RustreeError::Index(format!(
+            "origin_species {origin_species} is out of bounds (species tree has {} nodes)",
+            species_tree.nodes.len()
+        ))
+    })?;
+
+    let origin_depth = origin_node
+        .depth
+        .ok_or_else(|| RustreeError::missing_depth(OPERATION, origin_species, &origin_node.name))?;
+    if !origin_depth.is_finite() {
+        return Err(RustreeError::invalid_depth(
+            OPERATION,
+            origin_species,
+            &origin_node.name,
+            origin_depth,
         ));
     }
-    if lambda_t < 0.0 || !lambda_t.is_finite() {
-        return Err(format!(
-            "Transfer rate must be non-negative and finite, got {}",
-            lambda_t
+    if !origin_node.length.is_finite() {
+        return Err(RustreeError::invalid_length(
+            OPERATION,
+            origin_species,
+            &origin_node.name,
+            origin_node.length,
         ));
     }
-    if lambda_l < 0.0 || !lambda_l.is_finite() {
-        return Err(format!(
-            "Loss rate must be non-negative and finite, got {}",
-            lambda_l
-        ));
+
+    let species_events = generate_events_from_tree(species_tree)?;
+
+    // Include origin start time in depths so the stem period is covered
+    // by contemporaneity (make_subdivision only has node depths, not branch starts).
+    let origin_start = origin_depth - origin_node.length;
+    if !origin_start.is_finite() {
+        return Err(RustreeError::InvalidDepth {
+            operation: OPERATION,
+            node_index: origin_species,
+            node_name: origin_node.name.clone(),
+            depth: origin_start,
+        });
     }
-    Ok(())
+
+    let mut depths = species_tree.make_subdivision();
+    depths.push(origin_start);
+    depths.sort_by(|a, b| a.total_cmp(b));
+    depths.dedup();
+
+    let contemporaneity = species_tree.find_contemporaneity(&depths);
+    let lca_depths = precompute_lca(species_tree, config.transfer_alpha)?;
+
+    Ok(PreparedDtlSimulation {
+        species_tree: Arc::new(species_tree.clone()),
+        species_events,
+        depths,
+        contemporaneity,
+        lca_depths,
+    })
 }
 
 /// Precompute LCA depths if transfer_alpha is provided
@@ -34,12 +90,14 @@ pub(crate) fn validate_rates(lambda_d: f64, lambda_t: f64, lambda_l: f64) -> Res
 pub(crate) fn precompute_lca(
     species_tree: &FlatTree,
     transfer_alpha: Option<f64>,
-) -> Option<Vec<Vec<f64>>> {
-    transfer_alpha.map(|_| {
-        species_tree
-            .precompute_lca_depths()
-            .expect("Failed to precompute LCA depths - tree may have disconnected nodes")
-    })
+) -> Result<Option<Vec<Vec<f64>>>, RustreeError> {
+    transfer_alpha
+        .map(|_| {
+            species_tree
+                .precompute_lca_depths()
+                .map_err(RustreeError::Simulation)
+        })
+        .transpose()
 }
 
 // ============================================================================
@@ -231,7 +289,7 @@ pub(crate) fn finalize_simulation(
     mut event_mapping: Vec<Event>,
     origin_species: usize,
     origin_depth: f64,
-) -> RecTree {
+) -> Result<RecTree, RustreeError> {
     let mut final_gene_nodes = gene_nodes;
     let mut final_node_mapping = node_mapping;
 
@@ -255,14 +313,16 @@ pub(crate) fn finalize_simulation(
     let root_idx = final_gene_nodes
         .iter()
         .position(|n| n.parent.is_none())
-        .expect("gene tree must have at least one root node (no parent)");
+        .ok_or_else(|| {
+            RustreeError::Simulation("gene tree must have at least one root node".to_string())
+        })?;
 
     let gene_tree = FlatTree {
         nodes: final_gene_nodes,
         root: root_idx,
     };
 
-    RecTree::new(species_tree, gene_tree, final_node_mapping, event_mapping)
+    RecTree::try_new(species_tree, gene_tree, final_node_mapping, event_mapping)
 }
 
 /// Counts the number of extant genes (gene leaves mapped to extant species leaves).

@@ -51,7 +51,7 @@ fn simulate_dtl_r(
         require_extant,
         &mut rng,
     )
-    .map_err(Error::Other)?;
+    .map_err(|e| Error::Other(e.to_string()))?;
 
     let result = rectree_to_rlist(
         &species_tree,
@@ -120,7 +120,7 @@ fn simulate_dtl_batch_r(
         require_extant,
         &mut rng,
     )
-    .map_err(Error::Other)?;
+    .map_err(|e| Error::Other(e.to_string()))?;
 
     let gene_tree_lists: Vec<List> = rec_trees
         .iter()
@@ -194,7 +194,7 @@ fn simulate_dtl_per_species_r(
         require_extant,
         &mut rng,
     )
-    .map_err(Error::Other)?;
+    .map_err(|e| Error::Other(e.to_string()))?;
 
     let result = rectree_to_rlist(
         &species_tree,
@@ -263,7 +263,7 @@ fn simulate_dtl_per_species_batch_r(
         require_extant,
         &mut rng,
     )
-    .map_err(Error::Other)?;
+    .map_err(|e| Error::Other(e.to_string()))?;
 
     let gene_tree_lists: Vec<List> = rec_trees
         .iter()
@@ -334,7 +334,7 @@ fn simulate_dtl_ape_r(
         require_extant,
         &mut rng,
     )
-    .map_err(Error::Other)?;
+    .map_err(|e| Error::Other(e.to_string()))?;
 
     flattree_to_ape_phylo(
         &rec_tree.gene_tree,
@@ -401,7 +401,7 @@ fn simulate_dtl_batch_ape_r(
         require_extant,
         &mut rng,
     )
-    .map_err(Error::Other)?;
+    .map_err(|e| Error::Other(e.to_string()))?;
 
     flattrees_to_ape_multiphylo(
         rec_trees.iter().map(|rt| &rt.gene_tree),
@@ -449,7 +449,7 @@ fn simulate_dtl_per_species_ape_r(
         require_extant,
         &mut rng,
     )
-    .map_err(Error::Other)?;
+    .map_err(|e| Error::Other(e.to_string()))?;
 
     flattree_to_ape_phylo(
         &rec_tree.gene_tree,
@@ -502,7 +502,7 @@ fn simulate_dtl_per_species_batch_ape_r(
         require_extant,
         &mut rng,
     )
-    .map_err(Error::Other)?;
+    .map_err(|e| Error::Other(e.to_string()))?;
 
     flattrees_to_ape_multiphylo(
         rec_trees.iter().map(|rt| &rt.gene_tree),

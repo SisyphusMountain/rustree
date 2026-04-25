@@ -8,10 +8,12 @@ pub(crate) mod gillespie;
 mod per_gene;
 mod per_species;
 mod state;
-mod stream;
+pub(crate) mod stream;
 mod utils;
 
 // Re-export main types and functions
+use crate::error::RustreeError;
+
 pub use event::DTLEvent;
 pub use per_gene::{
     simulate_dtl, simulate_dtl_batch, simulate_dtl_iter, simulate_dtl_iter_with_config,
@@ -21,6 +23,7 @@ pub use per_species::{
     simulate_dtl_per_species_iter_with_config,
 };
 pub use stream::DtlSimIter;
+pub(crate) use utils::prepare_simulation;
 pub use utils::{count_events, count_extant_genes};
 
 /// Configuration for DTL (Duplication-Transfer-Loss) simulation.
@@ -36,6 +39,61 @@ pub struct DTLConfig {
     pub transfer_alpha: Option<f64>,
     /// Replacement transfer probability (None = additive only)
     pub replacement_transfer: Option<f64>,
+}
+
+impl DTLConfig {
+    /// Create a validated DTL simulation configuration.
+    pub fn new(
+        lambda_d: f64,
+        lambda_t: f64,
+        lambda_l: f64,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+    ) -> Result<Self, RustreeError> {
+        let config = Self {
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            transfer_alpha,
+            replacement_transfer,
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Validate all numeric configuration values.
+    pub fn validate(&self) -> Result<(), RustreeError> {
+        validate_rate("Duplication", self.lambda_d)?;
+        validate_rate("Transfer", self.lambda_t)?;
+        validate_rate("Loss", self.lambda_l)?;
+
+        if let Some(alpha) = self.transfer_alpha {
+            if !alpha.is_finite() {
+                return Err(RustreeError::Validation(format!(
+                    "transfer_alpha must be finite, got {alpha}"
+                )));
+            }
+        }
+
+        if let Some(p) = self.replacement_transfer {
+            if !(0.0..=1.0).contains(&p) {
+                return Err(RustreeError::Validation(format!(
+                    "replacement_transfer must be finite and between 0.0 and 1.0, got {p}"
+                )));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_rate(name: &str, value: f64) -> Result<(), RustreeError> {
+    if value < 0.0 || !value.is_finite() {
+        return Err(RustreeError::Validation(format!(
+            "{name} rate must be non-negative and finite, got {value}"
+        )));
+    }
+    Ok(())
 }
 
 // Re-export from io module for backward compatibility

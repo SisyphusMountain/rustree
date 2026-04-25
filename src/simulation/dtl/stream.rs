@@ -6,6 +6,7 @@
 // methods like .save_xml(), .save_newick(), and .collect_all().
 
 use crate::bd::TreeEvent;
+use crate::error::RustreeError;
 use crate::node::{FlatTree, RecTree};
 use rand::Rng;
 use std::sync::Arc;
@@ -14,6 +15,8 @@ use super::event::DTLEvent;
 use super::gillespie::{simulate_dtl_gillespie, DTLMode};
 use super::utils::count_extant_genes;
 use super::DTLConfig;
+
+pub(crate) const MAX_EXTANT_ATTEMPTS: usize = 10_000;
 
 /// Lazy iterator that generates DTL-simulated gene trees one at a time.
 ///
@@ -91,14 +94,14 @@ impl<'a, R: Rng> DtlSimIter<'a, R> {
     ///
     /// Files are named `gene_0000.xml`, `gene_0001.xml`, etc.
     /// Creates the directory if it doesn't exist.
-    pub fn save_xml(self, dir: &str) -> Result<(), String> {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    pub fn save_xml(self, dir: &str) -> Result<(), RustreeError> {
+        std::fs::create_dir_all(dir)?;
         let width = digit_width(self.n_simulations);
         for (i, result) in self.enumerate() {
             let (rec_tree, _events) = result?;
             let xml = rec_tree.to_xml();
             let path = format!("{}/gene_{:0>width$}.xml", dir, i, width = width);
-            std::fs::write(&path, &xml).map_err(|e| e.to_string())?;
+            std::fs::write(&path, &xml)?;
         }
         Ok(())
     }
@@ -110,14 +113,14 @@ impl<'a, R: Rng> DtlSimIter<'a, R> {
     ///
     /// Note: Newick format does not preserve reconciliation information
     /// (species mapping, events). Use `save_xml` for full reconciled trees.
-    pub fn save_newick(self, dir: &str) -> Result<(), String> {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    pub fn save_newick(self, dir: &str) -> Result<(), RustreeError> {
+        std::fs::create_dir_all(dir)?;
         let width = digit_width(self.n_simulations);
         for (i, result) in self.enumerate() {
             let (rec_tree, _events) = result?;
-            let newick = rec_tree.gene_tree.to_newick().map_err(|e| e.to_string())?;
+            let newick = rec_tree.gene_tree.to_newick()?;
             let path = format!("{}/gene_{:0>width$}.nwk", dir, i, width = width);
-            std::fs::write(&path, &newick).map_err(|e| e.to_string())?;
+            std::fs::write(&path, &newick)?;
         }
         Ok(())
     }
@@ -127,16 +130,16 @@ impl<'a, R: Rng> DtlSimIter<'a, R> {
     /// Convenience for the common case of generating one tree.
     /// Equivalent to creating the iterator with `n_simulations=1`
     /// and calling `.next()`.
-    pub fn single(mut self) -> Result<(RecTree, Vec<DTLEvent>), String> {
+    pub fn single(mut self) -> Result<(RecTree, Vec<DTLEvent>), RustreeError> {
         self.next()
-            .ok_or_else(|| "No simulations requested".to_string())?
+            .ok_or_else(|| RustreeError::Validation("No simulations requested".to_string()))?
     }
 
     /// Collect all trees and events into vectors.
     ///
     /// Equivalent to the old `simulate_dtl_batch` behavior.
     /// Warning: this loads everything into memory.
-    pub fn collect_all(self) -> Result<(Vec<RecTree>, Vec<Vec<DTLEvent>>), String> {
+    pub fn collect_all(self) -> Result<(Vec<RecTree>, Vec<Vec<DTLEvent>>), RustreeError> {
         let mut trees = Vec::with_capacity(self.n_simulations);
         let mut all_events = Vec::with_capacity(self.n_simulations);
         for result in self {
@@ -149,14 +152,13 @@ impl<'a, R: Rng> DtlSimIter<'a, R> {
 }
 
 impl<'a, R: Rng> Iterator for DtlSimIter<'a, R> {
-    type Item = Result<(RecTree, Vec<DTLEvent>), String>;
+    type Item = Result<(RecTree, Vec<DTLEvent>), RustreeError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.completed >= self.n_simulations {
             return None;
         }
 
-        const MAX_ATTEMPTS: usize = 10_000;
         let mut attempts = 0;
 
         loop {
@@ -181,12 +183,12 @@ impl<'a, R: Rng> Iterator for DtlSimIter<'a, R> {
                     }
                     // Retry: tree had no extant genes
                     attempts += 1;
-                    if attempts >= MAX_ATTEMPTS {
-                        return Some(Err(format!(
+                    if attempts >= MAX_EXTANT_ATTEMPTS {
+                        return Some(Err(RustreeError::Simulation(format!(
                             "Failed to generate a gene tree with extant genes after {} attempts. \
                              The DTL rates (d={}, t={}, l={}) may make extant genes extremely unlikely.",
-                            MAX_ATTEMPTS, self.config.lambda_d, self.config.lambda_t, self.config.lambda_l
-                        )));
+                            MAX_EXTANT_ATTEMPTS, self.config.lambda_d, self.config.lambda_t, self.config.lambda_l
+                        ))));
                     }
                 }
                 Err(e) => return Some(Err(e)),

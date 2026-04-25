@@ -4,16 +4,14 @@
 // This module contains the per-gene-copy model where DTL event rates scale
 // with the number of gene copies. Uses the shared Gillespie loop with PerGene mode.
 
-use crate::bd::generate_events_from_tree;
+use crate::error::RustreeError;
 use crate::node::{FlatTree, RecTree};
 use rand::Rng;
-use std::sync::Arc;
 
 use super::event::DTLEvent;
 use super::gillespie::DTLMode;
 use super::stream::DtlSimIter;
-use super::utils::{precompute_lca, validate_rates};
-use super::DTLConfig;
+use super::{prepare_simulation, DTLConfig};
 
 /// Returns a lazy iterator that generates gene trees one at a time.
 ///
@@ -53,14 +51,14 @@ pub fn simulate_dtl_iter<'a, R: Rng>(
     n_simulations: usize,
     require_extant: bool,
     rng: &'a mut R,
-) -> Result<DtlSimIter<'a, R>, String> {
-    let config = DTLConfig {
+) -> Result<DtlSimIter<'a, R>, RustreeError> {
+    let config = DTLConfig::new(
         lambda_d,
         lambda_t,
         lambda_l,
         transfer_alpha,
         replacement_transfer,
-    };
+    )?;
     simulate_dtl_iter_with_config(
         species_tree,
         origin_species,
@@ -79,32 +77,16 @@ pub fn simulate_dtl_iter_with_config<'a, R: Rng>(
     n_simulations: usize,
     require_extant: bool,
     rng: &'a mut R,
-) -> Result<DtlSimIter<'a, R>, String> {
-    validate_rates(config.lambda_d, config.lambda_t, config.lambda_l)?;
-
-    let species_arc = Arc::new(species_tree.clone());
-    let species_events = generate_events_from_tree(species_tree).map_err(|e| e.to_string())?;
-
-    // Include origin start time in depths so the stem period is covered
-    // by contemporaneity (make_subdivision only has node depths, not branch starts).
-    let mut depths = species_tree.make_subdivision();
-    let origin_start = species_tree.nodes[origin_species]
-        .depth
-        .ok_or_else(|| format!("Origin species {} has no depth", origin_species))?
-        - species_tree.nodes[origin_species].length;
-    depths.push(origin_start);
-    depths.sort_by(|a, b| a.total_cmp(b));
-    depths.dedup();
-    let contemporaneity = species_tree.find_contemporaneity(&depths);
-    let lca_depths = precompute_lca(species_tree, config.transfer_alpha);
+) -> Result<DtlSimIter<'a, R>, RustreeError> {
+    let prepared = prepare_simulation(species_tree, origin_species, &config)?;
 
     Ok(DtlSimIter::new(
         DTLMode::PerGene,
-        species_arc,
-        species_events,
-        depths,
-        contemporaneity,
-        lca_depths,
+        prepared.species_tree,
+        prepared.species_events,
+        prepared.depths,
+        prepared.contemporaneity,
+        prepared.lca_depths,
         origin_species,
         config,
         n_simulations,
@@ -126,7 +108,7 @@ pub fn simulate_dtl<R: Rng>(
     replacement_transfer: Option<f64>,
     require_extant: bool,
     rng: &mut R,
-) -> Result<(RecTree, Vec<DTLEvent>), String> {
+) -> Result<(RecTree, Vec<DTLEvent>), RustreeError> {
     simulate_dtl_iter(
         species_tree,
         origin_species,
@@ -156,7 +138,7 @@ pub fn simulate_dtl_batch<R: Rng>(
     n_simulations: usize,
     require_extant: bool,
     rng: &mut R,
-) -> Result<(Vec<RecTree>, Vec<Vec<DTLEvent>>), String> {
+) -> Result<(Vec<RecTree>, Vec<Vec<DTLEvent>>), RustreeError> {
     simulate_dtl_iter(
         species_tree,
         origin_species,

@@ -5,6 +5,7 @@
 // and how the affected gene copy is selected.
 
 use crate::bd::{BDEvent, TreeEvent};
+use crate::error::RustreeError;
 use crate::node::{Event, FlatTree, RecTree};
 use rand::Rng;
 use std::sync::Arc;
@@ -25,6 +26,54 @@ pub(crate) enum DTLMode {
     PerGene,
     /// Rate proportional to number of alive species (per-species/Zombi model)
     PerSpecies,
+}
+
+impl DTLMode {
+    fn total_event_rate(
+        self,
+        state: &SimulationState<'_>,
+        depths: &[f64],
+        contemporaneity: &[Vec<usize>],
+        current_time: f64,
+        total_dtl_rate: f64,
+    ) -> f64 {
+        match self {
+            DTLMode::PerGene => state.total_gene_copies() as f64 * total_dtl_rate,
+            DTLMode::PerSpecies => {
+                let time_idx = find_time_index(depths, current_time);
+                contemporaneity[time_idx].len() as f64 * total_dtl_rate
+            }
+        }
+    }
+
+    fn select_affected_gene<R: Rng>(
+        self,
+        state: &SimulationState<'_>,
+        depths: &[f64],
+        contemporaneity: &[Vec<usize>],
+        current_time: f64,
+        rng: &mut R,
+    ) -> Option<(usize, usize)> {
+        match self {
+            DTLMode::PerGene => state.random_gene_copy(rng),
+            DTLMode::PerSpecies => {
+                let time_idx = find_time_index(depths, current_time);
+                let alive_species = &contemporaneity[time_idx];
+                if alive_species.is_empty() {
+                    return None;
+                }
+
+                let species = alive_species[rng.gen_range(0..alive_species.len())];
+                match state.genes_per_species.get(&species) {
+                    Some(genes) if !genes.is_empty() => {
+                        let gene = genes[rng.gen_range(0..genes.len())];
+                        Some((species, gene))
+                    }
+                    _ => None,
+                }
+            }
+        }
+    }
 }
 
 /// Shared Gillespie-style DTL simulation.
@@ -49,7 +98,7 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
     origin_species: usize,
     config: &DTLConfig,
     rng: &mut R,
-) -> Result<(RecTree, Vec<DTLEvent>), String> {
+) -> Result<(RecTree, Vec<DTLEvent>), RustreeError> {
     let lambda_d = config.lambda_d;
     let lambda_t = config.lambda_t;
     let lambda_l = config.lambda_l;
@@ -72,12 +121,15 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
     let mut state = SimulationState::new(estimated_capacity, species_tree);
 
     // Find when origin species starts (beginning of its branch)
-    let origin_start_time = species_tree.nodes[origin_species].depth.ok_or_else(|| {
-        format!(
-            "Species node {} has no assigned depth. Call assign_depths() first.",
-            origin_species
-        )
-    })? - species_tree.nodes[origin_species].length;
+    let origin_node = species_tree.nodes.get(origin_species).ok_or_else(|| {
+        RustreeError::Index(format!(
+            "origin_species {origin_species} is out of bounds (species tree has {} nodes)",
+            species_tree.nodes.len()
+        ))
+    })?;
+    let origin_start_time = origin_node.depth.ok_or_else(|| {
+        RustreeError::missing_depth("simulate_dtl_gillespie", origin_species, &origin_node.name)
+    })? - origin_node.length;
 
     let mut current_time = origin_start_time;
 
@@ -118,22 +170,13 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
             break;
         }
 
-        // Compute rate based on mode
-        let dtl_total_rate = match mode {
-            DTLMode::PerGene => {
-                // In PerGene mode, copies evolve independently, so rates
-                // are proportional to the number of copies. (n_copies * (lambda+mu+tau))
-                state.total_gene_copies() as f64 * total_dtl_rate
-            }
-            DTLMode::PerSpecies => {
-                // In PerSpecies mode, events are species-level.
-                // They affect species, and events can fail if there
-                // are no genes which can undergo the event we selected.
-                // Rates are proportional to the number of alive species. (n_alive_species * (lambda+mu+tau))
-                let time_idx = find_time_index(depths, current_time);
-                contemporaneity[time_idx].len() as f64 * total_dtl_rate
-            }
-        };
+        let dtl_total_rate = mode.total_event_rate(
+            &state,
+            depths,
+            contemporaneity,
+            current_time,
+            total_dtl_rate,
+        );
 
         let next_dtl_time = current_time + draw_waiting_time(dtl_total_rate, rng);
 
@@ -151,16 +194,16 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
             match sp_event.event_type {
                 BDEvent::Speciation => {
                     let child1 = sp_event.child1.ok_or_else(|| {
-                        format!(
+                        RustreeError::Simulation(format!(
                             "Speciation event for node {} has no child1",
                             sp_event.node_id
-                        )
+                        ))
                     })?;
                     let child2 = sp_event.child2.ok_or_else(|| {
-                        format!(
+                        RustreeError::Simulation(format!(
                             "Speciation event for node {} has no child2",
                             sp_event.node_id
-                        )
+                        ))
                     })?;
                     if let Some(genes) = state.take_genes_for_species(sp_event.node_id) {
                         for gene_idx in genes {
@@ -200,30 +243,8 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
             // === Process DTL event ===
             current_time = next_dtl_time;
 
-            // Select affected gene based on mode
-            let selection = match mode {
-                DTLMode::PerGene => state.random_gene_copy(rng),
-                DTLMode::PerSpecies => {
-                    let time_idx = find_time_index(depths, current_time);
-                    let alive_species = &contemporaneity[time_idx];
-                    if alive_species.is_empty() {
-                        None
-                    } else {
-                        let species = alive_species[rng.gen_range(0..alive_species.len())];
-                        let gps = state
-                            .genes_per_species
-                            .as_ref()
-                            .ok_or("Internal error: genes_per_species not initialized")?;
-                        match gps.get(&species) {
-                            Some(genes) if !genes.is_empty() => {
-                                let gene = genes[rng.gen_range(0..genes.len())];
-                                Some((species, gene))
-                            }
-                            _ => None, // Event fails: no genes in chosen species
-                        }
-                    }
-                }
-            };
+            let selection =
+                mode.select_affected_gene(&state, depths, contemporaneity, current_time, rng);
 
             let (affected_species, affected_gene) = match selection {
                 Some(s) => s,
@@ -292,6 +313,6 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
         state.event_mapping,
         origin_species,
         origin_start_time,
-    );
+    )?;
     Ok((rec_tree, state.events))
 }

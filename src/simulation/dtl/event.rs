@@ -63,10 +63,10 @@ impl DTLEvent {
                 format!(
                     "{},{},Speciation,{},,,{},{}",
                     time,
-                    gene_tree.nodes[*gene_id].name,
-                    species_tree.nodes[*species_id].name,
-                    gene_tree.nodes[*left_child].name,
-                    gene_tree.nodes[*right_child].name
+                    csv_field(&gene_tree.nodes[*gene_id].name),
+                    csv_field(&species_tree.nodes[*species_id].name),
+                    csv_field(&gene_tree.nodes[*left_child].name),
+                    csv_field(&gene_tree.nodes[*right_child].name)
                 )
             }
             DTLEvent::Duplication {
@@ -79,10 +79,10 @@ impl DTLEvent {
                 format!(
                     "{},{},Duplication,{},,,{},{}",
                     time,
-                    gene_tree.nodes[*gene_id].name,
-                    species_tree.nodes[*species_id].name,
-                    gene_tree.nodes[*child1].name,
-                    gene_tree.nodes[*child2].name
+                    csv_field(&gene_tree.nodes[*gene_id].name),
+                    csv_field(&species_tree.nodes[*species_id].name),
+                    csv_field(&gene_tree.nodes[*child1].name),
+                    csv_field(&gene_tree.nodes[*child2].name)
                 )
             }
             DTLEvent::Transfer {
@@ -97,12 +97,12 @@ impl DTLEvent {
                 format!(
                     "{},{},Transfer,{},{},{},{},{}",
                     time,
-                    gene_tree.nodes[*gene_id].name,
-                    species_tree.nodes[*species_id].name,
-                    species_tree.nodes[*from_species].name, // from_species is the same as species_id, but we include it for clarity in the output
-                    species_tree.nodes[*to_species].name,
-                    gene_tree.nodes[*donor_child].name,
-                    gene_tree.nodes[*recipient_child].name
+                    csv_field(&gene_tree.nodes[*gene_id].name),
+                    csv_field(&species_tree.nodes[*species_id].name),
+                    csv_field(&species_tree.nodes[*from_species].name), // from_species is the same as species_id, but we include it for clarity in the output
+                    csv_field(&species_tree.nodes[*to_species].name),
+                    csv_field(&gene_tree.nodes[*donor_child].name),
+                    csv_field(&gene_tree.nodes[*recipient_child].name)
                 )
             }
             DTLEvent::Loss {
@@ -112,7 +112,9 @@ impl DTLEvent {
             } => {
                 format!(
                     "{},{},Loss,{},,,,",
-                    time, gene_tree.nodes[*gene_id].name, species_tree.nodes[*species_id].name
+                    time,
+                    csv_field(&gene_tree.nodes[*gene_id].name),
+                    csv_field(&species_tree.nodes[*species_id].name)
                 )
             }
             DTLEvent::Leaf {
@@ -122,7 +124,9 @@ impl DTLEvent {
             } => {
                 format!(
                     "{},{},Leaf,{},,,,",
-                    time, gene_tree.nodes[*gene_id].name, species_tree.nodes[*species_id].name
+                    time,
+                    csv_field(&gene_tree.nodes[*gene_id].name),
+                    csv_field(&species_tree.nodes[*species_id].name)
                 )
             }
         }
@@ -139,5 +143,26 @@ impl DTLEvent {
     // child2_name: name of the second child gene node involved in the event (if applicable)
     pub fn csv_header() -> &'static str {
         "time,gene_node_name,event_type,species_node,donor_species,recipient_species,child1_name,child2_name"
+    }
+}
+
+fn csv_field(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::csv_field;
+
+    #[test]
+    fn csv_field_escapes_special_characters() {
+        assert_eq!(csv_field("plain"), "plain");
+        assert_eq!(csv_field("A,B"), "\"A,B\"");
+        assert_eq!(csv_field("A\"B"), "\"A\"\"B\"");
+        assert_eq!(csv_field("A\nB"), "\"A\nB\"");
     }
 }

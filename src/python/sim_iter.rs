@@ -8,8 +8,10 @@ use std::sync::Arc;
 
 use crate::bd::TreeEvent;
 use crate::dtl::{count_extant_genes, DTLConfig};
+use crate::error::RustreeError;
 use crate::node::{FlatTree, RecTree};
 use crate::simulation::dtl::gillespie::{simulate_dtl_gillespie, DTLMode};
+use crate::simulation::dtl::stream::MAX_EXTANT_ATTEMPTS;
 
 use super::forest::PyGeneForest;
 use super::gene_tree::PyGeneTree;
@@ -78,11 +80,12 @@ impl PyDtlSimIter {
     ///
     /// Retries if `require_extant` is true and the tree has no extant genes.
     /// Returns `None` when all requested simulations have been completed.
-    fn next_simulation(&mut self) -> Option<Result<RecTree, String>> {
+    fn next_simulation(&mut self) -> Option<Result<RecTree, RustreeError>> {
         if self.completed >= self.n_simulations {
             return None;
         }
 
+        let mut attempts = 0;
         loop {
             let lca_ref = self.lca_depths.as_deref();
             let result = simulate_dtl_gillespie(
@@ -105,6 +108,17 @@ impl PyDtlSimIter {
                         return Some(Ok(rec_tree));
                     }
                     // Retry: tree had no extant genes
+                    attempts += 1;
+                    if attempts >= MAX_EXTANT_ATTEMPTS {
+                        return Some(Err(RustreeError::Simulation(format!(
+                            "Failed to generate a gene tree with extant genes after {} attempts. \
+                             The DTL rates (d={}, t={}, l={}) may make extant genes extremely unlikely.",
+                            MAX_EXTANT_ATTEMPTS,
+                            self.config.lambda_d,
+                            self.config.lambda_t,
+                            self.config.lambda_l
+                        ))));
+                    }
                 }
                 Err(e) => return Some(Err(e)),
             }
@@ -131,7 +145,7 @@ impl PyDtlSimIter {
                 rec_tree.species_tree = species_arc;
                 Ok(Some(PyGeneTree { rec_tree }))
             }
-            Some(Err(e)) => Err(PyValueError::new_err(e)),
+            Some(Err(e)) => Err(PyValueError::new_err(e.to_string())),
         }
     }
 
@@ -168,7 +182,7 @@ impl PyDtlSimIter {
                 rec_tree.species_tree = species_arc;
                 Ok(PyGeneTree { rec_tree })
             }
-            Some(Err(e)) => Err(PyValueError::new_err(e)),
+            Some(Err(e)) => Err(PyValueError::new_err(e.to_string())),
         }
     }
 
@@ -188,7 +202,7 @@ impl PyDtlSimIter {
                     rec_tree.species_tree = species_arc;
                     trees.push(rec_tree);
                 }
-                Some(Err(e)) => return Err(PyValueError::new_err(e)),
+                Some(Err(e)) => return Err(PyValueError::new_err(e.to_string())),
             }
         }
         Ok(PyGeneForest {
@@ -224,7 +238,7 @@ impl PyDtlSimIter {
                     })?;
                     idx += 1;
                 }
-                Some(Err(e)) => return Err(PyValueError::new_err(e)),
+                Some(Err(e)) => return Err(PyValueError::new_err(e.to_string())),
             }
         }
         Ok(())
@@ -261,7 +275,7 @@ impl PyDtlSimIter {
                     })?;
                     idx += 1;
                 }
-                Some(Err(e)) => return Err(PyValueError::new_err(e)),
+                Some(Err(e)) => return Err(PyValueError::new_err(e.to_string())),
             }
         }
         Ok(())

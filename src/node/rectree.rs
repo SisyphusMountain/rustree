@@ -44,6 +44,41 @@ pub struct RecTree {
     pub dtl_events: Option<Vec<DTLEvent>>,
 }
 
+fn validate_mappings(
+    species_tree: &FlatTree,
+    gene_tree: &FlatTree,
+    node_mapping: &[Option<usize>],
+    event_mapping: &[Event],
+) -> Result<(), RustreeError> {
+    if gene_tree.nodes.len() != node_mapping.len() {
+        return Err(RustreeError::Validation(format!(
+            "node_mapping length {} must match gene_tree node count {}",
+            node_mapping.len(),
+            gene_tree.nodes.len()
+        )));
+    }
+    if gene_tree.nodes.len() != event_mapping.len() {
+        return Err(RustreeError::Validation(format!(
+            "event_mapping length {} must match gene_tree node count {}",
+            event_mapping.len(),
+            gene_tree.nodes.len()
+        )));
+    }
+
+    let sp_len = species_tree.nodes.len();
+    for (i, mapping) in node_mapping.iter().enumerate() {
+        if let Some(sp_idx) = mapping {
+            if *sp_idx >= sp_len {
+                return Err(RustreeError::Index(format!(
+                    "node_mapping[{i}] = {sp_idx} is out of bounds for species tree with {sp_len} nodes"
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 impl RecTree {
     /// Creates a new RecTree with a shared species tree.
     ///
@@ -56,36 +91,26 @@ impl RecTree {
         node_mapping: Vec<Option<usize>>,
         event_mapping: Vec<Event>,
     ) -> Self {
-        assert_eq!(
-            gene_tree.nodes.len(),
-            node_mapping.len(),
-            "node_mapping must have same length as gene_tree nodes"
-        );
-        assert_eq!(
-            gene_tree.nodes.len(),
-            event_mapping.len(),
-            "event_mapping must have same length as gene_tree nodes"
-        );
-        let sp_len = species_tree.nodes.len();
-        for (i, mapping) in node_mapping.iter().enumerate() {
-            if let Some(sp_idx) = mapping {
-                assert!(
-                    *sp_idx < sp_len,
-                    "node_mapping[{}] = {} is out of bounds for species tree with {} nodes",
-                    i,
-                    sp_idx,
-                    sp_len
-                );
-            }
-        }
+        Self::try_new(species_tree, gene_tree, node_mapping, event_mapping)
+            .expect("invalid RecTree mappings")
+    }
 
-        RecTree {
+    /// Creates a new RecTree with checked reconciliation mappings.
+    pub fn try_new(
+        species_tree: Arc<FlatTree>,
+        gene_tree: FlatTree,
+        node_mapping: Vec<Option<usize>>,
+        event_mapping: Vec<Event>,
+    ) -> Result<Self, RustreeError> {
+        validate_mappings(&species_tree, &gene_tree, &node_mapping, &event_mapping)?;
+
+        Ok(RecTree {
             species_tree,
             gene_tree,
             node_mapping,
             event_mapping,
             dtl_events: None,
-        }
+        })
     }
 
     /// Creates a new RecTree with DTL events.
@@ -100,36 +125,33 @@ impl RecTree {
         event_mapping: Vec<Event>,
         dtl_events: Vec<DTLEvent>,
     ) -> Self {
-        assert_eq!(
-            gene_tree.nodes.len(),
-            node_mapping.len(),
-            "node_mapping must have same length as gene_tree nodes"
-        );
-        assert_eq!(
-            gene_tree.nodes.len(),
-            event_mapping.len(),
-            "event_mapping must have same length as gene_tree nodes"
-        );
-        let sp_len = species_tree.nodes.len();
-        for (i, mapping) in node_mapping.iter().enumerate() {
-            if let Some(sp_idx) = mapping {
-                assert!(
-                    *sp_idx < sp_len,
-                    "node_mapping[{}] = {} is out of bounds for species tree with {} nodes",
-                    i,
-                    sp_idx,
-                    sp_len
-                );
-            }
-        }
+        Self::try_with_dtl_events(
+            species_tree,
+            gene_tree,
+            node_mapping,
+            event_mapping,
+            dtl_events,
+        )
+        .expect("invalid RecTree mappings")
+    }
 
-        RecTree {
+    /// Creates a new RecTree with checked reconciliation mappings and DTL events.
+    pub fn try_with_dtl_events(
+        species_tree: Arc<FlatTree>,
+        gene_tree: FlatTree,
+        node_mapping: Vec<Option<usize>>,
+        event_mapping: Vec<Event>,
+        dtl_events: Vec<DTLEvent>,
+    ) -> Result<Self, RustreeError> {
+        validate_mappings(&species_tree, &gene_tree, &node_mapping, &event_mapping)?;
+
+        Ok(RecTree {
             species_tree,
             gene_tree,
             node_mapping,
             event_mapping,
             dtl_events: Some(dtl_events),
-        }
+        })
     }
 
     /// Creates a new RecTree, wrapping the species tree in an Arc.
@@ -232,5 +254,45 @@ impl RecTree {
             ))
         })?;
         Ok((gene_node, species_idx, event))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn one_node_tree(name: &str) -> FlatTree {
+        FlatTree {
+            nodes: vec![FlatNode {
+                name: name.to_string(),
+                left_child: None,
+                right_child: None,
+                parent: None,
+                depth: Some(0.0),
+                length: 0.0,
+                bd_event: None,
+            }],
+            root: 0,
+        }
+    }
+
+    #[test]
+    fn try_new_rejects_mapping_length_mismatch() {
+        let species_tree = Arc::new(one_node_tree("sp"));
+        let gene_tree = one_node_tree("gene");
+        let err =
+            RecTree::try_new(species_tree, gene_tree, Vec::new(), vec![Event::Leaf]).unwrap_err();
+
+        assert!(matches!(err, RustreeError::Validation(_)));
+    }
+
+    #[test]
+    fn try_new_rejects_species_index_out_of_bounds() {
+        let species_tree = Arc::new(one_node_tree("sp"));
+        let gene_tree = one_node_tree("gene");
+        let err = RecTree::try_new(species_tree, gene_tree, vec![Some(1)], vec![Event::Leaf])
+            .unwrap_err();
+
+        assert!(matches!(err, RustreeError::Index(_)));
     }
 }
