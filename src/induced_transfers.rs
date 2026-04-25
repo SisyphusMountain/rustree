@@ -10,7 +10,7 @@ use crate::dtl::DTLEvent;
 use crate::error::RustreeError;
 use crate::node::FlatTree;
 use crate::sampling::{
-    extract_induced_subtree_by_names, find_leaf_indices_by_names, mark_nodes_postorder, NodeMark,
+    extract_induced_subtree, find_leaf_indices_by_names, mark_nodes_postorder, NodeMark,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -39,6 +39,51 @@ pub enum InducedTransferAlgorithm {
     DamienStyle,
 }
 
+struct SampleProjection {
+    sampled_tree: FlatTree,
+    marks: Vec<NodeMark>,
+    projection: Vec<Option<usize>>,
+    complete_to_sampled: Vec<Option<usize>>,
+}
+
+impl SampleProjection {
+    fn new(complete_tree: &FlatTree, sampled_leaf_names: &[String]) -> Result<Self, RustreeError> {
+        let keep_indices = find_leaf_indices_by_names(complete_tree, sampled_leaf_names);
+        let (sampled_tree, old_to_new) = extract_induced_subtree(complete_tree, &keep_indices)
+            .ok_or_else(|| {
+                RustreeError::Tree("Failed to extract induced subtree from leaf names".to_string())
+            })?;
+
+        let mut marks = vec![NodeMark::Discard; complete_tree.nodes.len()];
+        mark_nodes_postorder(complete_tree, complete_tree.root, &keep_indices, &mut marks);
+
+        let projection = compute_projection(complete_tree, &marks);
+        let complete_to_sampled = projection
+            .iter()
+            .map(|proj| proj.and_then(|keep_idx| old_to_new[keep_idx]))
+            .collect();
+
+        Ok(Self {
+            sampled_tree,
+            marks,
+            projection,
+            complete_to_sampled,
+        })
+    }
+
+    fn sampled_index(&self, complete_idx: usize) -> Result<Option<usize>, RustreeError> {
+        self.complete_to_sampled
+            .get(complete_idx)
+            .copied()
+            .ok_or_else(|| {
+                RustreeError::Index(format!(
+                    "species index {} is out of bounds for complete tree projection",
+                    complete_idx
+                ))
+            })
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct RawTransferEvent {
     time: f64,
@@ -51,8 +96,57 @@ struct RawTransferEvent {
 struct RawInducedTransfer {
     time: f64,
     gene_id: usize,
-    donor: i64,
-    recipient: i64,
+    donor: ExtendedNodeId,
+    recipient: ExtendedNodeId,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ExtendedNodeId(i64);
+
+impl ExtendedNodeId {
+    fn original(idx: usize) -> Self {
+        Self(idx as i64)
+    }
+
+    fn donor_transfer(idx: i64) -> Self {
+        Self(idx)
+    }
+
+    fn recipient_transfer(idx: i64) -> Self {
+        Self(-idx)
+    }
+
+    fn is_recipient_side(self) -> bool {
+        self.0 < 0
+    }
+
+    fn counterpart(self) -> Self {
+        Self(-self.0)
+    }
+
+    fn canonical_path_key(self) -> Self {
+        Self(self.0.abs())
+    }
+
+    fn is_transfer(self, transfer_offset: i64) -> bool {
+        self.0.abs() >= transfer_offset
+    }
+
+    fn as_original_index(self) -> Result<usize, RustreeError> {
+        if self.0 < 0 {
+            return Err(RustreeError::Tree(format!(
+                "Unexpected negative non-transfer node {}",
+                self
+            )));
+        }
+        Ok(self.0 as usize)
+    }
+}
+
+impl std::fmt::Display for ExtendedNodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 /// Returns the sibling of `node_idx` (the other child of its parent).
@@ -130,39 +224,19 @@ pub fn ghost_lengths(
     complete_tree: &FlatTree,
     sampled_leaf_names: &[String],
 ) -> Result<(FlatTree, Vec<f64>), RustreeError> {
-    let (sampled_tree, _) = extract_induced_subtree_by_names(complete_tree, sampled_leaf_names)
-        .ok_or_else(|| {
-            RustreeError::Tree("Failed to extract induced subtree from leaf names".to_string())
-        })?;
+    let projection = SampleProjection::new(complete_tree, sampled_leaf_names)?;
+    let mut ghost = vec![0.0; projection.sampled_tree.nodes.len()];
 
-    let keep_indices = find_leaf_indices_by_names(complete_tree, sampled_leaf_names);
-    let mut marks = vec![NodeMark::Discard; complete_tree.nodes.len()];
-    mark_nodes_postorder(complete_tree, complete_tree.root, &keep_indices, &mut marks);
-
-    let projection = compute_projection(complete_tree, &marks);
-
-    // Map complete-tree Keep-node names → sampled-tree indices
-    let mut keep_name_to_sampled: HashMap<&str, usize> = HashMap::new();
-    for (idx, node) in sampled_tree.nodes.iter().enumerate() {
-        keep_name_to_sampled.insert(&node.name, idx);
-    }
-
-    let mut ghost = vec![0.0; sampled_tree.nodes.len()];
-
-    for (complete_idx, mark) in marks.iter().enumerate() {
+    for (complete_idx, mark) in projection.marks.iter().enumerate() {
         if *mark == NodeMark::Keep {
             continue;
         }
-        // Non-Keep node: add its branch length to the projected sampled-tree branch
-        if let Some(keep_idx) = projection[complete_idx] {
-            let name = &complete_tree.nodes[keep_idx].name;
-            if let Some(&sampled_idx) = keep_name_to_sampled.get(name.as_str()) {
-                ghost[sampled_idx] += complete_tree.nodes[complete_idx].length;
-            }
+        if let Some(sampled_idx) = projection.complete_to_sampled[complete_idx] {
+            ghost[sampled_idx] += complete_tree.nodes[complete_idx].length;
         }
     }
 
-    Ok((sampled_tree, ghost))
+    Ok((projection.sampled_tree, ghost))
 }
 
 /// Computes induced transfers by projecting each transfer's donor and recipient
@@ -180,61 +254,59 @@ pub fn induced_transfers(
     sampled_leaf_names: &[String],
     events: &[DTLEvent],
 ) -> Result<Vec<InducedTransfer>, RustreeError> {
-    let (sampled_tree, _) = extract_induced_subtree_by_names(complete_tree, sampled_leaf_names)
-        .ok_or_else(|| {
-            RustreeError::Tree("Failed to extract induced subtree from leaf names".to_string())
-        })?;
+    let projection = SampleProjection::new(complete_tree, sampled_leaf_names)?;
+    let transfer_events = transfer_events_from_dtl(events, complete_tree.nodes.len())?;
+    let mut out = Vec::with_capacity(transfer_events.len());
 
-    // Step 1: Mark complete tree nodes
-    let keep_indices = find_leaf_indices_by_names(complete_tree, sampled_leaf_names);
-    let mut marks = vec![NodeMark::Discard; complete_tree.nodes.len()];
-    mark_nodes_postorder(complete_tree, complete_tree.root, &keep_indices, &mut marks);
-
-    // Step 2: Compute projection (complete tree index → Keep node index in complete tree)
-    let projection = compute_projection(complete_tree, &marks);
-
-    // Step 3: Build mapping from complete tree Keep-node names to sampled tree indices
-    let mut keep_name_to_sampled: HashMap<&str, usize> = HashMap::new();
-    for (idx, node) in sampled_tree.nodes.iter().enumerate() {
-        keep_name_to_sampled.insert(&node.name, idx);
+    for transfer in transfer_events {
+        out.push(InducedTransfer {
+            time: transfer.time,
+            gene_id: transfer.gene_id,
+            from_species_complete: transfer.from_species,
+            to_species_complete: transfer.to_species,
+            from_species_sampled: projection.sampled_index(transfer.from_species)?,
+            to_species_sampled: projection.sampled_index(transfer.to_species)?,
+        });
     }
 
-    // Step 4: Compose projection → Keep node name → sampled tree index
-    let complete_to_sampled: Vec<Option<usize>> = projection
-        .iter()
-        .map(|proj| {
-            proj.and_then(|keep_idx| {
-                let name = &complete_tree.nodes[keep_idx].name;
-                keep_name_to_sampled.get(name.as_str()).copied()
-            })
-        })
-        .collect();
+    Ok(out)
+}
 
-    // Step 5: For each transfer event, produce an InducedTransfer
-    Ok(events
-        .iter()
-        .filter_map(|event| {
-            if let DTLEvent::Transfer {
-                time,
-                gene_id,
-                from_species,
-                to_species,
-                ..
-            } = event
-            {
-                Some(InducedTransfer {
-                    time: *time,
-                    gene_id: *gene_id,
-                    from_species_complete: *from_species,
-                    to_species_complete: *to_species,
-                    from_species_sampled: complete_to_sampled[*from_species],
-                    to_species_sampled: complete_to_sampled[*to_species],
-                })
-            } else {
-                None
-            }
-        })
-        .collect())
+fn transfer_events_from_dtl(
+    events: &[DTLEvent],
+    node_count: usize,
+) -> Result<Vec<RawTransferEvent>, RustreeError> {
+    let mut transfers = Vec::new();
+    for event in events {
+        if let DTLEvent::Transfer {
+            time,
+            gene_id,
+            from_species,
+            to_species,
+            ..
+        } = event
+        {
+            validate_species_index(*from_species, node_count, "donor species")?;
+            validate_species_index(*to_species, node_count, "recipient species")?;
+            transfers.push(RawTransferEvent {
+                time: *time,
+                gene_id: *gene_id,
+                from_species: *from_species,
+                to_species: *to_species,
+            });
+        }
+    }
+    Ok(transfers)
+}
+
+fn validate_species_index(idx: usize, node_count: usize, label: &str) -> Result<(), RustreeError> {
+    if idx >= node_count {
+        return Err(RustreeError::Index(format!(
+            "{} index {} is out of bounds for complete tree with {} nodes",
+            label, idx, node_count
+        )));
+    }
+    Ok(())
 }
 
 /// Computes induced transfers with explicit algorithm selection.
@@ -266,182 +338,190 @@ fn induced_transfers_damien_style(
     events: &[DTLEvent],
     remove_undetectable: bool,
 ) -> Result<Vec<InducedTransfer>, RustreeError> {
-    let mut transfer_events: Vec<RawTransferEvent> = events
-        .iter()
-        .filter_map(|e| {
-            if let DTLEvent::Transfer {
-                time,
-                gene_id,
-                from_species,
-                to_species,
-                ..
-            } = e
-            {
-                Some(RawTransferEvent {
-                    time: *time,
-                    gene_id: *gene_id,
-                    from_species: *from_species,
-                    to_species: *to_species,
-                })
-            } else {
-                None
-            }
-        })
-        .collect();
+    let mut transfer_events = transfer_events_from_dtl(events, complete_tree.nodes.len())?;
     transfer_events.sort_by(|a, b| a.time.total_cmp(&b.time));
 
     if transfer_events.is_empty() {
         return Ok(Vec::new());
     }
 
-    let sampled_name_set: HashSet<&str> = sampled_leaf_names.iter().map(|s| s.as_str()).collect();
+    let projection = SampleProjection::new(complete_tree, sampled_leaf_names)?;
+    let leaf_partition = LeafPartition::new(complete_tree, sampled_leaf_names);
+    let graph = ExtendedTransferGraph::new(complete_tree, &transfer_events)?;
+    let extinct_nodes = compute_extinct_nodes(complete_tree, &graph, &leaf_partition);
+    let tr_lists = collect_damien_rows(
+        complete_tree.root,
+        &leaf_partition.non_ghost_leaf_indices,
+        &graph,
+        &extinct_nodes,
+        remove_undetectable,
+    )?;
 
-    let mut sampled_leaf_indices = HashSet::new();
-    let mut ghost_leaf_indices = HashSet::new();
-    let mut non_ghost_leaf_indices = Vec::new();
-    let mut leaf_order = Vec::new();
-    collect_leaf_order(complete_tree, complete_tree.root, &mut leaf_order);
-    for &idx in &leaf_order {
-        if sampled_name_set.contains(complete_tree.nodes[idx].name.as_str()) {
-            sampled_leaf_indices.insert(idx);
-            non_ghost_leaf_indices.push(idx);
-        } else {
-            ghost_leaf_indices.insert(idx);
+    if tr_lists.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut all_rows: Vec<RawInducedTransfer> = tr_lists.into_iter().flatten().collect();
+    induced_transfers_from_damien_rows(&mut all_rows, &graph, &projection, remove_undetectable)
+}
+
+struct LeafPartition {
+    ghost_leaf_indices: HashSet<usize>,
+    non_ghost_leaf_indices: Vec<usize>,
+}
+
+impl LeafPartition {
+    fn new(tree: &FlatTree, sampled_leaf_names: &[String]) -> Self {
+        let sampled_name_set: HashSet<&str> =
+            sampled_leaf_names.iter().map(|s| s.as_str()).collect();
+        let mut ghost_leaf_indices = HashSet::new();
+        let mut non_ghost_leaf_indices = Vec::new();
+        let mut leaf_order = Vec::new();
+
+        collect_leaf_order(tree, tree.root, &mut leaf_order);
+        for idx in leaf_order {
+            if sampled_name_set.contains(tree.nodes[idx].name.as_str()) {
+                non_ghost_leaf_indices.push(idx);
+            } else {
+                ghost_leaf_indices.insert(idx);
+            }
+        }
+
+        Self {
+            ghost_leaf_indices,
+            non_ghost_leaf_indices,
         }
     }
+}
 
-    let mut extinct_nodes: HashSet<i64> = ghost_leaf_indices.iter().map(|&i| i as i64).collect();
+struct ExtendedTransferGraph {
+    edges: Vec<(ExtendedNodeId, ExtendedNodeId)>,
+    child_to_parent: HashMap<ExtendedNodeId, ExtendedNodeId>,
+    transfer_node_info: HashMap<ExtendedNodeId, (f64, usize)>,
+    original_count: i64,
+}
 
-    // Extended edge matrix (Damien's signed transfer nodes).
-    let original_count = complete_tree.nodes.len() as i64;
-    let mut edges: Vec<(i64, i64)> = complete_tree
-        .nodes
-        .iter()
-        .enumerate()
-        .filter_map(|(child, n)| n.parent.map(|p| (p as i64, child as i64)))
-        .collect();
+impl ExtendedTransferGraph {
+    fn new(tree: &FlatTree, transfer_events: &[RawTransferEvent]) -> Result<Self, RustreeError> {
+        let original_count = tree.nodes.len() as i64;
+        let mut edges: Vec<(ExtendedNodeId, ExtendedNodeId)> = tree
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(child, n)| {
+                n.parent
+                    .map(|p| (ExtendedNodeId::original(p), ExtendedNodeId::original(child)))
+            })
+            .collect();
 
-    let mut transfer_node_info: HashMap<i64, (f64, usize)> = HashMap::new();
-    for (curr_transfer_node, tr) in (original_count..).zip(transfer_events.iter()) {
-        split_edge_with_transfer_nodes(
-            &mut edges,
-            tr.from_species as i64,
-            tr.to_species as i64,
-            curr_transfer_node,
-        )?;
-        transfer_node_info.insert(-curr_transfer_node, (tr.time, tr.gene_id));
+        let mut transfer_node_info = HashMap::new();
+        for (curr_transfer_node, tr) in (original_count..).zip(transfer_events.iter()) {
+            split_edge_with_transfer_nodes(
+                &mut edges,
+                tr.from_species,
+                tr.to_species,
+                curr_transfer_node,
+            )?;
+            transfer_node_info.insert(
+                ExtendedNodeId::recipient_transfer(curr_transfer_node),
+                (tr.time, tr.gene_id),
+            );
+        }
+
+        let child_to_parent = edges.iter().map(|&(p, c)| (c, p)).collect();
+
+        Ok(Self {
+            edges,
+            child_to_parent,
+            transfer_node_info,
+            original_count,
+        })
     }
 
-    let child_to_parent: HashMap<i64, i64> = edges.iter().map(|&(p, c)| (c, p)).collect();
+    fn all_nodes(&self, root: usize) -> HashSet<ExtendedNodeId> {
+        let mut nodes = HashSet::new();
+        for &(parent, child) in &self.edges {
+            nodes.insert(parent);
+            nodes.insert(child);
+        }
+        nodes.insert(ExtendedNodeId::original(root));
+        nodes
+    }
+
+    fn transfer_metadata(&self, recipient: ExtendedNodeId) -> Result<(f64, usize), RustreeError> {
+        self.transfer_node_info
+            .get(&recipient)
+            .copied()
+            .ok_or_else(|| {
+                RustreeError::Tree(format!(
+                    "Missing transfer metadata for recipient-side transfer node {}",
+                    recipient
+                ))
+            })
+    }
+}
+
+fn compute_extinct_nodes(
+    complete_tree: &FlatTree,
+    graph: &ExtendedTransferGraph,
+    leaf_partition: &LeafPartition,
+) -> HashSet<ExtendedNodeId> {
+    let all_extended_nodes = graph.all_nodes(complete_tree.root);
+    let non_ghost_tips: HashSet<ExtendedNodeId> = leaf_partition
+        .non_ghost_leaf_indices
+        .iter()
+        .copied()
+        .map(ExtendedNodeId::original)
+        .collect();
+    let mut extinct_nodes: HashSet<ExtendedNodeId> = leaf_partition
+        .ghost_leaf_indices
+        .iter()
+        .copied()
+        .map(ExtendedNodeId::original)
+        .collect();
 
     // Damien-style extinction mask on the extended graph:
     // nodes that are not ancestors of any non-ghost tip are extinct.
-    let mut all_extended_nodes: HashSet<i64> = HashSet::new();
-    for &(p, c) in &edges {
-        all_extended_nodes.insert(p);
-        all_extended_nodes.insert(c);
-    }
-    all_extended_nodes.insert(complete_tree.root as i64);
-
-    let mut non_extinct_extended: HashSet<i64> = HashSet::new();
-    for &tip in &non_ghost_leaf_indices {
-        let mut cur = tip as i64;
-        while let Some(parent) = child_to_parent.get(&cur).copied() {
+    let mut non_extinct_extended: HashSet<ExtendedNodeId> = HashSet::new();
+    for &tip in &leaf_partition.non_ghost_leaf_indices {
+        let mut cur = ExtendedNodeId::original(tip);
+        while let Some(parent) = graph.child_to_parent.get(&cur).copied() {
             non_extinct_extended.insert(parent);
             cur = parent;
         }
     }
+
     for &node in &all_extended_nodes {
-        if !non_extinct_extended.contains(&node)
-            && !non_ghost_leaf_indices.contains(&(node as usize))
-        {
+        if !non_extinct_extended.contains(&node) && !non_ghost_tips.contains(&node) {
             extinct_nodes.insert(node);
         }
     }
 
-    let mut already_dealt: HashSet<i64> = HashSet::new();
-    already_dealt.insert(complete_tree.root as i64);
-    let mut the_path: HashMap<i64, i64> = HashMap::new();
-    the_path.insert(complete_tree.root as i64, complete_tree.root as i64);
+    extinct_nodes
+}
 
-    let mut tr_lists: Vec<Vec<RawInducedTransfer>> = Vec::new();
-    for &tip in &non_ghost_leaf_indices {
-        let mut s = tip as i64;
-        let mut transfer_mode = false;
-        let mut recipient = 0i64;
-        let mut extinct_mode = false;
-        let mut extinct_path: Vec<i64> = Vec::new();
-        let mut local_rows: Vec<RawInducedTransfer> = Vec::new();
+fn collect_damien_rows(
+    root: usize,
+    non_ghost_leaf_indices: &[usize],
+    graph: &ExtendedTransferGraph,
+    extinct_nodes: &HashSet<ExtendedNodeId>,
+    remove_undetectable: bool,
+) -> Result<Vec<Vec<RawInducedTransfer>>, RustreeError> {
+    let root = ExtendedNodeId::original(root);
+    let mut already_dealt: HashSet<ExtendedNodeId> = HashSet::new();
+    already_dealt.insert(root);
+    let mut the_path: HashMap<ExtendedNodeId, ExtendedNodeId> = HashMap::new();
+    the_path.insert(root, root);
+    let mut tr_lists = Vec::new();
 
-        loop {
-            let up = if s < 0 {
-                let u = -s;
-                if !transfer_mode {
-                    recipient = s;
-                    transfer_mode = true;
-                }
-                u
-            } else if let Some(u) = child_to_parent.get(&s).copied() {
-                u
-            } else {
-                break;
-            };
-
-            if !extinct_nodes.contains(&up) {
-                if transfer_mode {
-                    let (time, gene_id) = transfer_node_info
-                        .get(&recipient)
-                        .copied()
-                        .unwrap_or((0.0, 0));
-                    local_rows.push(RawInducedTransfer {
-                        time,
-                        gene_id,
-                        donor: up,
-                        recipient,
-                    });
-                    transfer_mode = false;
-                }
-                if extinct_mode {
-                    extinct_path.push(up);
-                    for &x in &extinct_path {
-                        the_path.insert(x.abs(), up);
-                    }
-                    extinct_mode = false;
-                }
-            } else if !extinct_mode {
-                extinct_path.clear();
-                extinct_path.push(up);
-                extinct_mode = true;
-            } else {
-                extinct_path.push(up);
-            }
-
-            if already_dealt.contains(&up) {
-                if transfer_mode {
-                    let donor = the_path.get(&up).copied().unwrap_or(up);
-                    let (time, gene_id) = transfer_node_info
-                        .get(&recipient)
-                        .copied()
-                        .unwrap_or((0.0, 0));
-                    local_rows.push(RawInducedTransfer {
-                        time,
-                        gene_id,
-                        donor,
-                        recipient,
-                    });
-                }
-                if extinct_mode {
-                    let map_to = the_path.get(&up).copied().unwrap_or(up);
-                    for &x in &extinct_path {
-                        the_path.insert(x.abs(), map_to);
-                    }
-                }
-                break;
-            }
-
-            already_dealt.insert(up);
-            s = up;
-        }
+    for &tip in non_ghost_leaf_indices {
+        let mut local_rows = collect_damien_rows_for_tip(
+            ExtendedNodeId::original(tip),
+            graph,
+            extinct_nodes,
+            &mut already_dealt,
+            &mut the_path,
+        )?;
 
         if !local_rows.is_empty() {
             if remove_undetectable {
@@ -453,72 +533,134 @@ fn induced_transfers_damien_style(
         }
     }
 
-    if tr_lists.is_empty() {
-        return Ok(Vec::new());
+    Ok(tr_lists)
+}
+
+fn collect_damien_rows_for_tip(
+    tip: ExtendedNodeId,
+    graph: &ExtendedTransferGraph,
+    extinct_nodes: &HashSet<ExtendedNodeId>,
+    already_dealt: &mut HashSet<ExtendedNodeId>,
+    the_path: &mut HashMap<ExtendedNodeId, ExtendedNodeId>,
+) -> Result<Vec<RawInducedTransfer>, RustreeError> {
+    let mut s = tip;
+    let mut transfer_mode = false;
+    let mut recipient = None;
+    let mut extinct_mode = false;
+    let mut extinct_path: Vec<ExtendedNodeId> = Vec::new();
+    let mut local_rows = Vec::new();
+
+    loop {
+        let up = if s.is_recipient_side() {
+            let u = s.counterpart();
+            if !transfer_mode {
+                recipient = Some(s);
+                transfer_mode = true;
+            }
+            u
+        } else if let Some(u) = graph.child_to_parent.get(&s).copied() {
+            u
+        } else {
+            break;
+        };
+
+        if !extinct_nodes.contains(&up) {
+            if transfer_mode {
+                push_damien_transfer_row(&mut local_rows, graph, up, recipient)?;
+                transfer_mode = false;
+                recipient = None;
+            }
+            if extinct_mode {
+                extinct_path.push(up);
+                for &node in &extinct_path {
+                    the_path.insert(node.canonical_path_key(), up);
+                }
+                extinct_mode = false;
+            }
+        } else if !extinct_mode {
+            extinct_path.clear();
+            extinct_path.push(up);
+            extinct_mode = true;
+        } else {
+            extinct_path.push(up);
+        }
+
+        if already_dealt.contains(&up) {
+            if transfer_mode {
+                let donor = the_path.get(&up).copied().unwrap_or(up);
+                push_damien_transfer_row(&mut local_rows, graph, donor, recipient)?;
+            }
+            if extinct_mode {
+                let map_to = the_path.get(&up).copied().unwrap_or(up);
+                for &node in &extinct_path {
+                    the_path.insert(node.canonical_path_key(), map_to);
+                }
+            }
+            break;
+        }
+
+        already_dealt.insert(up);
+        s = up;
     }
 
-    let (sampled_tree, _) = extract_induced_subtree_by_names(complete_tree, sampled_leaf_names)
-        .ok_or_else(|| {
-            RustreeError::Tree("Failed to extract induced subtree from leaf names".to_string())
-        })?;
+    Ok(local_rows)
+}
 
-    let sampled_marks = {
-        let keep_indices = find_leaf_indices_by_names(complete_tree, sampled_leaf_names);
-        let mut marks = vec![NodeMark::Discard; complete_tree.nodes.len()];
-        mark_nodes_postorder(complete_tree, complete_tree.root, &keep_indices, &mut marks);
-        marks
-    };
-    let projection = compute_projection(complete_tree, &sampled_marks);
+fn push_damien_transfer_row(
+    rows: &mut Vec<RawInducedTransfer>,
+    graph: &ExtendedTransferGraph,
+    donor: ExtendedNodeId,
+    recipient: Option<ExtendedNodeId>,
+) -> Result<(), RustreeError> {
+    let recipient = recipient.ok_or_else(|| {
+        RustreeError::Tree("Transfer mode had no recipient-side transfer node".to_string())
+    })?;
+    let (time, gene_id) = graph.transfer_metadata(recipient)?;
+    rows.push(RawInducedTransfer {
+        time,
+        gene_id,
+        donor,
+        recipient,
+    });
+    Ok(())
+}
 
-    let mut keep_name_to_sampled: HashMap<&str, usize> = HashMap::new();
-    for (idx, node) in sampled_tree.nodes.iter().enumerate() {
-        keep_name_to_sampled.insert(node.name.as_str(), idx);
-    }
-    let complete_to_sampled: Vec<Option<usize>> = projection
-        .iter()
-        .map(|proj| {
-            proj.and_then(|keep_idx| {
-                keep_name_to_sampled
-                    .get(complete_tree.nodes[keep_idx].name.as_str())
-                    .copied()
-            })
-        })
-        .collect();
-
-    let transfer_desc_map = closest_existing_desc_map(&edges, original_count);
-
-    let mut all_rows: Vec<RawInducedTransfer> = tr_lists.into_iter().flatten().collect();
+fn induced_transfers_from_damien_rows(
+    all_rows: &mut [RawInducedTransfer],
+    graph: &ExtendedTransferGraph,
+    projection: &SampleProjection,
+    remove_undetectable: bool,
+) -> Result<Vec<InducedTransfer>, RustreeError> {
+    let transfer_desc_map = closest_existing_desc_map(&graph.edges, graph.original_count);
     all_rows.sort_by(|a, b| a.time.total_cmp(&b.time));
-
     let mut out = Vec::with_capacity(all_rows.len());
-    for row in all_rows {
+
+    for row in all_rows.iter().copied() {
         let from_complete = map_damien_node_to_complete_keep(
             row.donor,
-            original_count,
+            graph.original_count,
             &transfer_desc_map,
-            &projection,
+            &projection.projection,
         )?;
         let to_complete = map_damien_node_to_complete_keep(
             row.recipient,
-            original_count,
+            graph.original_count,
             &transfer_desc_map,
-            &projection,
+            &projection.projection,
         )?;
 
-        let from_sampled = complete_to_sampled[from_complete];
-        let to_sampled = complete_to_sampled[to_complete];
+        let from_sampled = projection.sampled_index(from_complete)?;
+        let to_sampled = projection.sampled_index(to_complete)?;
 
         if remove_undetectable {
-            if from_sampled.is_none() || to_sampled.is_none() {
+            let (Some(fs), Some(ts)) = (from_sampled, to_sampled) else {
                 continue;
-            }
-            let fs = from_sampled.unwrap();
-            let ts = to_sampled.unwrap();
+            };
             if fs == ts {
                 continue;
             }
-            if are_sister_in_sampled_tree(&sampled_tree, fs, ts)
-                || are_direct_edge_in_sampled_tree(&sampled_tree, fs, ts)
+            if are_sister_in_sampled_tree(&projection.sampled_tree, fs, ts)
+                || are_direct_edge_in_sampled_tree(&projection.sampled_tree, fs, ts)
             {
                 continue;
             }
@@ -552,11 +694,16 @@ fn collect_leaf_order(tree: &FlatTree, idx: usize, out: &mut Vec<usize>) {
 }
 
 fn split_edge_with_transfer_nodes(
-    edges: &mut Vec<(i64, i64)>,
-    from: i64,
-    to: i64,
+    edges: &mut Vec<(ExtendedNodeId, ExtendedNodeId)>,
+    from: usize,
+    to: usize,
     transfer_node: i64,
 ) -> Result<(), RustreeError> {
+    let from = ExtendedNodeId::original(from);
+    let to = ExtendedNodeId::original(to);
+    let recipient_node = ExtendedNodeId::recipient_transfer(transfer_node);
+    let donor_node = ExtendedNodeId::donor_transfer(transfer_node);
+
     // Recipient split: p->to => p->(-k), (-k)->to
     let rec_pos = edges
         .iter()
@@ -564,8 +711,8 @@ fn split_edge_with_transfer_nodes(
         .ok_or_else(|| RustreeError::Tree(format!("Cannot find recipient edge for node {}", to)))?;
     let (rec_parent, _) = edges[rec_pos];
     edges.swap_remove(rec_pos);
-    edges.push((rec_parent, -transfer_node));
-    edges.push((-transfer_node, to));
+    edges.push((rec_parent, recipient_node));
+    edges.push((recipient_node, to));
 
     // Donor split: p->from => p->k, k->from
     let don_pos = edges
@@ -574,19 +721,22 @@ fn split_edge_with_transfer_nodes(
         .ok_or_else(|| RustreeError::Tree(format!("Cannot find donor edge for node {}", from)))?;
     let (don_parent, _) = edges[don_pos];
     edges.swap_remove(don_pos);
-    edges.push((don_parent, transfer_node));
-    edges.push((transfer_node, from));
+    edges.push((don_parent, donor_node));
+    edges.push((donor_node, from));
 
     Ok(())
 }
 
-fn closest_existing_desc_map(edges: &[(i64, i64)], transfer_offset: i64) -> HashMap<i64, i64> {
-    let sub: Vec<(i64, i64)> = edges
+fn closest_existing_desc_map(
+    edges: &[(ExtendedNodeId, ExtendedNodeId)],
+    transfer_offset: i64,
+) -> HashMap<ExtendedNodeId, ExtendedNodeId> {
+    let sub: Vec<(ExtendedNodeId, ExtendedNodeId)> = edges
         .iter()
         .copied()
-        .filter(|(p, _)| *p >= transfer_offset || *p <= -transfer_offset)
+        .filter(|(p, _)| p.is_transfer(transfer_offset))
         .collect();
-    let next: HashMap<i64, i64> = sub.iter().map(|(p, c)| (*p, *c)).collect();
+    let next: HashMap<ExtendedNodeId, ExtendedNodeId> = sub.iter().map(|(p, c)| (*p, *c)).collect();
 
     let mut map = HashMap::new();
     for (start, first_child) in sub {
@@ -600,14 +750,23 @@ fn closest_existing_desc_map(edges: &[(i64, i64)], transfer_offset: i64) -> Hash
 }
 
 fn map_damien_node_to_complete_keep(
-    node: i64,
+    node: ExtendedNodeId,
     transfer_offset: i64,
-    transfer_desc_map: &HashMap<i64, i64>,
+    transfer_desc_map: &HashMap<ExtendedNodeId, ExtendedNodeId>,
     projection: &[Option<usize>],
 ) -> Result<usize, RustreeError> {
     let mut cur = node;
-    for _ in 0..8 {
-        if cur.abs() >= transfer_offset {
+    let mut seen = HashSet::new();
+
+    loop {
+        if !seen.insert(cur) {
+            return Err(RustreeError::Tree(format!(
+                "Cycle while remapping transfer node {}",
+                cur
+            )));
+        }
+
+        if cur.is_transfer(transfer_offset) {
             if let Some(next) = transfer_desc_map.get(&cur).copied() {
                 cur = next;
                 continue;
@@ -617,20 +776,18 @@ fn map_damien_node_to_complete_keep(
                 cur
             )));
         }
-        if cur < 0 {
-            return Err(RustreeError::Tree(format!(
-                "Unexpected negative non-transfer node {}",
-                cur
+        let idx = cur.as_original_index()?;
+        if idx >= projection.len() {
+            return Err(RustreeError::Index(format!(
+                "mapped complete-tree node {} is out of bounds for projection with {} nodes",
+                idx,
+                projection.len()
             )));
         }
-        let idx = cur as usize;
         return projection[idx].ok_or_else(|| {
             RustreeError::Tree(format!("Node {} did not project onto sampled tree", idx))
         });
     }
-    Err(RustreeError::Tree(
-        "Too many transfer-node remapping hops".to_string(),
-    ))
 }
 
 fn simplify_cross_back_transfers(rows: &mut Vec<RawInducedTransfer>) {
@@ -877,6 +1034,70 @@ mod tests {
             0,
             "Non-transfer events should be filtered out"
         );
+    }
+
+    #[test]
+    fn test_induced_transfers_duplicate_internal_names_use_index_mapping() {
+        let complete_tree = make_tree("((A:1,B:1)X:1,(C:1,D:1)X:1)root:0;");
+        let sampled_names: Vec<String> = vec!["A".into(), "B".into(), "C".into(), "D".into()];
+
+        let complete_a = complete_tree.find_node_index("A").unwrap();
+        let complete_c = complete_tree.find_node_index("C").unwrap();
+        let left_x = complete_tree.nodes[complete_a].parent.unwrap();
+        let right_x = complete_tree.nodes[complete_c].parent.unwrap();
+        assert_ne!(left_x, right_x);
+        assert_eq!(complete_tree.nodes[left_x].name, "X");
+        assert_eq!(complete_tree.nodes[right_x].name, "X");
+
+        let events = vec![DTLEvent::Transfer {
+            time: 0.5,
+            gene_id: 0,
+            species_id: left_x,
+            from_species: left_x,
+            to_species: right_x,
+            donor_child: 1,
+            recipient_child: 2,
+        }];
+
+        let induced = induced_transfers(&complete_tree, &sampled_names, &events).unwrap();
+        assert_eq!(induced.len(), 1);
+
+        let sampled_tree = extract_induced_subtree_by_names(&complete_tree, &sampled_names)
+            .unwrap()
+            .0;
+        let sampled_a = sampled_tree.find_node_index("A").unwrap();
+        let sampled_c = sampled_tree.find_node_index("C").unwrap();
+        let sampled_left_x = sampled_tree.nodes[sampled_a].parent.unwrap();
+        let sampled_right_x = sampled_tree.nodes[sampled_c].parent.unwrap();
+
+        assert_ne!(sampled_left_x, sampled_right_x);
+        assert_eq!(sampled_tree.nodes[sampled_left_x].name, "X");
+        assert_eq!(sampled_tree.nodes[sampled_right_x].name, "X");
+        assert_eq!(induced[0].from_species_sampled, Some(sampled_left_x));
+        assert_eq!(induced[0].to_species_sampled, Some(sampled_right_x));
+    }
+
+    #[test]
+    fn test_induced_transfers_invalid_species_index_returns_error() {
+        let complete_tree = make_tree("((A:1,B:1)AB:1,C:2)root:0;");
+        let sampled_names: Vec<String> = vec!["A".into(), "C".into()];
+        let invalid_idx = complete_tree.nodes.len();
+        let to_species = complete_tree.find_node_index("C").unwrap();
+        let events = vec![DTLEvent::Transfer {
+            time: 0.5,
+            gene_id: 0,
+            species_id: invalid_idx,
+            from_species: invalid_idx,
+            to_species,
+            donor_child: 1,
+            recipient_child: 2,
+        }];
+
+        let err = induced_transfers(&complete_tree, &sampled_names, &events).unwrap_err();
+        assert!(matches!(
+            err,
+            RustreeError::Index(msg) if msg.contains("donor species index")
+        ));
     }
 
     #[test]
