@@ -4,6 +4,9 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 
+type LeafOrder = (Vec<String>, Vec<Option<usize>>, Vec<bool>);
+type RootedTraversal = (Vec<Option<usize>>, Vec<usize>);
+
 /// Exact canonical key for an unrooted topology with labeled leaves.
 ///
 /// Leaf labels are stored in sorted order, and each non-trivial split is encoded
@@ -181,9 +184,7 @@ fn validate_nonempty(tree: &FlatTree) -> Result<(), RustreeError> {
     Ok(())
 }
 
-fn canonical_leaf_order(
-    tree: &FlatTree,
-) -> Result<(Vec<String>, Vec<Option<usize>>, Vec<bool>), RustreeError> {
+fn canonical_leaf_order(tree: &FlatTree) -> Result<LeafOrder, RustreeError> {
     let mut leaves = Vec::new();
     let mut is_leaf = vec![false; tree.nodes.len()];
 
@@ -308,7 +309,7 @@ fn rooted_order(
     adjacency: &[Vec<usize>],
     active: &[bool],
     root: usize,
-) -> Result<(Vec<Option<usize>>, Vec<usize>), RustreeError> {
+) -> Result<RootedTraversal, RustreeError> {
     let active_count = active.iter().filter(|is_active| **is_active).count();
     let mut parent = vec![None; adjacency.len()];
     let mut order = Vec::with_capacity(active_count);
