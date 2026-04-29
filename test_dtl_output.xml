@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<recPhylo
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.recg.org ./recGeneTreeXML.xsd"
+	xmlns="http://www.recg.org">
+<spTree>
+<phylogeny>
+<clade>
+	<name>root</name>
+	<branchLength>0</branchLength>
+	<clade>
+		<name>AB</name>
+		<branchLength>1</branchLength>
+		<clade>
+			<name>A</name>
+			<branchLength>1</branchLength>
+		</clade>
+		<clade>
+			<name>B</name>
+			<branchLength>1</branchLength>
+		</clade>
+	</clade>
+	<clade>
+		<name>C</name>
+		<branchLength>2</branchLength>
+	</clade>
+</clade>
+</phylogeny>
+</spTree>
+<recGeneTree>
+<phylogeny rooted="true">
+<clade>
+	<name>NULL</name>
+	<branchLength>0</branchLength>
+	<eventsRec>
+		<speciation speciesLocation="root"/>
+	</eventsRec>
+	<clade>
+		<name>NULL</name>
+		<branchLength>1</branchLength>
+		<eventsRec>
+			<speciation speciesLocation="AB"/>
+		</eventsRec>
+		<clade>
+			<name>2_7</name>
+			<branchLength>1</branchLength>
+			<eventsRec>
+				<leaf speciesLocation="A"/>
+			</eventsRec>
+		</clade>
+		<clade>
+			<name>NULL</name>
+			<branchLength>0.6113119729913479</branchLength>
+			<eventsRec>
+				<duplication speciesLocation="B"/>
+			</eventsRec>
+			<clade>
+				<name>3_19</name>
+				<branchLength>0.3886880270086521</branchLength>
+				<eventsRec>
+					<leaf speciesLocation="B"/>
+				</eventsRec>
+			</clade>
+			<clade>
+				<name>3_20</name>
+				<branchLength>0.3886880270086521</branchLength>
+				<eventsRec>
+					<leaf speciesLocation="B"/>
+				</eventsRec>
+			</clade>
+		</clade>
+	</clade>
+	<clade>
+		<name>NULL</name>
+		<branchLength>0.15278803656239043</branchLength>
+		<eventsRec>
+			<duplication speciesLocation="C"/>
+		</eventsRec>
+		<clade>
+			<name>NULL</name>
+			<branchLength>0.5618937277426159</branchLength>
+			<eventsRec>
+				<branchingOut speciesLocation="C"/>
+			</eventsRec>
+			<clade>
+				<name>loss</name>
+				<branchLength>0.8695996036908755</branchLength>
+				<eventsRec>
+					<loss speciesLocation="C"/>
+				</eventsRec>
+			</clade>
+			<clade>
+				<name>NULL</name>
+				<branchLength>0.2853182356949937</branchLength>
+				<eventsRec>
+					<transferBack destinationSpecies="AB"/>
+					<speciation speciesLocation="AB"/>
+				</eventsRec>
+				<clade>
+					<name>NULL</name>
+					<branchLength>0.8367869960650889</branchLength>
+					<eventsRec>
+						<duplication speciesLocation="A"/>
+					</eventsRec>
+					<clade>
+						<name>2_23</name>
+						<branchLength>0.16321300393491112</branchLength>
+						<eventsRec>
+							<leaf speciesLocation="A"/>
+						</eventsRec>
+					</clade>
+					<clade>
+						<name>2_24</name>
+						<branchLength>0.16321300393491112</branchLength>
+						<eventsRec>
+							<leaf speciesLocation="A"/>
+						</eventsRec>
+					</clade>
+				</clade>
+				<clade>
+					<name>NULL</name>
+					<branchLength>0.005855562933403835</branchLength>
+					<eventsRec>
+						<duplication speciesLocation="B"/>
+					</eventsRec>
+					<clade>
+						<name>NULL</name>
+						<branchLength>0.13998906114495857</branchLength>
+						<eventsRec>
+							<duplication speciesLocation="B"/>
+						</eventsRec>
+						<clade>
+							<name>NULL</name>
+							<branchLength>0.2734133842266435</branchLength>
+							<eventsRec>
+								<duplication speciesLocation="B"/>
+							</eventsRec>
+							<clade>
+								<name>3_15</name>
+								<branchLength>0.5807419916949941</branchLength>
+								<eventsRec>
+									<leaf speciesLocation="B"/>
+								</eventsRec>
+							</clade>
+							<clade>
+								<name>NULL</name>
+								<branchLength>0.23916619439515308</branchLength>
+								<eventsRec>
+									<duplication speciesLocation="B"/>
+								</eventsRec>
+								<clade>
+									<name>NULL</name>
+									<branchLength>0.24093351778458683</branchLength>
+									<eventsRec>
+										<branchingOut speciesLocation="B"/>
+									</eventsRec>
+									<clade>
+										<name>3_25</name>
+										<branchLength>0.10064227951525417</branchLength>
+										<eventsRec>
+											<leaf speciesLocation="B"/>
+										</eventsRec>
+									</clade>
+									<clade>
+										<name>NULL</name>
+										<branchLength>0.043601469233196744</branchLength>
+										<eventsRec>
+											<transferBack destinationSpecies="A"/>
+											<duplication speciesLocation="A"/>
+										</eventsRec>
+										<clade>
+											<name>2_27</name>
+											<branchLength>0.05704081028205743</branchLength>
+											<eventsRec>
+												<leaf speciesLocation="A"/>
+											</eventsRec>
+										</clade>
+										<clade>
+											<name>2_28</name>
+											<branchLength>0.05704081028205743</branchLength>
+											<eventsRec>
+												<leaf speciesLocation="A"/>
+											</eventsRec>
+										</clade>
+									</clade>
+								</clade>
+								<clade>
+									<name>3_22</name>
+									<branchLength>0.341575797299841</branchLength>
+									<eventsRec>
+										<leaf speciesLocation="B"/>
+									</eventsRec>
+								</clade>
+							</clade>
+						</clade>
+						<clade>
+							<name>NULL</name>
+							<branchLength>0.29764997528982784</branchLength>
+							<eventsRec>
+								<branchingOut speciesLocation="B"/>
+							</eventsRec>
+							<clade>
+								<name>3_17</name>
+								<branchLength>0.5565054006318098</branchLength>
+								<eventsRec>
+									<leaf speciesLocation="B"/>
+								</eventsRec>
+							</clade>
+							<clade>
+								<name>2_18</name>
+								<branchLength>0.5565054006318098</branchLength>
+								<eventsRec>
+									<transferBack destinationSpecies="A"/>
+									<leaf speciesLocation="A"/>
+								</eventsRec>
+							</clade>
+						</clade>
+					</clade>
+					<clade>
+						<name>loss</name>
+						<branchLength>0.489985947570571</branchLength>
+						<eventsRec>
+							<loss speciesLocation="B"/>
+						</eventsRec>
+					</clade>
+				</clade>
+			</clade>
+		</clade>
+		<clade>
+			<name>loss</name>
+			<branchLength>1.716293101206107</branchLength>
+			<eventsRec>
+				<loss speciesLocation="C"/>
+			</eventsRec>
+		</clade>
+	</clade>
+</clade>
+</phylogeny>
+</recGeneTree>
+</recPhylo>
