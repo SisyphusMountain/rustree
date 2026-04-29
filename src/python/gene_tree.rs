@@ -3,7 +3,8 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufWriter, Write};
 use std::process::Command;
 use std::sync::Arc;
 
@@ -100,8 +101,18 @@ impl PyGeneTree {
     /// # Arguments
     /// * `filepath` - Path to save the Newick file
     fn save_newick(&self, filepath: &str) -> PyResult<()> {
-        let newick = self.to_newick()?;
-        fs::write(filepath, newick)
+        let file = File::create(filepath)
+            .map_err(|e| PyValueError::new_err(format!("Failed to write Newick file: {}", e)))?;
+        let mut writer = BufWriter::new(file);
+        self.rec_tree
+            .gene_tree
+            .write_newick(&mut writer)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        writer
+            .write_all(b";")
+            .map_err(|e| PyValueError::new_err(format!("Failed to write Newick file: {}", e)))?;
+        writer
+            .flush()
             .map_err(|e| PyValueError::new_err(format!("Failed to write Newick file: {}", e)))?;
         Ok(())
     }

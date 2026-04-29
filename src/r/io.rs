@@ -11,14 +11,22 @@ fn save_newick_r(tree_list: List, filepath: &str) -> Result<()> {
         .map(|robj| !robj.is_null())
         .unwrap_or(false);
 
-    let newick = if is_gene_tree {
-        gene_tree_to_newick_r(tree_list)?
-    } else {
-        tree_to_newick_r(tree_list)?
-    };
+    let file = fs::File::create(filepath)
+        .map_err(|e| Error::Other(format!("Failed to write file: {}", e)))?;
+    let mut writer = std::io::BufWriter::new(file);
 
-    fs::write(filepath, newick)
-        .map_err(|e| format!("Failed to write file: {}", e))?;
+    if is_gene_tree {
+        let (gene_tree, _, _, _) = rlist_to_genetree(&tree_list)?;
+        gene_tree.write_newick(&mut writer).map_err(Error::from)?;
+    } else {
+        let tree = rlist_to_flattree(&tree_list)?;
+        tree.write_newick(&mut writer).map_err(Error::from)?;
+    }
+
+    std::io::Write::write_all(&mut writer, b";")
+        .map_err(|e| Error::Other(format!("Failed to write file: {}", e)))?;
+    std::io::Write::flush(&mut writer)
+        .map_err(|e| Error::Other(format!("Failed to write file: {}", e)))?;
     Ok(())
 }
 
