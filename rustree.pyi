@@ -259,6 +259,8 @@ def build_otf_batch(
     min_gene_leaves: int,
     max_gene_nodes: int,
     max_retries: int,
+    species_tree_metadata_metrics: Optional[List[str]] = None,
+    gene_tree_metadata_metrics: Optional[List[str]] = None,
 ) -> dict:
     """Build a complete batched dict of numpy arrays for on-the-fly training.
 

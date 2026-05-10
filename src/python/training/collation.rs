@@ -90,6 +90,583 @@ fn compute_varlen_metadata(sizes: &[i32]) -> (Vec<i32>, i32) {
     (cu, max_val)
 }
 
+#[derive(Clone, Copy, Default)]
+struct TreeMetadataRequest {
+    topological: bool,
+    branch_length: bool,
+}
+
+impl TreeMetadataRequest {
+    fn from_metrics(metrics: Option<Vec<String>>) -> Result<Self, String> {
+        let mut request = Self::default();
+        for metric in metrics.unwrap_or_default() {
+            match metric.as_str() {
+                "topological" => request.topological = true,
+                "branch_length" => request.branch_length = true,
+                other => {
+                    return Err(format!(
+                        "tree metadata metric must be 'topological' or 'branch_length', got '{}'",
+                        other
+                    ));
+                }
+            }
+        }
+        Ok(request)
+    }
+
+    fn any(self) -> bool {
+        self.topological || self.branch_length
+    }
+}
+
+struct SegmentTreeMetadata {
+    token_depth: Vec<f32>,
+    block_starts: Vec<i64>,
+    block_lengths: Vec<i64>,
+    block_lca_depth: Vec<f32>,
+    local_lca_depth_padded: Vec<f32>,
+    max_local_block: usize,
+    num_blocks: usize,
+}
+
+struct PackedTreeMetadata {
+    token_depth: Vec<f32>,
+    cu_tokens: Vec<i64>,
+    block_starts: Vec<i64>,
+    block_lengths: Vec<i64>,
+    block_ptr: Vec<i64>,
+    block_segment: Vec<i64>,
+    block_local_index: Vec<i64>,
+    block_lca_depth_padded: Vec<f32>,
+    block_lca_shape: (usize, usize, usize),
+    local_lca_depth_padded: Vec<f32>,
+    local_lca_shape: (usize, usize, usize),
+}
+
+#[derive(Default)]
+struct TreeMetadataBundle {
+    topological: Option<PackedTreeMetadata>,
+    branch_length: Option<PackedTreeMetadata>,
+}
+
+fn next_power_of_two_or_zero(value: usize) -> usize {
+    if value == 0 {
+        0
+    } else {
+        value.next_power_of_two()
+    }
+}
+
+fn build_segment_tree_metadata_fast(
+    parents: &[i32],
+    edge_lengths: Option<&[f32]>,
+    max_block_size: usize,
+) -> Result<SegmentTreeMetadata, String> {
+    if parents.is_empty() {
+        return Err("tree metadata segment cannot be empty".to_string());
+    }
+    if max_block_size == 0 {
+        return Err("tree metadata max_block_size must be positive".to_string());
+    }
+    if let Some(lengths) = edge_lengths {
+        if lengths.len() != parents.len() {
+            return Err("edge_lengths must have the same length as parents".to_string());
+        }
+    }
+
+    let n = parents.len();
+    let mut root: Option<usize> = None;
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut topo_depth = vec![0usize; n];
+    let mut token_depth = vec![0.0f32; n];
+
+    for node in 0..n {
+        let p = parents[node];
+        if p < 0 {
+            if root.replace(node).is_some() {
+                return Err("parents must describe exactly one rooted tree".to_string());
+            }
+            token_depth[node] = edge_lengths.map(|lengths| lengths[node]).unwrap_or(0.0);
+            continue;
+        }
+        let parent = p as usize;
+        if parent >= n {
+            return Err(format!("parent index {} out of bounds for {} nodes", p, n));
+        }
+        if parent >= node {
+            return Err(
+                "fast tree metadata builder expects preorder parents before children".to_string(),
+            );
+        }
+        children[parent].push(node);
+        topo_depth[node] = topo_depth[parent] + 1;
+        token_depth[node] = if let Some(lengths) = edge_lengths {
+            token_depth[parent] + lengths[node]
+        } else {
+            topo_depth[node] as f32
+        };
+    }
+
+    let root = root.ok_or_else(|| "parents must describe exactly one rooted tree".to_string())?;
+    let mut subtree_size = vec![1usize; n];
+    for node in (0..n).rev() {
+        let p = parents[node];
+        if p >= 0 {
+            subtree_size[p as usize] += subtree_size[node];
+        }
+    }
+
+    let max_log = (usize::BITS - n.leading_zeros()) as usize + 1;
+    let mut up = vec![vec![usize::MAX; n]; max_log.max(1)];
+    for node in 0..n {
+        if parents[node] >= 0 {
+            up[0][node] = parents[node] as usize;
+        }
+    }
+    for level in 1..up.len() {
+        for node in 0..n {
+            let prev = up[level - 1][node];
+            if prev != usize::MAX {
+                up[level][node] = up[level - 1][prev];
+            }
+        }
+    }
+
+    fn lca(mut a: usize, mut b: usize, topo_depth: &[usize], up: &[Vec<usize>]) -> usize {
+        if topo_depth[a] < topo_depth[b] {
+            std::mem::swap(&mut a, &mut b);
+        }
+        let diff = topo_depth[a] - topo_depth[b];
+        for level in 0..up.len() {
+            if ((diff >> level) & 1) != 0 {
+                a = up[level][a];
+            }
+        }
+        if a == b {
+            return a;
+        }
+        for level in (0..up.len()).rev() {
+            let ua = up[level][a];
+            let ub = up[level][b];
+            if ua != ub {
+                a = ua;
+                b = ub;
+            }
+        }
+        up[0][a]
+    }
+
+    let mut block_roots: Vec<usize> = Vec::new();
+    let mut block_starts: Vec<i64> = Vec::new();
+    let mut block_lengths: Vec<i64> = Vec::new();
+
+    fn partition(
+        node: usize,
+        children: &[Vec<usize>],
+        subtree_size: &[usize],
+        max_block_size: usize,
+        block_roots: &mut Vec<usize>,
+        block_starts: &mut Vec<i64>,
+        block_lengths: &mut Vec<i64>,
+    ) {
+        if subtree_size[node] <= max_block_size {
+            block_roots.push(node);
+            block_starts.push(node as i64);
+            block_lengths.push(subtree_size[node] as i64);
+            return;
+        }
+        block_roots.push(node);
+        block_starts.push(node as i64);
+        block_lengths.push(1);
+        for &child in &children[node] {
+            partition(
+                child,
+                children,
+                subtree_size,
+                max_block_size,
+                block_roots,
+                block_starts,
+                block_lengths,
+            );
+        }
+    }
+    partition(
+        root,
+        &children,
+        &subtree_size,
+        max_block_size,
+        &mut block_roots,
+        &mut block_starts,
+        &mut block_lengths,
+    );
+
+    let num_blocks = block_roots.len();
+    let mut block_lca_depth = vec![0.0f32; num_blocks * num_blocks];
+    for qb in 0..num_blocks {
+        for kb in 0..num_blocks {
+            let ancestor = lca(block_roots[qb], block_roots[kb], &topo_depth, &up);
+            block_lca_depth[qb * num_blocks + kb] = token_depth[ancestor];
+        }
+    }
+
+    let max_block_len = block_lengths
+        .iter()
+        .map(|&length| length as usize)
+        .max()
+        .unwrap_or(0);
+    let max_local_block = next_power_of_two_or_zero(max_block_len);
+    let mut local_lca_depth_padded = vec![0.0f32; num_blocks * max_local_block * max_local_block];
+    if max_local_block > 0 {
+        for block in 0..num_blocks {
+            let start = block_starts[block] as usize;
+            let len = block_lengths[block] as usize;
+            for qi in 0..len {
+                let q_node = start + qi;
+                for ki in 0..len {
+                    let k_node = start + ki;
+                    let ancestor = lca(q_node, k_node, &topo_depth, &up);
+                    let offset = (block * max_local_block + qi) * max_local_block + ki;
+                    local_lca_depth_padded[offset] = token_depth[ancestor];
+                }
+            }
+        }
+    }
+
+    Ok(SegmentTreeMetadata {
+        token_depth,
+        block_starts,
+        block_lengths,
+        block_lca_depth,
+        local_lca_depth_padded,
+        max_local_block,
+        num_blocks,
+    })
+}
+
+fn build_packed_tree_metadata_fast(
+    parents: &[i32],
+    cu_tokens: &[i32],
+    edge_lengths: Option<&[f32]>,
+    max_block_size: usize,
+) -> Result<PackedTreeMetadata, String> {
+    if cu_tokens.len() < 2 {
+        return Err("cu_tokens must contain at least one segment".to_string());
+    }
+    if cu_tokens.first().copied() != Some(0)
+        || cu_tokens.last().copied() != Some(parents.len() as i32)
+    {
+        return Err("cu_tokens must start at 0 and end at len(parents)".to_string());
+    }
+    if let Some(lengths) = edge_lengths {
+        if lengths.len() != parents.len() {
+            return Err("edge_lengths must have the same length as parents".to_string());
+        }
+    }
+
+    let mut segments = Vec::with_capacity(cu_tokens.len() - 1);
+    for window in cu_tokens.windows(2) {
+        let start = window[0] as usize;
+        let end = window[1] as usize;
+        let local_parents: Vec<i32> = parents[start..end]
+            .iter()
+            .map(|&p| {
+                if p >= start as i32 && p < end as i32 {
+                    p - start as i32
+                } else {
+                    -1
+                }
+            })
+            .collect();
+        let local_lengths = edge_lengths.map(|lengths| &lengths[start..end]);
+        segments.push(build_segment_tree_metadata_fast(
+            &local_parents,
+            local_lengths,
+            max_block_size,
+        )?);
+    }
+
+    let num_segments = segments.len();
+    let total_tokens = parents.len();
+    let total_blocks: usize = segments.iter().map(|meta| meta.num_blocks).sum();
+    let max_blocks = segments
+        .iter()
+        .map(|meta| meta.num_blocks)
+        .max()
+        .unwrap_or(0);
+    let max_local_block = segments
+        .iter()
+        .map(|meta| meta.max_local_block)
+        .max()
+        .unwrap_or(0);
+
+    let mut token_depth = Vec::with_capacity(total_tokens);
+    let mut block_starts = Vec::with_capacity(total_blocks);
+    let mut block_lengths = Vec::with_capacity(total_blocks);
+    let mut block_ptr = Vec::with_capacity(num_segments + 1);
+    let mut block_segment = Vec::with_capacity(total_blocks);
+    let mut block_local_index = Vec::with_capacity(total_blocks);
+    let mut block_lca_depth_padded = vec![0.0f32; num_segments * max_blocks * max_blocks];
+    let mut local_lca_depth_padded = vec![0.0f32; total_blocks * max_local_block * max_local_block];
+
+    let mut token_offset = 0i64;
+    let mut block_offset = 0usize;
+    block_ptr.push(0);
+    for (segment_idx, meta) in segments.iter().enumerate() {
+        token_depth.extend_from_slice(&meta.token_depth);
+        for block in 0..meta.num_blocks {
+            block_starts.push(meta.block_starts[block] + token_offset);
+            block_lengths.push(meta.block_lengths[block]);
+            block_segment.push(segment_idx as i64);
+            block_local_index.push(block as i64);
+        }
+        for qb in 0..meta.num_blocks {
+            for kb in 0..meta.num_blocks {
+                let dst = (segment_idx * max_blocks + qb) * max_blocks + kb;
+                let src = qb * meta.num_blocks + kb;
+                block_lca_depth_padded[dst] = meta.block_lca_depth[src];
+            }
+        }
+        if max_local_block > 0 {
+            for block in 0..meta.num_blocks {
+                for qi in 0..meta.max_local_block {
+                    for ki in 0..meta.max_local_block {
+                        let dst_block = block_offset + block;
+                        let dst = (dst_block * max_local_block + qi) * max_local_block + ki;
+                        let src = (block * meta.max_local_block + qi) * meta.max_local_block + ki;
+                        local_lca_depth_padded[dst] = meta.local_lca_depth_padded[src];
+                    }
+                }
+            }
+        }
+        token_offset += meta.token_depth.len() as i64;
+        block_offset += meta.num_blocks;
+        block_ptr.push(block_offset as i64);
+    }
+
+    Ok(PackedTreeMetadata {
+        token_depth,
+        cu_tokens: cu_tokens.iter().map(|&v| v as i64).collect(),
+        block_starts,
+        block_lengths,
+        block_ptr,
+        block_segment,
+        block_local_index,
+        block_lca_depth_padded,
+        block_lca_shape: (num_segments, max_blocks, max_blocks),
+        local_lca_depth_padded,
+        local_lca_shape: (total_blocks, max_local_block, max_local_block),
+    })
+}
+
+fn repeat_segment_tree_metadata(
+    meta: &SegmentTreeMetadata,
+    segment_len: usize,
+    num_segments: usize,
+) -> PackedTreeMetadata {
+    let num_blocks = meta.num_blocks;
+    let max_local_block = meta.max_local_block;
+    let total_blocks = num_segments * num_blocks;
+    let mut token_depth = Vec::with_capacity(num_segments * segment_len);
+    let mut cu_tokens = Vec::with_capacity(num_segments + 1);
+    let mut block_starts = Vec::with_capacity(total_blocks);
+    let mut block_lengths = Vec::with_capacity(total_blocks);
+    let mut block_ptr = Vec::with_capacity(num_segments + 1);
+    let mut block_segment = Vec::with_capacity(total_blocks);
+    let mut block_local_index = Vec::with_capacity(total_blocks);
+    let mut block_lca_depth_padded = vec![0.0f32; num_segments * num_blocks * num_blocks];
+    let mut local_lca_depth_padded = vec![0.0f32; total_blocks * max_local_block * max_local_block];
+
+    cu_tokens.push(0);
+    block_ptr.push(0);
+    for segment in 0..num_segments {
+        let token_offset = (segment * segment_len) as i64;
+        token_depth.extend_from_slice(&meta.token_depth);
+        cu_tokens.push(((segment + 1) * segment_len) as i64);
+        for block in 0..num_blocks {
+            block_starts.push(meta.block_starts[block] + token_offset);
+            block_lengths.push(meta.block_lengths[block]);
+            block_segment.push(segment as i64);
+            block_local_index.push(block as i64);
+        }
+        block_ptr.push(((segment + 1) * num_blocks) as i64);
+
+        let block_lca_dst = segment * num_blocks * num_blocks;
+        block_lca_depth_padded[block_lca_dst..block_lca_dst + meta.block_lca_depth.len()]
+            .copy_from_slice(&meta.block_lca_depth);
+
+        if max_local_block > 0 {
+            let local_len = meta.local_lca_depth_padded.len();
+            let local_dst = segment * local_len;
+            local_lca_depth_padded[local_dst..local_dst + local_len]
+                .copy_from_slice(&meta.local_lca_depth_padded);
+        }
+    }
+
+    PackedTreeMetadata {
+        token_depth,
+        cu_tokens,
+        block_starts,
+        block_lengths,
+        block_ptr,
+        block_segment,
+        block_local_index,
+        block_lca_depth_padded,
+        block_lca_shape: (num_segments, num_blocks, num_blocks),
+        local_lca_depth_padded,
+        local_lca_shape: (total_blocks, max_local_block, max_local_block),
+    }
+}
+
+fn build_repeated_tree_metadata_fast(
+    single_parents: &[i32],
+    single_edge_lengths: Option<&[f32]>,
+    num_segments: usize,
+    max_block_size: usize,
+) -> Result<PackedTreeMetadata, String> {
+    let meta =
+        build_segment_tree_metadata_fast(single_parents, single_edge_lengths, max_block_size)?;
+    Ok(repeat_segment_tree_metadata(
+        &meta,
+        single_parents.len(),
+        num_segments,
+    ))
+}
+
+fn build_tree_metadata_bundle(
+    parents: &[i32],
+    cu_tokens: &[i32],
+    edge_lengths: &[f32],
+    request: TreeMetadataRequest,
+) -> Result<TreeMetadataBundle, String> {
+    if !request.any() {
+        return Ok(TreeMetadataBundle::default());
+    }
+    Ok(TreeMetadataBundle {
+        topological: if request.topological {
+            Some(build_packed_tree_metadata_fast(
+                parents, cu_tokens, None, 64,
+            )?)
+        } else {
+            None
+        },
+        branch_length: if request.branch_length {
+            Some(build_packed_tree_metadata_fast(
+                parents,
+                cu_tokens,
+                Some(edge_lengths),
+                64,
+            )?)
+        } else {
+            None
+        },
+    })
+}
+
+fn build_repeated_tree_metadata_bundle(
+    single_parents: &[i32],
+    single_edge_lengths: &[f32],
+    num_segments: usize,
+    request: TreeMetadataRequest,
+) -> Result<TreeMetadataBundle, String> {
+    if !request.any() {
+        return Ok(TreeMetadataBundle::default());
+    }
+    Ok(TreeMetadataBundle {
+        topological: if request.topological {
+            Some(build_repeated_tree_metadata_fast(
+                single_parents,
+                None,
+                num_segments,
+                64,
+            )?)
+        } else {
+            None
+        },
+        branch_length: if request.branch_length {
+            Some(build_repeated_tree_metadata_fast(
+                single_parents,
+                Some(single_edge_lengths),
+                num_segments,
+                64,
+            )?)
+        } else {
+            None
+        },
+    })
+}
+
+#[cfg(feature = "python")]
+fn write_tree_metadata_arrays(
+    py: Python<'_>,
+    result: &Bound<'_, pyo3::types::PyDict>,
+    prefix: &str,
+    metric: &str,
+    metadata: &PackedTreeMetadata,
+) -> PyResult<()> {
+    use numpy::ndarray::Array3;
+    use numpy::PyArray1;
+    use numpy::ToPyArray;
+
+    let key = |field: &str| format!("{}_tree_metadata_{}_{}", prefix, metric, field);
+    result.set_item(
+        key("token_depth"),
+        PyArray1::from_slice(py, &metadata.token_depth),
+    )?;
+    result.set_item(
+        key("cu_tokens"),
+        PyArray1::from_slice(py, &metadata.cu_tokens),
+    )?;
+    result.set_item(
+        key("block_starts"),
+        PyArray1::from_slice(py, &metadata.block_starts),
+    )?;
+    result.set_item(
+        key("block_lengths"),
+        PyArray1::from_slice(py, &metadata.block_lengths),
+    )?;
+    result.set_item(
+        key("block_ptr"),
+        PyArray1::from_slice(py, &metadata.block_ptr),
+    )?;
+    result.set_item(
+        key("block_segment"),
+        PyArray1::from_slice(py, &metadata.block_segment),
+    )?;
+    result.set_item(
+        key("block_local_index"),
+        PyArray1::from_slice(py, &metadata.block_local_index),
+    )?;
+    let block_lca = Array3::from_shape_vec(
+        metadata.block_lca_shape,
+        metadata.block_lca_depth_padded.clone(),
+    )
+    .map_err(|e| PyValueError::new_err(format!("block_lca_depth_padded: {}", e)))?;
+    result.set_item(key("block_lca_depth_padded"), block_lca.to_pyarray(py))?;
+    let local_lca = Array3::from_shape_vec(
+        metadata.local_lca_shape,
+        metadata.local_lca_depth_padded.clone(),
+    )
+    .map_err(|e| PyValueError::new_err(format!("local_lca_depth_padded: {}", e)))?;
+    result.set_item(key("local_lca_depth_padded"), local_lca.to_pyarray(py))?;
+    Ok(())
+}
+
+#[cfg(feature = "python")]
+fn write_tree_metadata_bundle(
+    py: Python<'_>,
+    result: &Bound<'_, pyo3::types::PyDict>,
+    prefix: &str,
+    bundle: &TreeMetadataBundle,
+) -> PyResult<()> {
+    if let Some(ref metadata) = bundle.topological {
+        write_tree_metadata_arrays(py, result, prefix, "topological", metadata)?;
+    }
+    if let Some(ref metadata) = bundle.branch_length {
+        write_tree_metadata_arrays(py, result, prefix, "branch_length", metadata)?;
+    }
+    Ok(())
+}
+
 /// Collated tensors for one task across a full batch.
 struct CollatedTask {
     gene_x: Vec<i32>,
@@ -240,7 +817,7 @@ fn collate_task_tensors(tensors: &[TaskTensors]) -> CollatedTask {
 /// max_retries : int       Retry attempts per gene tree slot on simulation failure.
 #[cfg(feature = "python")]
 #[pyfunction]
-#[pyo3(signature = (n_sp, lambda_birth, mu_death, sp_seed, n_gene_trees, gt_seeds, lambda_d, lambda_t, lambda_l, enable_event, enable_root, sample_order, map_coloring_seeds, evt_coloring_seeds, root_coloring_seeds, min_gene_leaves, max_gene_nodes, max_retries))]
+#[pyo3(signature = (n_sp, lambda_birth, mu_death, sp_seed, n_gene_trees, gt_seeds, lambda_d, lambda_t, lambda_l, enable_event, enable_root, sample_order, map_coloring_seeds, evt_coloring_seeds, root_coloring_seeds, min_gene_leaves, max_gene_nodes, max_retries, species_tree_metadata_metrics=None, gene_tree_metadata_metrics=None))]
 #[allow(clippy::too_many_arguments)]
 pub fn build_otf_batch(
     py: Python,
@@ -262,6 +839,8 @@ pub fn build_otf_batch(
     min_gene_leaves: usize,
     max_gene_nodes: usize,
     max_retries: usize,
+    species_tree_metadata_metrics: Option<Vec<String>>,
+    gene_tree_metadata_metrics: Option<Vec<String>>,
 ) -> PyResult<PyObject> {
     use crate::node::TraversalOrder;
     use numpy::PyArray1;
@@ -297,6 +876,11 @@ pub fn build_otf_batch(
         )));
     }
     validate_dtl_rates(lambda_d, lambda_t, lambda_l)?;
+    let species_tree_metadata_request =
+        TreeMetadataRequest::from_metrics(species_tree_metadata_metrics)
+            .map_err(PyValueError::new_err)?;
+    let gene_tree_metadata_request = TreeMetadataRequest::from_metrics(gene_tree_metadata_metrics)
+        .map_err(PyValueError::new_err)?;
 
     // ---- GIL-free section ------------------------------------------------
     // All simulation, tensor building, and collation is pure Rust with no
@@ -615,6 +1199,49 @@ pub fn build_otf_batch(
         root_c,
     ) = result_or_err.map_err(PyValueError::new_err)?;
 
+    let (species_tree_metadata, map_tree_metadata, evt_tree_metadata, root_tree_metadata) = py
+        .allow_threads(|| -> Result<_, String> {
+            let species_segment_len = sp_sizes.first().copied().unwrap_or(0) as usize;
+            let species_segments = sp_sizes.len();
+            let species_parent_single = &sp_tree_parent[..species_segment_len];
+            let species_length_single = &sp_tree_branch_length[..species_segment_len];
+            Ok((
+                build_repeated_tree_metadata_bundle(
+                    species_parent_single,
+                    species_length_single,
+                    species_segments,
+                    species_tree_metadata_request,
+                )?,
+                build_tree_metadata_bundle(
+                    &map_c.gene_tree_parent,
+                    &map_c.cu_g,
+                    &map_c.gene_tree_branch_length,
+                    gene_tree_metadata_request,
+                )?,
+                if let Some(ref c) = evt_c {
+                    Some(build_tree_metadata_bundle(
+                        &c.gene_tree_parent,
+                        &c.cu_g,
+                        &c.gene_tree_branch_length,
+                        gene_tree_metadata_request,
+                    )?)
+                } else {
+                    None
+                },
+                if let Some(ref c) = root_c {
+                    Some(build_tree_metadata_bundle(
+                        &c.gene_tree_parent,
+                        &c.cu_g,
+                        &c.gene_tree_branch_length,
+                        gene_tree_metadata_request,
+                    )?)
+                } else {
+                    None
+                },
+            ))
+        })
+        .map_err(PyValueError::new_err)?;
+
     // 8. Build result dict of numpy arrays
     let result = PyDict::new(py);
 
@@ -652,99 +1279,102 @@ pub fn build_otf_batch(
     result.set_item("sp_batch", PyArray1::from_slice(py, &sp_batch))?;
     result.set_item("cu_sp", PyArray1::from_slice(py, &cu_sp))?;
     result.set_item("max_sp", max_sp)?;
+    write_tree_metadata_bundle(py, &result, "species", &species_tree_metadata)?;
 
     // Helper: write one collated task into result dict under a given prefix
-    let write_task = |c: &CollatedTask, prefix: &str| -> PyResult<()> {
-        result.set_item(
-            format!("{}_gene_x", prefix),
-            PyArray1::from_slice(py, &c.gene_x),
-        )?;
-        result.set_item(
-            format!("{}_gene_y", prefix),
-            PyArray1::from_slice(py, &c.gene_y),
-        )?;
-        result.set_item(
-            format!("{}_event", prefix),
-            PyArray1::from_slice(py, &c.event),
-        )?;
-        result.set_item(
-            format!("{}_event_true", prefix),
-            PyArray1::from_slice(py, &c.event_true),
-        )?;
-        result.set_item(
-            format!("{}_is_leaf", prefix),
-            PyArray1::from_slice(py, &c.is_leaf),
-        )?;
-        result.set_item(
-            format!("{}_frontier_mask", prefix),
-            PyArray1::from_slice(py, &c.frontier_mask),
-        )?;
-        result.set_item(
-            format!("{}_mask_label_node", prefix),
-            PyArray1::from_slice(py, &c.mask_label_node),
-        )?;
-        result.set_item(
-            format!("{}_gene_ei", prefix),
-            edge_2d(
-                &c.gene_ei_src,
-                &c.gene_ei_dst,
-                &format!("{}_gene_ei", prefix),
-            )?,
-        )?;
-        result.set_item(
-            format!("{}_gene_ew", prefix),
-            PyArray1::from_slice(py, &c.gene_ew),
-        )?;
-        result.set_item(
-            format!("{}_g_dir_edge", prefix),
-            edge_2d(
-                &c.g_dir_src,
-                &c.g_dir_dst,
-                &format!("{}_g_dir_edge", prefix),
-            )?,
-        )?;
-        result.set_item(
-            format!("{}_gene_tree_parent", prefix),
-            PyArray1::from_slice(py, &c.gene_tree_parent),
-        )?;
-        result.set_item(
-            format!("{}_gene_tree_branch_length", prefix),
-            PyArray1::from_slice(py, &c.gene_tree_branch_length),
-        )?;
-        result.set_item(
-            format!("{}_true_root_index", prefix),
-            PyArray1::from_slice(py, &c.true_root_index),
-        )?;
-        result.set_item(
-            format!("{}_g_ptr", prefix),
-            PyArray1::from_slice(py, &c.g_ptr),
-        )?;
-        result.set_item(
-            format!("{}_g_sizes", prefix),
-            PyArray1::from_slice(py, &c.g_sizes),
-        )?;
-        result.set_item(
-            format!("{}_g_batch", prefix),
-            PyArray1::from_slice(py, &c.g_batch),
-        )?;
-        result.set_item(
-            format!("{}_root_edges_ptr", prefix),
-            PyArray1::from_slice(py, &c.root_edges_ptr),
-        )?;
-        result.set_item(
-            format!("{}_cu_g", prefix),
-            PyArray1::from_slice(py, &c.cu_g),
-        )?;
-        result.set_item(format!("{}_max_g", prefix), c.max_g)?;
-        Ok(())
-    };
+    let write_task =
+        |c: &CollatedTask, prefix: &str, tree_metadata: &TreeMetadataBundle| -> PyResult<()> {
+            result.set_item(
+                format!("{}_gene_x", prefix),
+                PyArray1::from_slice(py, &c.gene_x),
+            )?;
+            result.set_item(
+                format!("{}_gene_y", prefix),
+                PyArray1::from_slice(py, &c.gene_y),
+            )?;
+            result.set_item(
+                format!("{}_event", prefix),
+                PyArray1::from_slice(py, &c.event),
+            )?;
+            result.set_item(
+                format!("{}_event_true", prefix),
+                PyArray1::from_slice(py, &c.event_true),
+            )?;
+            result.set_item(
+                format!("{}_is_leaf", prefix),
+                PyArray1::from_slice(py, &c.is_leaf),
+            )?;
+            result.set_item(
+                format!("{}_frontier_mask", prefix),
+                PyArray1::from_slice(py, &c.frontier_mask),
+            )?;
+            result.set_item(
+                format!("{}_mask_label_node", prefix),
+                PyArray1::from_slice(py, &c.mask_label_node),
+            )?;
+            result.set_item(
+                format!("{}_gene_ei", prefix),
+                edge_2d(
+                    &c.gene_ei_src,
+                    &c.gene_ei_dst,
+                    &format!("{}_gene_ei", prefix),
+                )?,
+            )?;
+            result.set_item(
+                format!("{}_gene_ew", prefix),
+                PyArray1::from_slice(py, &c.gene_ew),
+            )?;
+            result.set_item(
+                format!("{}_g_dir_edge", prefix),
+                edge_2d(
+                    &c.g_dir_src,
+                    &c.g_dir_dst,
+                    &format!("{}_g_dir_edge", prefix),
+                )?,
+            )?;
+            result.set_item(
+                format!("{}_gene_tree_parent", prefix),
+                PyArray1::from_slice(py, &c.gene_tree_parent),
+            )?;
+            result.set_item(
+                format!("{}_gene_tree_branch_length", prefix),
+                PyArray1::from_slice(py, &c.gene_tree_branch_length),
+            )?;
+            write_tree_metadata_bundle(py, &result, &format!("{}_gene", prefix), tree_metadata)?;
+            result.set_item(
+                format!("{}_true_root_index", prefix),
+                PyArray1::from_slice(py, &c.true_root_index),
+            )?;
+            result.set_item(
+                format!("{}_g_ptr", prefix),
+                PyArray1::from_slice(py, &c.g_ptr),
+            )?;
+            result.set_item(
+                format!("{}_g_sizes", prefix),
+                PyArray1::from_slice(py, &c.g_sizes),
+            )?;
+            result.set_item(
+                format!("{}_g_batch", prefix),
+                PyArray1::from_slice(py, &c.g_batch),
+            )?;
+            result.set_item(
+                format!("{}_root_edges_ptr", prefix),
+                PyArray1::from_slice(py, &c.root_edges_ptr),
+            )?;
+            result.set_item(
+                format!("{}_cu_g", prefix),
+                PyArray1::from_slice(py, &c.cu_g),
+            )?;
+            result.set_item(format!("{}_max_g", prefix), c.max_g)?;
+            Ok(())
+        };
 
-    write_task(&map_c, "map")?;
-    if let Some(ref c) = evt_c {
-        write_task(c, "evt")?;
+    write_task(&map_c, "map", &map_tree_metadata)?;
+    if let (Some(ref c), Some(ref metadata)) = (&evt_c, &evt_tree_metadata) {
+        write_task(c, "evt", metadata)?;
     }
-    if let Some(ref c) = root_c {
-        write_task(c, "root")?;
+    if let (Some(ref c), Some(ref metadata)) = (&root_c, &root_tree_metadata) {
+        write_task(c, "root", metadata)?;
     }
 
     Ok(result.into())
