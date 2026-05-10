@@ -24,7 +24,119 @@ pub(super) struct TaskTensors {
     pub(super) g_edge_dst: Vec<i32>,
     pub(super) g_dir_src: Vec<i32>,
     pub(super) g_dir_dst: Vec<i32>,
+    pub(super) tree_parent: Vec<i32>,
+    pub(super) tree_branch_length: Vec<f32>,
     pub(super) root_edge_target: i32,
+}
+
+fn gene_edge_branch_length(sample: &RustBaseSample, a: &str, b: &str) -> f32 {
+    if sample.g_parent.get(a).is_some_and(|p| p == b) {
+        return *sample.g_branch_length.get(a).unwrap_or(&1.0);
+    }
+    if sample.g_parent.get(b).is_some_and(|p| p == a) {
+        return *sample.g_branch_length.get(b).unwrap_or(&1.0);
+    }
+    if sample
+        .g_parent
+        .get(a)
+        .is_some_and(|p| p == &sample.g_root_name)
+        && sample
+            .g_parent
+            .get(b)
+            .is_some_and(|p| p == &sample.g_root_name)
+    {
+        let la = *sample.g_branch_length.get(a).unwrap_or(&1.0);
+        let lb = *sample.g_branch_length.get(b).unwrap_or(&1.0);
+        return la + lb;
+    }
+    1.0
+}
+
+fn rooted_dfs_order(
+    sample: &RustBaseSample,
+    active_neighbors: &HashMap<String, Vec<String>>,
+    preferred_root: &str,
+) -> (Vec<String>, Vec<i32>, Vec<f32>) {
+    use std::collections::HashSet;
+
+    let mut order = Vec::with_capacity(active_neighbors.len());
+    let mut parents = Vec::with_capacity(active_neighbors.len());
+    let mut lengths = Vec::with_capacity(active_neighbors.len());
+    let mut visited: HashSet<String> = HashSet::with_capacity(active_neighbors.len());
+
+    fn dfs(
+        sample: &RustBaseSample,
+        active_neighbors: &HashMap<String, Vec<String>>,
+        node: &str,
+        parent_name: Option<&str>,
+        parent_idx: i32,
+        order: &mut Vec<String>,
+        parents: &mut Vec<i32>,
+        lengths: &mut Vec<f32>,
+        visited: &mut std::collections::HashSet<String>,
+    ) {
+        if !visited.insert(node.to_string()) {
+            return;
+        }
+        let this_idx = order.len() as i32;
+        order.push(node.to_string());
+        parents.push(parent_idx);
+        lengths.push(
+            parent_name
+                .map(|p| gene_edge_branch_length(sample, node, p))
+                .unwrap_or(0.0),
+        );
+
+        let mut neighbors = active_neighbors.get(node).cloned().unwrap_or_default();
+        neighbors.sort();
+        neighbors.dedup();
+        for nb in neighbors {
+            if Some(nb.as_str()) == parent_name {
+                continue;
+            }
+            if active_neighbors.contains_key(&nb) && !visited.contains(&nb) {
+                dfs(
+                    sample,
+                    active_neighbors,
+                    &nb,
+                    Some(node),
+                    this_idx,
+                    order,
+                    parents,
+                    lengths,
+                    visited,
+                );
+            }
+        }
+    }
+
+    let mut roots: Vec<String> = Vec::new();
+    if active_neighbors.contains_key(preferred_root) {
+        roots.push(preferred_root.to_string());
+    }
+    let mut remaining: Vec<String> = active_neighbors.keys().cloned().collect();
+    remaining.sort();
+    for name in remaining {
+        if !roots.contains(&name) {
+            roots.push(name);
+        }
+    }
+    for root in roots {
+        if !visited.contains(&root) {
+            dfs(
+                sample,
+                active_neighbors,
+                &root,
+                None,
+                -1,
+                &mut order,
+                &mut parents,
+                &mut lengths,
+                &mut visited,
+            );
+        }
+    }
+    (order, parents, lengths)
 }
 
 /// Build task tensors for one sample (internal; mirrors build_training_tensors logic).
@@ -258,8 +370,17 @@ pub(super) fn build_task_tensors_internal(
     } else {
         &g_neighbors_unrooted
     };
-    let mut g_names: Vec<String> = active_neighbors.keys().cloned().collect();
-    g_names.sort();
+    let preferred_root = if include_root_node {
+        g_root_name.as_str()
+    } else {
+        active_neighbors
+            .keys()
+            .min()
+            .map(|s| s.as_str())
+            .unwrap_or(g_root_name.as_str())
+    };
+    let (g_names, tree_parent, tree_branch_length) =
+        rooted_dfs_order(sample, active_neighbors, preferred_root);
     let n_gene = g_names.len();
     let g_name_to_idx: HashMap<&str, usize> = g_names
         .iter()
@@ -385,6 +506,8 @@ pub(super) fn build_task_tensors_internal(
         g_edge_dst,
         g_dir_src,
         g_dir_dst,
+        tree_parent,
+        tree_branch_length,
         root_edge_target,
     })
 }

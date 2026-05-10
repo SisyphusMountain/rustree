@@ -20,6 +20,10 @@ pub(super) struct RustBaseSample {
     pub(super) true_root: Vec<String>,
     pub(super) g_neighbors: HashMap<String, Vec<String>>,
     pub(super) sp_children: HashMap<String, Vec<String>>,
+    pub(super) g_parent: HashMap<String, String>,
+    pub(super) g_branch_length: HashMap<String, f32>,
+    pub(super) sp_parent: HashMap<String, String>,
+    pub(super) sp_branch_length: HashMap<String, f32>,
     pub(super) true_states: HashMap<String, String>,
     pub(super) true_events: HashMap<String, i32>,
 }
@@ -40,14 +44,19 @@ pub(super) fn extract_base_sample_internal(rt: &RecTree) -> Result<RustBaseSampl
         species_names.iter().map(|s| s.as_str()).collect();
 
     let mut sp_children: HashMap<String, Vec<String>> = HashMap::new();
+    let mut sp_parent: HashMap<String, String> = HashMap::new();
+    let mut sp_branch_length: HashMap<String, f32> = HashMap::new();
     for &idx in &sp_preorder {
         let node = &sp_tree.nodes[idx];
+        sp_branch_length.insert(node.name.clone(), node.length as f32);
         let mut children = Vec::new();
         if let Some(left) = node.left_child {
             children.push(sp_tree.nodes[left].name.clone());
+            sp_parent.insert(sp_tree.nodes[left].name.clone(), node.name.clone());
         }
         if let Some(right) = node.right_child {
             children.push(sp_tree.nodes[right].name.clone());
+            sp_parent.insert(sp_tree.nodes[right].name.clone(), node.name.clone());
         }
         if !children.is_empty() {
             sp_children.insert(node.name.clone(), children);
@@ -65,11 +74,15 @@ pub(super) fn extract_base_sample_internal(rt: &RecTree) -> Result<RustBaseSampl
     let nb_g_leaves = g_leaves_names.len();
 
     let mut g_neighbors: HashMap<String, Vec<String>> = HashMap::new();
+    let mut g_parent: HashMap<String, String> = HashMap::new();
+    let mut g_branch_length: HashMap<String, f32> = HashMap::new();
     for &idx in &g_preorder {
         let node = &g_tree.nodes[idx];
+        g_branch_length.insert(node.name.clone(), node.length as f32);
         let mut neighbors = Vec::new();
         if let Some(parent) = node.parent {
             neighbors.push(g_tree.nodes[parent].name.clone());
+            g_parent.insert(node.name.clone(), g_tree.nodes[parent].name.clone());
         }
         if let Some(left) = node.left_child {
             neighbors.push(g_tree.nodes[left].name.clone());
@@ -121,6 +134,10 @@ pub(super) fn extract_base_sample_internal(rt: &RecTree) -> Result<RustBaseSampl
         true_root,
         g_neighbors,
         sp_children,
+        g_parent,
+        g_branch_length,
+        sp_parent,
+        sp_branch_length,
         true_states,
         true_events,
     })
@@ -155,6 +172,22 @@ pub(super) fn parse_base_sample_dict(
         .get_item("sp_children")?
         .ok_or_else(|| PyValueError::new_err("missing sp_children"))?
         .extract()?;
+    let g_parent: HashMap<String, String> = match d.get_item("g_parent")? {
+        Some(v) => v.extract()?,
+        None => HashMap::new(),
+    };
+    let g_branch_length: HashMap<String, f32> = match d.get_item("g_branch_length")? {
+        Some(v) => v.extract()?,
+        None => HashMap::new(),
+    };
+    let sp_parent: HashMap<String, String> = match d.get_item("sp_parent")? {
+        Some(v) => v.extract()?,
+        None => HashMap::new(),
+    };
+    let sp_branch_length: HashMap<String, f32> = match d.get_item("sp_branch_length")? {
+        Some(v) => v.extract()?,
+        None => HashMap::new(),
+    };
     let true_states: HashMap<String, String> = d
         .get_item("true_states")?
         .ok_or_else(|| PyValueError::new_err("missing true_states"))?
@@ -172,6 +205,10 @@ pub(super) fn parse_base_sample_dict(
         true_root,
         g_neighbors,
         sp_children,
+        g_parent,
+        g_branch_length,
+        sp_parent,
+        sp_branch_length,
         true_states,
         true_events,
     })
@@ -240,9 +277,12 @@ pub fn create_training_sample(
     // 5. Build species children/parents dicts
     let sp_children = PyDict::new(py);
     let sp_parents = PyDict::new(py);
+    let sp_parent = PyDict::new(py);
+    let sp_branch_length = PyDict::new(py);
     for &idx in &sp_preorder {
         let node = &sp_tree.nodes[idx];
         let name = &node.name;
+        sp_branch_length.set_item(name, node.length as f32)?;
         let mut children_list = Vec::new();
         if let Some(left) = node.left_child {
             children_list.push(sp_tree.nodes[left].name.as_str());
@@ -255,6 +295,7 @@ pub fn create_training_sample(
         }
         if let Some(parent) = node.parent {
             sp_parents.set_item(name, vec![sp_tree.nodes[parent].name.as_str()])?;
+            sp_parent.set_item(name, sp_tree.nodes[parent].name.as_str())?;
         }
     }
 
@@ -280,11 +321,15 @@ pub fn create_training_sample(
 
     // 8. Build gene undirected adjacency (including root)
     let g_neighbors = PyDict::new(py);
+    let g_parent = PyDict::new(py);
+    let g_branch_length = PyDict::new(py);
     for &idx in &g_preorder {
         let node = &g_tree.nodes[idx];
+        g_branch_length.set_item(&node.name, node.length as f32)?;
         let mut neighbors = Vec::new();
         if let Some(parent) = node.parent {
             neighbors.push(g_tree.nodes[parent].name.as_str());
+            g_parent.set_item(&node.name, g_tree.nodes[parent].name.as_str())?;
         }
         if let Some(left) = node.left_child {
             neighbors.push(g_tree.nodes[left].name.as_str());
@@ -356,6 +401,10 @@ pub fn create_training_sample(
     result.set_item("g_leaves_names", PyList::new(py, &g_leaves_names)?)?;
     result.set_item("sp_children", sp_children)?;
     result.set_item("sp_parents", sp_parents)?;
+    result.set_item("sp_parent", sp_parent)?;
+    result.set_item("sp_branch_length", sp_branch_length)?;
+    result.set_item("g_parent", g_parent)?;
+    result.set_item("g_branch_length", g_branch_length)?;
     result.set_item("true_states", true_states)?;
     result.set_item("true_events", true_events)?;
     result.set_item("true_root", PyList::new(py, &root_children)?)?;
@@ -402,8 +451,11 @@ pub fn create_training_sample_from_sim(py: Python, gene_tree: &PyGeneTree) -> Py
     // 2. Species children / parents
     let sp_children = PyDict::new(py);
     let sp_parents = PyDict::new(py);
+    let sp_parent = PyDict::new(py);
+    let sp_branch_length = PyDict::new(py);
     for &idx in &sp_preorder {
         let node = &sp_tree.nodes[idx];
+        sp_branch_length.set_item(&node.name, node.length as f32)?;
         let mut children_list = Vec::new();
         if let Some(left) = node.left_child {
             children_list.push(sp_tree.nodes[left].name.as_str());
@@ -416,6 +468,7 @@ pub fn create_training_sample_from_sim(py: Python, gene_tree: &PyGeneTree) -> Py
         }
         if let Some(parent) = node.parent {
             sp_parents.set_item(&node.name, vec![sp_tree.nodes[parent].name.as_str()])?;
+            sp_parent.set_item(&node.name, sp_tree.nodes[parent].name.as_str())?;
         }
     }
 
@@ -441,11 +494,15 @@ pub fn create_training_sample_from_sim(py: Python, gene_tree: &PyGeneTree) -> Py
 
     // 5. Gene undirected adjacency
     let g_neighbors = PyDict::new(py);
+    let g_parent = PyDict::new(py);
+    let g_branch_length = PyDict::new(py);
     for &idx in &g_preorder {
         let node = &g_tree.nodes[idx];
+        g_branch_length.set_item(&node.name, node.length as f32)?;
         let mut neighbors = Vec::new();
         if let Some(parent) = node.parent {
             neighbors.push(g_tree.nodes[parent].name.as_str());
+            g_parent.set_item(&node.name, g_tree.nodes[parent].name.as_str())?;
         }
         if let Some(left) = node.left_child {
             neighbors.push(g_tree.nodes[left].name.as_str());
@@ -513,6 +570,10 @@ pub fn create_training_sample_from_sim(py: Python, gene_tree: &PyGeneTree) -> Py
     result.set_item("g_leaves_names", PyList::new(py, &g_leaves_names)?)?;
     result.set_item("sp_children", sp_children)?;
     result.set_item("sp_parents", sp_parents)?;
+    result.set_item("sp_parent", sp_parent)?;
+    result.set_item("sp_branch_length", sp_branch_length)?;
+    result.set_item("g_parent", g_parent)?;
+    result.set_item("g_branch_length", g_branch_length)?;
     result.set_item("true_states", true_states)?;
     result.set_item("true_events", true_events)?;
     result.set_item("true_root", PyList::new(py, &root_children)?)?;

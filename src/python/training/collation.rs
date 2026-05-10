@@ -105,6 +105,8 @@ struct CollatedTask {
     gene_ew: Vec<f32>,
     g_dir_src: Vec<i32>,
     g_dir_dst: Vec<i32>,
+    gene_tree_parent: Vec<i32>,
+    gene_tree_branch_length: Vec<f32>,
     true_root_index: Vec<i32>,
     g_sizes: Vec<i32>,
     g_ptr: Vec<i32>,
@@ -130,6 +132,8 @@ fn collate_task_tensors(tensors: &[TaskTensors]) -> CollatedTask {
     let mut g_edge_dst_raw = Vec::new();
     let mut g_dir_src = Vec::new();
     let mut g_dir_dst = Vec::new();
+    let mut gene_tree_parent = Vec::new();
+    let mut gene_tree_branch_length = Vec::new();
     let mut true_root_index = Vec::new();
     let mut g_sizes: Vec<i32> = Vec::new();
     let mut g_ptr: Vec<i32> = vec![0];
@@ -163,6 +167,10 @@ fn collate_task_tensors(tensors: &[TaskTensors]) -> CollatedTask {
         for &d in &t.g_dir_dst {
             g_dir_dst.push(d + cum_g);
         }
+        for &p in &t.tree_parent {
+            gene_tree_parent.push(if p >= 0 { p + cum_g } else { -1 });
+        }
+        gene_tree_branch_length.extend_from_slice(&t.tree_branch_length);
 
         true_root_index.push(t.root_edge_target);
         g_sizes.push(ng);
@@ -196,6 +204,8 @@ fn collate_task_tensors(tensors: &[TaskTensors]) -> CollatedTask {
         gene_ew,
         g_dir_src,
         g_dir_dst,
+        gene_tree_parent,
+        gene_tree_branch_length,
         true_root_index,
         g_sizes,
         g_ptr,
@@ -412,6 +422,22 @@ pub fn build_otf_batch(
             .map(|name| sp_name_to_id[name])
             .collect();
 
+        let mut sp_tree_parent_s: Vec<i32> = Vec::with_capacity(n_sp_nodes);
+        let mut sp_tree_branch_length_s: Vec<f32> = Vec::with_capacity(n_sp_nodes);
+        for &idx in &sp_preorder {
+            let node = &extant_sp_arc.nodes[idx];
+            sp_tree_parent_s.push(
+                node.parent
+                    .map(|p| sp_name_to_idx_map[&extant_sp_arc.nodes[p].name] as i32)
+                    .unwrap_or(-1),
+            );
+            sp_tree_branch_length_s.push(if node.parent.is_some() {
+                node.length as f32
+            } else {
+                0.0
+            });
+        }
+
         let mut sp_child_src_s: Vec<i32> = Vec::new();
         let mut sp_child_dst_s: Vec<i32> = Vec::new();
         let mut sp_parent_src_s: Vec<i32> = Vec::new();
@@ -500,6 +526,8 @@ pub fn build_otf_batch(
         let mut sp_parent_src: Vec<i32> = Vec::with_capacity(b * n_sp_parent_e);
         let mut sp_parent_dst: Vec<i32> = Vec::with_capacity(b * n_sp_parent_e);
         let mut sp_parent_ew: Vec<f32> = Vec::with_capacity(b * n_sp_parent_e);
+        let mut sp_tree_parent: Vec<i32> = Vec::with_capacity(b * n_sp_nodes);
+        let mut sp_tree_branch_length: Vec<f32> = Vec::with_capacity(b * n_sp_nodes);
         let mut sp_batch: Vec<i32> = Vec::with_capacity(b * n_sp_nodes);
         let mut sp_sizes: Vec<i32> = Vec::with_capacity(b);
         let mut sp_ptr: Vec<i32> = Vec::with_capacity(b + 1);
@@ -518,6 +546,10 @@ pub fn build_otf_batch(
                 sp_parent_dst.push(d + offset);
             }
             sp_parent_ew.extend_from_slice(&sp_parent_ew_s);
+            for &p in &sp_tree_parent_s {
+                sp_tree_parent.push(if p >= 0 { p + offset } else { -1 });
+            }
+            sp_tree_branch_length.extend_from_slice(&sp_tree_branch_length_s);
             for _ in 0..n_sp_nodes {
                 sp_batch.push(s_idx as i32);
             }
@@ -549,6 +581,8 @@ pub fn build_otf_batch(
             sp_parent_src,
             sp_parent_dst,
             sp_parent_ew,
+            sp_tree_parent,
+            sp_tree_branch_length,
             sp_ptr,
             sp_sizes,
             sp_batch,
@@ -569,6 +603,8 @@ pub fn build_otf_batch(
         sp_parent_src,
         sp_parent_dst,
         sp_parent_ew,
+        sp_tree_parent,
+        sp_tree_branch_length,
         sp_ptr,
         sp_sizes,
         sp_batch,
@@ -606,6 +642,11 @@ pub fn build_otf_batch(
         edge_2d(&sp_parent_src, &sp_parent_dst, "sp_parent_ei")?,
     )?;
     result.set_item("sp_parent_ew", PyArray1::from_slice(py, &sp_parent_ew))?;
+    result.set_item("sp_tree_parent", PyArray1::from_slice(py, &sp_tree_parent))?;
+    result.set_item(
+        "sp_tree_branch_length",
+        PyArray1::from_slice(py, &sp_tree_branch_length),
+    )?;
     result.set_item("sp_ptr", PyArray1::from_slice(py, &sp_ptr))?;
     result.set_item("sp_sizes", PyArray1::from_slice(py, &sp_sizes))?;
     result.set_item("sp_batch", PyArray1::from_slice(py, &sp_batch))?;
@@ -661,6 +702,14 @@ pub fn build_otf_batch(
                 &c.g_dir_dst,
                 &format!("{}_g_dir_edge", prefix),
             )?,
+        )?;
+        result.set_item(
+            format!("{}_gene_tree_parent", prefix),
+            PyArray1::from_slice(py, &c.gene_tree_parent),
+        )?;
+        result.set_item(
+            format!("{}_gene_tree_branch_length", prefix),
+            PyArray1::from_slice(py, &c.gene_tree_branch_length),
         )?;
         result.set_item(
             format!("{}_true_root_index", prefix),
@@ -806,6 +855,8 @@ pub fn build_inference_batch(
         let mut sp_child_dst_s: Vec<i32> = Vec::new();
         let mut sp_parent_src_s: Vec<i32> = Vec::new();
         let mut sp_parent_dst_s: Vec<i32> = Vec::new();
+        let mut sp_tree_parent_s: Vec<i32> = vec![-1; n_sp_nodes];
+        let mut sp_tree_branch_length_s: Vec<f32> = vec![0.0; n_sp_nodes];
 
         // Build species name to index mapping
         let mut sp_name_to_idx: HashMap<String, usize> = HashMap::new();
@@ -821,8 +872,19 @@ pub fn build_inference_batch(
                         sp_child_dst_s.push(ci as i32);
                         sp_parent_src_s.push(ci as i32);
                         sp_parent_dst_s.push(pi as i32);
+                        sp_tree_parent_s[ci] = pi as i32;
+                        sp_tree_branch_length_s[ci] =
+                            *base.sp_branch_length.get(child_name).unwrap_or(&1.0);
                     }
                 }
+            }
+        }
+        for (name, parent_name) in &base.sp_parent {
+            if let (Some(&ci), Some(&pi)) =
+                (sp_name_to_idx.get(name), sp_name_to_idx.get(parent_name))
+            {
+                sp_tree_parent_s[ci] = pi as i32;
+                sp_tree_branch_length_s[ci] = *base.sp_branch_length.get(name).unwrap_or(&1.0);
             }
         }
 
@@ -866,6 +928,8 @@ pub fn build_inference_batch(
         let mut sp_parent_src: Vec<i32> = Vec::with_capacity(b * n_sp_parent_e);
         let mut sp_parent_dst: Vec<i32> = Vec::with_capacity(b * n_sp_parent_e);
         let mut sp_parent_ew: Vec<f32> = Vec::with_capacity(b * n_sp_parent_e);
+        let mut sp_tree_parent: Vec<i32> = Vec::with_capacity(b * n_sp_nodes);
+        let mut sp_tree_branch_length: Vec<f32> = Vec::with_capacity(b * n_sp_nodes);
         let mut sp_batch: Vec<i32> = Vec::with_capacity(b * n_sp_nodes);
         let mut sp_sizes: Vec<i32> = Vec::with_capacity(b);
         let mut sp_ptr: Vec<i32> = Vec::with_capacity(b + 1);
@@ -884,6 +948,10 @@ pub fn build_inference_batch(
                 sp_parent_dst.push(d + offset);
             }
             sp_parent_ew.extend_from_slice(&sp_parent_ew_s);
+            for &p in &sp_tree_parent_s {
+                sp_tree_parent.push(if p >= 0 { p + offset } else { -1 });
+            }
+            sp_tree_branch_length.extend_from_slice(&sp_tree_branch_length_s);
             for _ in 0..n_sp_nodes {
                 sp_batch.push(s_idx as i32);
             }
@@ -901,6 +969,8 @@ pub fn build_inference_batch(
             sp_parent_src,
             sp_parent_dst,
             sp_parent_ew,
+            sp_tree_parent,
+            sp_tree_branch_length,
             sp_ptr,
             sp_sizes,
             sp_batch,
@@ -918,6 +988,8 @@ pub fn build_inference_batch(
         sp_parent_src,
         sp_parent_dst,
         sp_parent_ew,
+        sp_tree_parent,
+        sp_tree_branch_length,
         sp_ptr,
         sp_sizes,
         sp_batch,
@@ -952,6 +1024,11 @@ pub fn build_inference_batch(
         edge_2d(&sp_parent_src, &sp_parent_dst, "sp_parent_ei")?,
     )?;
     result.set_item("sp_parent_ew", PyArray1::from_slice(py, &sp_parent_ew))?;
+    result.set_item("sp_tree_parent", PyArray1::from_slice(py, &sp_tree_parent))?;
+    result.set_item(
+        "sp_tree_branch_length",
+        PyArray1::from_slice(py, &sp_tree_branch_length),
+    )?;
     result.set_item("sp_ptr", PyArray1::from_slice(py, &sp_ptr))?;
     result.set_item("sp_sizes", PyArray1::from_slice(py, &sp_sizes))?;
     result.set_item("sp_batch", PyArray1::from_slice(py, &sp_batch))?;
@@ -981,6 +1058,14 @@ pub fn build_inference_batch(
     result.set_item(
         "map_g_dir_edge",
         edge_2d(&c.g_dir_src, &c.g_dir_dst, "map_g_dir_edge")?,
+    )?;
+    result.set_item(
+        "map_gene_tree_parent",
+        PyArray1::from_slice(py, &c.gene_tree_parent),
+    )?;
+    result.set_item(
+        "map_gene_tree_branch_length",
+        PyArray1::from_slice(py, &c.gene_tree_branch_length),
     )?;
     result.set_item(
         "map_true_root_index",
