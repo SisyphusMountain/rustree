@@ -124,8 +124,8 @@ struct SegmentTreeMetadata {
     block_starts: Vec<i64>,
     block_lengths: Vec<i64>,
     block_lca_depth: Vec<f32>,
-    local_lca_depth_padded: Vec<f32>,
-    max_local_block: usize,
+    local_lca_depth_flat: Vec<f32>,
+    local_lca_offsets: Vec<i64>,
     num_blocks: usize,
 }
 
@@ -139,22 +139,15 @@ struct PackedTreeMetadata {
     block_local_index: Vec<i64>,
     block_lca_depth_padded: Vec<f32>,
     block_lca_shape: (usize, usize, usize),
-    local_lca_depth_padded: Vec<f32>,
-    local_lca_shape: (usize, usize, usize),
+    local_lca_depth_flat: Vec<f32>,
+    local_lca_offsets: Vec<i64>,
+    local_lca_strides: Vec<i64>,
 }
 
 #[derive(Default)]
 struct TreeMetadataBundle {
     topological: Option<PackedTreeMetadata>,
     branch_length: Option<PackedTreeMetadata>,
-}
-
-fn next_power_of_two_or_zero(value: usize) -> usize {
-    if value == 0 {
-        0
-    } else {
-        value.next_power_of_two()
-    }
 }
 
 fn build_segment_tree_metadata_fast(
@@ -216,44 +209,24 @@ fn build_segment_tree_metadata_fast(
         }
     }
 
-    let max_log = (usize::BITS - n.leading_zeros()) as usize + 1;
-    let mut up = vec![vec![usize::MAX; n]; max_log.max(1)];
-    for node in 0..n {
-        if parents[node] >= 0 {
-            up[0][node] = parents[node] as usize;
-        }
-    }
-    for level in 1..up.len() {
-        for node in 0..n {
-            let prev = up[level - 1][node];
-            if prev != usize::MAX {
-                up[level][node] = up[level - 1][prev];
-            }
-        }
+    fn is_ancestor(candidate: usize, node: usize, subtree_size: &[usize]) -> bool {
+        candidate <= node && node < candidate + subtree_size[candidate]
     }
 
-    fn lca(mut a: usize, mut b: usize, topo_depth: &[usize], up: &[Vec<usize>]) -> usize {
-        if topo_depth[a] < topo_depth[b] {
-            std::mem::swap(&mut a, &mut b);
-        }
-        let diff = topo_depth[a] - topo_depth[b];
-        for level in 0..up.len() {
-            if ((diff >> level) & 1) != 0 {
-                a = up[level][a];
+    fn lca_by_parent_climb(
+        mut a: usize,
+        b: usize,
+        parents: &[i32],
+        subtree_size: &[usize],
+    ) -> usize {
+        while !is_ancestor(a, b, subtree_size) {
+            let parent = parents[a];
+            if parent < 0 {
+                return a;
             }
+            a = parent as usize;
         }
-        if a == b {
-            return a;
-        }
-        for level in (0..up.len()).rev() {
-            let ua = up[level][a];
-            let ub = up[level][b];
-            if ua != ub {
-                a = ua;
-                b = ub;
-            }
-        }
-        up[0][a]
+        a
     }
 
     let mut block_roots: Vec<usize> = Vec::new();
@@ -304,32 +277,57 @@ fn build_segment_tree_metadata_fast(
     let mut block_lca_depth = vec![0.0f32; num_blocks * num_blocks];
     for qb in 0..num_blocks {
         for kb in 0..num_blocks {
-            let ancestor = lca(block_roots[qb], block_roots[kb], &topo_depth, &up);
+            let ancestor =
+                lca_by_parent_climb(block_roots[qb], block_roots[kb], parents, &subtree_size);
             block_lca_depth[qb * num_blocks + kb] = token_depth[ancestor];
         }
     }
 
-    let max_block_len = block_lengths
+    let exact_local_values: usize = block_lengths
         .iter()
-        .map(|&length| length as usize)
-        .max()
-        .unwrap_or(0);
-    let max_local_block = next_power_of_two_or_zero(max_block_len);
-    let mut local_lca_depth_padded = vec![0.0f32; num_blocks * max_local_block * max_local_block];
-    if max_local_block > 0 {
-        for block in 0..num_blocks {
-            let start = block_starts[block] as usize;
-            let len = block_lengths[block] as usize;
+        .map(|&length| {
+            let len = length as usize;
+            len * len
+        })
+        .sum();
+    let mut local_lca_depth_flat = vec![0.0f32; exact_local_values];
+    let mut local_lca_offsets = Vec::with_capacity(num_blocks);
+    let mut local_offset = 0usize;
+    for block in 0..num_blocks {
+        let start = block_starts[block] as usize;
+        let len = block_lengths[block] as usize;
+        local_lca_offsets.push(local_offset as i64);
+        if len <= 64 {
+            let mut ancestor_bits = vec![0u64; len];
+            for local in 0..len {
+                let node = start + local;
+                let parent = parents[node];
+                ancestor_bits[local] = if parent >= start as i32 && (parent as usize) < start + len
+                {
+                    ancestor_bits[parent as usize - start] | (1u64 << local)
+                } else {
+                    1u64 << local
+                };
+            }
+            for qi in 0..len {
+                for ki in 0..len {
+                    let common = ancestor_bits[qi] & ancestor_bits[ki];
+                    let ancestor_local = 63usize - common.leading_zeros() as usize;
+                    let ancestor = start + ancestor_local;
+                    local_lca_depth_flat[local_offset + qi * len + ki] = token_depth[ancestor];
+                }
+            }
+        } else {
             for qi in 0..len {
                 let q_node = start + qi;
                 for ki in 0..len {
                     let k_node = start + ki;
-                    let ancestor = lca(q_node, k_node, &topo_depth, &up);
-                    let offset = (block * max_local_block + qi) * max_local_block + ki;
-                    local_lca_depth_padded[offset] = token_depth[ancestor];
+                    let ancestor = lca_by_parent_climb(q_node, k_node, parents, &subtree_size);
+                    local_lca_depth_flat[local_offset + qi * len + ki] = token_depth[ancestor];
                 }
             }
         }
+        local_offset += len * len;
     }
 
     Ok(SegmentTreeMetadata {
@@ -337,8 +335,8 @@ fn build_segment_tree_metadata_fast(
         block_starts,
         block_lengths,
         block_lca_depth,
-        local_lca_depth_padded,
-        max_local_block,
+        local_lca_depth_flat,
+        local_lca_offsets,
         num_blocks,
     })
 }
@@ -363,27 +361,25 @@ fn build_packed_tree_metadata_fast(
         }
     }
 
-    let mut segments = Vec::with_capacity(cu_tokens.len() - 1);
-    for window in cu_tokens.windows(2) {
-        let start = window[0] as usize;
-        let end = window[1] as usize;
-        let local_parents: Vec<i32> = parents[start..end]
-            .iter()
-            .map(|&p| {
-                if p >= start as i32 && p < end as i32 {
-                    p - start as i32
-                } else {
-                    -1
-                }
-            })
-            .collect();
-        let local_lengths = edge_lengths.map(|lengths| &lengths[start..end]);
-        segments.push(build_segment_tree_metadata_fast(
-            &local_parents,
-            local_lengths,
-            max_block_size,
-        )?);
-    }
+    let segments = cu_tokens
+        .par_windows(2)
+        .map(|window| {
+            let start = window[0] as usize;
+            let end = window[1] as usize;
+            let local_parents: Vec<i32> = parents[start..end]
+                .iter()
+                .map(|&p| {
+                    if p >= start as i32 && p < end as i32 {
+                        p - start as i32
+                    } else {
+                        -1
+                    }
+                })
+                .collect();
+            let local_lengths = edge_lengths.map(|lengths| &lengths[start..end]);
+            build_segment_tree_metadata_fast(&local_parents, local_lengths, max_block_size)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let num_segments = segments.len();
     let total_tokens = parents.len();
@@ -393,11 +389,10 @@ fn build_packed_tree_metadata_fast(
         .map(|meta| meta.num_blocks)
         .max()
         .unwrap_or(0);
-    let max_local_block = segments
+    let total_local_values: usize = segments
         .iter()
-        .map(|meta| meta.max_local_block)
-        .max()
-        .unwrap_or(0);
+        .map(|meta| meta.local_lca_depth_flat.len())
+        .sum();
 
     let mut token_depth = Vec::with_capacity(total_tokens);
     let mut block_starts = Vec::with_capacity(total_blocks);
@@ -406,10 +401,13 @@ fn build_packed_tree_metadata_fast(
     let mut block_segment = Vec::with_capacity(total_blocks);
     let mut block_local_index = Vec::with_capacity(total_blocks);
     let mut block_lca_depth_padded = vec![0.0f32; num_segments * max_blocks * max_blocks];
-    let mut local_lca_depth_padded = vec![0.0f32; total_blocks * max_local_block * max_local_block];
+    let mut local_lca_depth_flat = Vec::with_capacity(total_local_values);
+    let mut local_lca_offsets = Vec::with_capacity(total_blocks);
+    let mut local_lca_strides = Vec::with_capacity(total_blocks);
 
     let mut token_offset = 0i64;
     let mut block_offset = 0usize;
+    let mut local_offset = 0i64;
     block_ptr.push(0);
     for (segment_idx, meta) in segments.iter().enumerate() {
         token_depth.extend_from_slice(&meta.token_depth);
@@ -418,6 +416,8 @@ fn build_packed_tree_metadata_fast(
             block_lengths.push(meta.block_lengths[block]);
             block_segment.push(segment_idx as i64);
             block_local_index.push(block as i64);
+            local_lca_offsets.push(local_offset + meta.local_lca_offsets[block]);
+            local_lca_strides.push(meta.block_lengths[block]);
         }
         for qb in 0..meta.num_blocks {
             for kb in 0..meta.num_blocks {
@@ -426,19 +426,9 @@ fn build_packed_tree_metadata_fast(
                 block_lca_depth_padded[dst] = meta.block_lca_depth[src];
             }
         }
-        if max_local_block > 0 {
-            for block in 0..meta.num_blocks {
-                for qi in 0..meta.max_local_block {
-                    for ki in 0..meta.max_local_block {
-                        let dst_block = block_offset + block;
-                        let dst = (dst_block * max_local_block + qi) * max_local_block + ki;
-                        let src = (block * meta.max_local_block + qi) * meta.max_local_block + ki;
-                        local_lca_depth_padded[dst] = meta.local_lca_depth_padded[src];
-                    }
-                }
-            }
-        }
+        local_lca_depth_flat.extend_from_slice(&meta.local_lca_depth_flat);
         token_offset += meta.token_depth.len() as i64;
+        local_offset += meta.local_lca_depth_flat.len() as i64;
         block_offset += meta.num_blocks;
         block_ptr.push(block_offset as i64);
     }
@@ -453,8 +443,9 @@ fn build_packed_tree_metadata_fast(
         block_local_index,
         block_lca_depth_padded,
         block_lca_shape: (num_segments, max_blocks, max_blocks),
-        local_lca_depth_padded,
-        local_lca_shape: (total_blocks, max_local_block, max_local_block),
+        local_lca_depth_flat,
+        local_lca_offsets,
+        local_lca_strides,
     })
 }
 
@@ -464,7 +455,6 @@ fn repeat_segment_tree_metadata(
     num_segments: usize,
 ) -> PackedTreeMetadata {
     let num_blocks = meta.num_blocks;
-    let max_local_block = meta.max_local_block;
     let total_blocks = num_segments * num_blocks;
     let mut token_depth = Vec::with_capacity(num_segments * segment_len);
     let mut cu_tokens = Vec::with_capacity(num_segments + 1);
@@ -474,10 +464,14 @@ fn repeat_segment_tree_metadata(
     let mut block_segment = Vec::with_capacity(total_blocks);
     let mut block_local_index = Vec::with_capacity(total_blocks);
     let mut block_lca_depth_padded = vec![0.0f32; num_segments * num_blocks * num_blocks];
-    let mut local_lca_depth_padded = vec![0.0f32; total_blocks * max_local_block * max_local_block];
+    let mut local_lca_depth_flat =
+        Vec::with_capacity(num_segments * meta.local_lca_depth_flat.len());
+    let mut local_lca_offsets = Vec::with_capacity(total_blocks);
+    let mut local_lca_strides = Vec::with_capacity(total_blocks);
 
     cu_tokens.push(0);
     block_ptr.push(0);
+    let mut local_offset = 0i64;
     for segment in 0..num_segments {
         let token_offset = (segment * segment_len) as i64;
         token_depth.extend_from_slice(&meta.token_depth);
@@ -487,6 +481,8 @@ fn repeat_segment_tree_metadata(
             block_lengths.push(meta.block_lengths[block]);
             block_segment.push(segment as i64);
             block_local_index.push(block as i64);
+            local_lca_offsets.push(local_offset + meta.local_lca_offsets[block]);
+            local_lca_strides.push(meta.block_lengths[block]);
         }
         block_ptr.push(((segment + 1) * num_blocks) as i64);
 
@@ -494,12 +490,8 @@ fn repeat_segment_tree_metadata(
         block_lca_depth_padded[block_lca_dst..block_lca_dst + meta.block_lca_depth.len()]
             .copy_from_slice(&meta.block_lca_depth);
 
-        if max_local_block > 0 {
-            let local_len = meta.local_lca_depth_padded.len();
-            let local_dst = segment * local_len;
-            local_lca_depth_padded[local_dst..local_dst + local_len]
-                .copy_from_slice(&meta.local_lca_depth_padded);
-        }
+        local_lca_depth_flat.extend_from_slice(&meta.local_lca_depth_flat);
+        local_offset += meta.local_lca_depth_flat.len() as i64;
     }
 
     PackedTreeMetadata {
@@ -512,8 +504,9 @@ fn repeat_segment_tree_metadata(
         block_local_index,
         block_lca_depth_padded,
         block_lca_shape: (num_segments, num_blocks, num_blocks),
-        local_lca_depth_padded,
-        local_lca_shape: (total_blocks, max_local_block, max_local_block),
+        local_lca_depth_flat,
+        local_lca_offsets,
+        local_lca_strides,
     }
 }
 
@@ -642,12 +635,18 @@ fn write_tree_metadata_arrays(
     )
     .map_err(|e| PyValueError::new_err(format!("block_lca_depth_padded: {}", e)))?;
     result.set_item(key("block_lca_depth_padded"), block_lca.to_pyarray(py))?;
-    let local_lca = Array3::from_shape_vec(
-        metadata.local_lca_shape,
-        metadata.local_lca_depth_padded.clone(),
-    )
-    .map_err(|e| PyValueError::new_err(format!("local_lca_depth_padded: {}", e)))?;
-    result.set_item(key("local_lca_depth_padded"), local_lca.to_pyarray(py))?;
+    result.set_item(
+        key("local_lca_depth_flat"),
+        PyArray1::from_slice(py, &metadata.local_lca_depth_flat),
+    )?;
+    result.set_item(
+        key("local_lca_offsets"),
+        PyArray1::from_slice(py, &metadata.local_lca_offsets),
+    )?;
+    result.set_item(
+        key("local_lca_strides"),
+        PyArray1::from_slice(py, &metadata.local_lca_strides),
+    )?;
     Ok(())
 }
 
