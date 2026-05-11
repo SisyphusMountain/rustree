@@ -22,6 +22,28 @@ use crate::python::validate_dtl_rates;
 use super::extraction::{extract_base_sample_internal, parse_base_sample_dict, RustBaseSample};
 use super::tensors::{build_task_tensors_internal, TaskTensors};
 
+const DEFAULT_TREE_METADATA_MAX_BLOCK_SIZE: usize = 512;
+const TREE_METADATA_MAX_BLOCK_SIZE_ENV: &str = "WP2_TREE_METADATA_MAX_BLOCK_SIZE";
+
+fn tree_metadata_max_block_size() -> Result<usize, String> {
+    let Ok(raw) = std::env::var(TREE_METADATA_MAX_BLOCK_SIZE_ENV) else {
+        return Ok(DEFAULT_TREE_METADATA_MAX_BLOCK_SIZE);
+    };
+    let parsed = raw.parse::<usize>().map_err(|_| {
+        format!(
+            "{} must be a positive integer, got {:?}",
+            TREE_METADATA_MAX_BLOCK_SIZE_ENV, raw
+        )
+    })?;
+    if parsed == 0 {
+        return Err(format!(
+            "{} must be a positive integer, got 0",
+            TREE_METADATA_MAX_BLOCK_SIZE_ENV
+        ));
+    }
+    Ok(parsed)
+}
+
 /// GCN normalization: add self-loops, compute D^{-1/2} A D^{-1/2} edge weights.
 ///
 /// Matches PyG's `gcn_norm(edge_index, None, num_nodes, improved=False,
@@ -534,10 +556,14 @@ fn build_tree_metadata_bundle(
     if !request.any() {
         return Ok(TreeMetadataBundle::default());
     }
+    let max_block_size = tree_metadata_max_block_size()?;
     Ok(TreeMetadataBundle {
         topological: if request.topological {
             Some(build_packed_tree_metadata_fast(
-                parents, cu_tokens, None, 64,
+                parents,
+                cu_tokens,
+                None,
+                max_block_size,
             )?)
         } else {
             None
@@ -547,7 +573,7 @@ fn build_tree_metadata_bundle(
                 parents,
                 cu_tokens,
                 Some(edge_lengths),
-                64,
+                max_block_size,
             )?)
         } else {
             None
@@ -564,13 +590,14 @@ fn build_repeated_tree_metadata_bundle(
     if !request.any() {
         return Ok(TreeMetadataBundle::default());
     }
+    let max_block_size = tree_metadata_max_block_size()?;
     Ok(TreeMetadataBundle {
         topological: if request.topological {
             Some(build_repeated_tree_metadata_fast(
                 single_parents,
                 None,
                 num_segments,
-                64,
+                max_block_size,
             )?)
         } else {
             None
@@ -580,7 +607,7 @@ fn build_repeated_tree_metadata_bundle(
                 single_parents,
                 Some(single_edge_lengths),
                 num_segments,
-                64,
+                max_block_size,
             )?)
         } else {
             None
