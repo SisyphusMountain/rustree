@@ -700,6 +700,7 @@ struct CollatedTask {
     gene_right_child_x: Vec<i32>,
     gene_leaf_lca_x: Vec<i32>,
     gene_neighbor_lca_x: Vec<i32>,
+    gene_leafset: Vec<u8>,
     gene_y: Vec<i32>,
     event: Vec<i32>,
     event_true: Vec<i32>,
@@ -819,6 +820,64 @@ fn compute_gene_neighbor_lca_x(t: &TaskTensors, species_parent: &[i32]) -> Vec<i
         .collect()
 }
 
+fn compute_species_leafset(species_parent: &[i32]) -> Vec<u8> {
+    let n = species_parent.len();
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, &p) in species_parent.iter().enumerate() {
+        if p >= 0 {
+            children[p as usize].push(i);
+        }
+    }
+
+    let mut leafset = vec![0u8; n * n];
+    for i in (0..n).rev() {
+        if children[i].is_empty() {
+            leafset[i * n + i] = 1;
+            continue;
+        }
+        for &child in &children[i] {
+            for bit in 0..n {
+                if leafset[child * n + bit] != 0 {
+                    leafset[i * n + bit] = 1;
+                }
+            }
+        }
+    }
+    leafset
+}
+
+fn compute_gene_leafset(t: &TaskTensors, species_width: usize) -> Vec<u8> {
+    let n_gene = t.x_gene.len();
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); n_gene];
+    for (i, &p) in t.tree_parent.iter().enumerate() {
+        if p >= 0 {
+            children[p as usize].push(i);
+        }
+    }
+
+    let mut leafset = vec![0u8; n_gene * species_width];
+    for i in (0..n_gene).rev() {
+        if t.is_leaf[i] != 0 {
+            let sp_label = t.g_true_sp[i];
+            if sp_label > 0 {
+                let bit = (sp_label - 1) as usize;
+                if bit < species_width {
+                    leafset[i * species_width + bit] = 1;
+                }
+            }
+            continue;
+        }
+        for &child in &children[i] {
+            for bit in 0..species_width {
+                if leafset[child * species_width + bit] != 0 {
+                    leafset[i * species_width + bit] = 1;
+                }
+            }
+        }
+    }
+    leafset
+}
+
 /// Collate per-sample task tensors into a single batch.
 ///
 /// Also applies GCN normalization to gene edges and computes varlen attention metadata.
@@ -828,6 +887,7 @@ fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> Coll
     let mut gene_right_child_x = Vec::new();
     let mut gene_leaf_lca_x = Vec::new();
     let mut gene_neighbor_lca_x = Vec::new();
+    let mut gene_leafset = Vec::new();
     let mut gene_y = Vec::new();
     let mut event = Vec::new();
     let mut event_true = Vec::new();
@@ -854,12 +914,14 @@ fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> Coll
         let ndir = t.g_dir_src.len() as i32;
         let leaf_lca_x = compute_gene_leaf_lca_x(t, species_parent);
         let neighbor_lca_x = compute_gene_neighbor_lca_x(t, species_parent);
+        let leafset = compute_gene_leafset(t, species_parent.len());
 
         gene_x.extend_from_slice(&t.x_gene);
         gene_left_child_x.extend_from_slice(&t.gene_left_child_x);
         gene_right_child_x.extend_from_slice(&t.gene_right_child_x);
         gene_leaf_lca_x.extend_from_slice(&leaf_lca_x);
         gene_neighbor_lca_x.extend_from_slice(&neighbor_lca_x);
+        gene_leafset.extend_from_slice(&leafset);
         gene_y.extend(t.g_true_sp.iter().map(|&v| v - 1));
         event.extend_from_slice(&t.event_input);
         event_true.extend_from_slice(&t.event_true);
@@ -909,6 +971,7 @@ fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> Coll
         gene_right_child_x,
         gene_leaf_lca_x,
         gene_neighbor_lca_x,
+        gene_leafset,
         gene_y,
         event,
         event_true,
@@ -982,7 +1045,8 @@ pub fn build_otf_batch(
     gene_tree_metadata_metrics: Option<Vec<String>>,
 ) -> PyResult<PyObject> {
     use crate::node::TraversalOrder;
-    use numpy::PyArray1;
+    use numpy::ndarray::Array2;
+    use numpy::{PyArray1, ToPyArray};
     use pyo3::types::PyDict;
 
     // Validate
@@ -1176,6 +1240,7 @@ pub fn build_otf_batch(
                 sp_parent_dst_s.push(pi);
             }
         }
+        let sp_leafset_single = compute_species_leafset(&sp_tree_parent_s);
 
         // 4. Extract base samples from gene trees (parallel)
         let base_samples: Vec<RustBaseSample> = valid_gene_trees
@@ -1251,6 +1316,7 @@ pub fn build_otf_batch(
         let mut sp_parent_ew: Vec<f32> = Vec::with_capacity(b * n_sp_parent_e);
         let mut sp_tree_parent: Vec<i32> = Vec::with_capacity(b * n_sp_nodes);
         let mut sp_tree_branch_length: Vec<f32> = Vec::with_capacity(b * n_sp_nodes);
+        let mut sp_leafset: Vec<u8> = Vec::with_capacity(b * n_sp_nodes * n_sp_nodes);
         let mut sp_batch: Vec<i32> = Vec::with_capacity(b * n_sp_nodes);
         let mut sp_sizes: Vec<i32> = Vec::with_capacity(b);
         let mut sp_ptr: Vec<i32> = Vec::with_capacity(b + 1);
@@ -1273,6 +1339,7 @@ pub fn build_otf_batch(
                 sp_tree_parent.push(if p >= 0 { p + offset } else { -1 });
             }
             sp_tree_branch_length.extend_from_slice(&sp_tree_branch_length_s);
+            sp_leafset.extend_from_slice(&sp_leafset_single);
             for _ in 0..n_sp_nodes {
                 sp_batch.push(s_idx as i32);
             }
@@ -1306,6 +1373,7 @@ pub fn build_otf_batch(
             sp_parent_ew,
             sp_tree_parent,
             sp_tree_branch_length,
+            sp_leafset,
             sp_ptr,
             sp_sizes,
             sp_batch,
@@ -1328,6 +1396,7 @@ pub fn build_otf_batch(
         sp_parent_ew,
         sp_tree_parent,
         sp_tree_branch_length,
+        sp_leafset,
         sp_ptr,
         sp_sizes,
         sp_batch,
@@ -1413,6 +1482,9 @@ pub fn build_otf_batch(
         "sp_tree_branch_length",
         PyArray1::from_slice(py, &sp_tree_branch_length),
     )?;
+    let sp_leafset_arr = Array2::from_shape_vec([sp_x.len(), max_sp as usize], sp_leafset)
+        .map_err(|e| PyValueError::new_err(format!("sp_leafset: {}", e)))?;
+    result.set_item("sp_leafset", sp_leafset_arr.to_pyarray(py))?;
     result.set_item("sp_ptr", PyArray1::from_slice(py, &sp_ptr))?;
     result.set_item("sp_sizes", PyArray1::from_slice(py, &sp_sizes))?;
     result.set_item("sp_batch", PyArray1::from_slice(py, &sp_batch))?;
@@ -1442,6 +1514,13 @@ pub fn build_otf_batch(
             result.set_item(
                 format!("{}_gene_neighbor_lca_x", prefix),
                 PyArray1::from_slice(py, &c.gene_neighbor_lca_x),
+            )?;
+            let gene_leafset_arr =
+                Array2::from_shape_vec([c.gene_x.len(), max_sp as usize], c.gene_leafset.clone())
+                    .map_err(|e| PyValueError::new_err(format!("{}_gene_leafset: {}", prefix, e)))?;
+            result.set_item(
+                format!("{}_gene_leafset", prefix),
+                gene_leafset_arr.to_pyarray(py),
             )?;
             result.set_item(
                 format!("{}_gene_y", prefix),
