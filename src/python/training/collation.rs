@@ -697,6 +697,7 @@ fn write_tree_metadata_bundle(
 struct CollatedTask {
     gene_x: Vec<i32>,
     gene_leaf_lca_x: Vec<i32>,
+    gene_neighbor_lca_x: Vec<i32>,
     gene_y: Vec<i32>,
     event: Vec<i32>,
     event_true: Vec<i32>,
@@ -787,12 +788,42 @@ fn compute_gene_leaf_lca_x(t: &TaskTensors, species_parent: &[i32]) -> Vec<i32> 
         .collect()
 }
 
+fn compute_gene_neighbor_lca_x(t: &TaskTensors, species_parent: &[i32]) -> Vec<i32> {
+    let n_gene = t.x_gene.len();
+    let species_depth = species_depths(species_parent);
+    let mut local_lca = vec![-1i32; n_gene];
+
+    for (&src, &dst) in t.g_edge_src.iter().zip(t.g_edge_dst.iter()) {
+        let src_idx = src as usize;
+        let dst_idx = dst as usize;
+        if src_idx >= n_gene || dst_idx >= n_gene {
+            continue;
+        }
+        let mapped_species = t.x_gene[dst_idx];
+        if mapped_species <= 0 {
+            continue;
+        }
+        local_lca[src_idx] = species_lca(
+            local_lca[src_idx],
+            mapped_species - 1,
+            species_parent,
+            &species_depth,
+        );
+    }
+
+    local_lca
+        .into_iter()
+        .map(|v| if v >= 0 { v + 1 } else { 0 })
+        .collect()
+}
+
 /// Collate per-sample task tensors into a single batch.
 ///
 /// Also applies GCN normalization to gene edges and computes varlen attention metadata.
 fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> CollatedTask {
     let mut gene_x = Vec::new();
     let mut gene_leaf_lca_x = Vec::new();
+    let mut gene_neighbor_lca_x = Vec::new();
     let mut gene_y = Vec::new();
     let mut event = Vec::new();
     let mut event_true = Vec::new();
@@ -818,9 +849,11 @@ fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> Coll
         let ng = t.x_gene.len() as i32;
         let ndir = t.g_dir_src.len() as i32;
         let leaf_lca_x = compute_gene_leaf_lca_x(t, species_parent);
+        let neighbor_lca_x = compute_gene_neighbor_lca_x(t, species_parent);
 
         gene_x.extend_from_slice(&t.x_gene);
         gene_leaf_lca_x.extend_from_slice(&leaf_lca_x);
+        gene_neighbor_lca_x.extend_from_slice(&neighbor_lca_x);
         gene_y.extend(t.g_true_sp.iter().map(|&v| v - 1));
         event.extend_from_slice(&t.event_input);
         event_true.extend_from_slice(&t.event_true);
@@ -867,6 +900,7 @@ fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> Coll
     CollatedTask {
         gene_x,
         gene_leaf_lca_x,
+        gene_neighbor_lca_x,
         gene_y,
         event,
         event_true,
@@ -1390,6 +1424,10 @@ pub fn build_otf_batch(
                 PyArray1::from_slice(py, &c.gene_leaf_lca_x),
             )?;
             result.set_item(
+                format!("{}_gene_neighbor_lca_x", prefix),
+                PyArray1::from_slice(py, &c.gene_neighbor_lca_x),
+            )?;
+            result.set_item(
                 format!("{}_gene_y", prefix),
                 PyArray1::from_slice(py, &c.gene_y),
             )?;
@@ -1772,6 +1810,10 @@ pub fn build_inference_batch(
     result.set_item(
         "map_gene_leaf_lca_x",
         PyArray1::from_slice(py, &c.gene_leaf_lca_x),
+    )?;
+    result.set_item(
+        "map_gene_neighbor_lca_x",
+        PyArray1::from_slice(py, &c.gene_neighbor_lca_x),
     )?;
     result.set_item("map_gene_y", PyArray1::from_slice(py, &c.gene_y))?;
     result.set_item("map_event", PyArray1::from_slice(py, &c.event))?;
