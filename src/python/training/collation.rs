@@ -696,6 +696,8 @@ fn write_tree_metadata_bundle(
 /// Collated tensors for one task across a full batch.
 struct CollatedTask {
     gene_x: Vec<i32>,
+    gene_left_child_x: Vec<i32>,
+    gene_right_child_x: Vec<i32>,
     gene_leaf_lca_x: Vec<i32>,
     gene_neighbor_lca_x: Vec<i32>,
     gene_y: Vec<i32>,
@@ -822,6 +824,8 @@ fn compute_gene_neighbor_lca_x(t: &TaskTensors, species_parent: &[i32]) -> Vec<i
 /// Also applies GCN normalization to gene edges and computes varlen attention metadata.
 fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> CollatedTask {
     let mut gene_x = Vec::new();
+    let mut gene_left_child_x = Vec::new();
+    let mut gene_right_child_x = Vec::new();
     let mut gene_leaf_lca_x = Vec::new();
     let mut gene_neighbor_lca_x = Vec::new();
     let mut gene_y = Vec::new();
@@ -852,6 +856,8 @@ fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> Coll
         let neighbor_lca_x = compute_gene_neighbor_lca_x(t, species_parent);
 
         gene_x.extend_from_slice(&t.x_gene);
+        gene_left_child_x.extend_from_slice(&t.gene_left_child_x);
+        gene_right_child_x.extend_from_slice(&t.gene_right_child_x);
         gene_leaf_lca_x.extend_from_slice(&leaf_lca_x);
         gene_neighbor_lca_x.extend_from_slice(&neighbor_lca_x);
         gene_y.extend(t.g_true_sp.iter().map(|&v| v - 1));
@@ -899,6 +905,8 @@ fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> Coll
 
     CollatedTask {
         gene_x,
+        gene_left_child_x,
+        gene_right_child_x,
         gene_leaf_lca_x,
         gene_neighbor_lca_x,
         gene_y,
@@ -1420,6 +1428,14 @@ pub fn build_otf_batch(
                 PyArray1::from_slice(py, &c.gene_x),
             )?;
             result.set_item(
+                format!("{}_gene_left_child_x", prefix),
+                PyArray1::from_slice(py, &c.gene_left_child_x),
+            )?;
+            result.set_item(
+                format!("{}_gene_right_child_x", prefix),
+                PyArray1::from_slice(py, &c.gene_right_child_x),
+            )?;
+            result.set_item(
                 format!("{}_gene_leaf_lca_x", prefix),
                 PyArray1::from_slice(py, &c.gene_leaf_lca_x),
             )?;
@@ -1807,6 +1823,14 @@ pub fn build_inference_batch(
     // Mapping task (only task needed for inference)
     let c = &map_c;
     result.set_item("map_gene_x", PyArray1::from_slice(py, &c.gene_x))?;
+    result.set_item(
+        "map_gene_left_child_x",
+        PyArray1::from_slice(py, &c.gene_left_child_x),
+    )?;
+    result.set_item(
+        "map_gene_right_child_x",
+        PyArray1::from_slice(py, &c.gene_right_child_x),
+    )?;
     result.set_item(
         "map_gene_leaf_lca_x",
         PyArray1::from_slice(py, &c.gene_leaf_lca_x),

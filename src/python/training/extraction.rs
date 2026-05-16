@@ -19,6 +19,8 @@ pub(super) struct RustBaseSample {
     pub(super) g_leaves_names: Vec<String>,
     pub(super) true_root: Vec<String>,
     pub(super) g_neighbors: HashMap<String, Vec<String>>,
+    pub(super) g_left_child: HashMap<String, String>,
+    pub(super) g_right_child: HashMap<String, String>,
     pub(super) sp_children: HashMap<String, Vec<String>>,
     pub(super) g_parent: HashMap<String, String>,
     pub(super) g_branch_length: HashMap<String, f32>,
@@ -74,6 +76,8 @@ pub(super) fn extract_base_sample_internal(rt: &RecTree) -> Result<RustBaseSampl
     let nb_g_leaves = g_leaves_names.len();
 
     let mut g_neighbors: HashMap<String, Vec<String>> = HashMap::new();
+    let mut g_left_child: HashMap<String, String> = HashMap::new();
+    let mut g_right_child: HashMap<String, String> = HashMap::new();
     let mut g_parent: HashMap<String, String> = HashMap::new();
     let mut g_branch_length: HashMap<String, f32> = HashMap::new();
     for &idx in &g_preorder {
@@ -85,10 +89,14 @@ pub(super) fn extract_base_sample_internal(rt: &RecTree) -> Result<RustBaseSampl
             g_parent.insert(node.name.clone(), g_tree.nodes[parent].name.clone());
         }
         if let Some(left) = node.left_child {
-            neighbors.push(g_tree.nodes[left].name.clone());
+            let left_name = g_tree.nodes[left].name.clone();
+            neighbors.push(left_name.clone());
+            g_left_child.insert(node.name.clone(), left_name);
         }
         if let Some(right) = node.right_child {
-            neighbors.push(g_tree.nodes[right].name.clone());
+            let right_name = g_tree.nodes[right].name.clone();
+            neighbors.push(right_name.clone());
+            g_right_child.insert(node.name.clone(), right_name);
         }
         g_neighbors.insert(node.name.clone(), neighbors);
     }
@@ -133,6 +141,8 @@ pub(super) fn extract_base_sample_internal(rt: &RecTree) -> Result<RustBaseSampl
         g_leaves_names,
         true_root,
         g_neighbors,
+        g_left_child,
+        g_right_child,
         sp_children,
         g_parent,
         g_branch_length,
@@ -168,6 +178,14 @@ pub(super) fn parse_base_sample_dict(
         .get_item("g_neighbors")?
         .ok_or_else(|| PyValueError::new_err("missing g_neighbors"))?
         .extract()?;
+    let g_left_child: HashMap<String, String> = match d.get_item("g_left_child")? {
+        Some(v) => v.extract()?,
+        None => HashMap::new(),
+    };
+    let g_right_child: HashMap<String, String> = match d.get_item("g_right_child")? {
+        Some(v) => v.extract()?,
+        None => HashMap::new(),
+    };
     let sp_children: HashMap<String, Vec<String>> = d
         .get_item("sp_children")?
         .ok_or_else(|| PyValueError::new_err("missing sp_children"))?
@@ -204,6 +222,8 @@ pub(super) fn parse_base_sample_dict(
         g_leaves_names,
         true_root,
         g_neighbors,
+        g_left_child,
+        g_right_child,
         sp_children,
         g_parent,
         g_branch_length,
@@ -321,6 +341,8 @@ pub fn create_training_sample(
 
     // 8. Build gene undirected adjacency (including root)
     let g_neighbors = PyDict::new(py);
+    let g_left_child = PyDict::new(py);
+    let g_right_child = PyDict::new(py);
     let g_parent = PyDict::new(py);
     let g_branch_length = PyDict::new(py);
     for &idx in &g_preorder {
@@ -332,10 +354,14 @@ pub fn create_training_sample(
             g_parent.set_item(&node.name, g_tree.nodes[parent].name.as_str())?;
         }
         if let Some(left) = node.left_child {
-            neighbors.push(g_tree.nodes[left].name.as_str());
+            let left_name = g_tree.nodes[left].name.as_str();
+            neighbors.push(left_name);
+            g_left_child.set_item(&node.name, left_name)?;
         }
         if let Some(right) = node.right_child {
-            neighbors.push(g_tree.nodes[right].name.as_str());
+            let right_name = g_tree.nodes[right].name.as_str();
+            neighbors.push(right_name);
+            g_right_child.set_item(&node.name, right_name)?;
         }
         g_neighbors.set_item(&node.name, neighbors)?;
     }
@@ -398,6 +424,8 @@ pub fn create_training_sample(
     result.set_item("_gene_root_name", g_root_name)?;
     result.set_item("gene_names", PyList::new(py, &gene_names)?)?;
     result.set_item("g_neighbors", g_neighbors)?;
+    result.set_item("g_left_child", g_left_child)?;
+    result.set_item("g_right_child", g_right_child)?;
     result.set_item("g_leaves_names", PyList::new(py, &g_leaves_names)?)?;
     result.set_item("sp_children", sp_children)?;
     result.set_item("sp_parents", sp_parents)?;
@@ -494,6 +522,8 @@ pub fn create_training_sample_from_sim(py: Python, gene_tree: &PyGeneTree) -> Py
 
     // 5. Gene undirected adjacency
     let g_neighbors = PyDict::new(py);
+    let g_left_child = PyDict::new(py);
+    let g_right_child = PyDict::new(py);
     let g_parent = PyDict::new(py);
     let g_branch_length = PyDict::new(py);
     for &idx in &g_preorder {
@@ -505,10 +535,14 @@ pub fn create_training_sample_from_sim(py: Python, gene_tree: &PyGeneTree) -> Py
             g_parent.set_item(&node.name, g_tree.nodes[parent].name.as_str())?;
         }
         if let Some(left) = node.left_child {
-            neighbors.push(g_tree.nodes[left].name.as_str());
+            let left_name = g_tree.nodes[left].name.as_str();
+            neighbors.push(left_name);
+            g_left_child.set_item(&node.name, left_name)?;
         }
         if let Some(right) = node.right_child {
-            neighbors.push(g_tree.nodes[right].name.as_str());
+            let right_name = g_tree.nodes[right].name.as_str();
+            neighbors.push(right_name);
+            g_right_child.set_item(&node.name, right_name)?;
         }
         g_neighbors.set_item(&node.name, neighbors)?;
     }
@@ -567,6 +601,8 @@ pub fn create_training_sample_from_sim(py: Python, gene_tree: &PyGeneTree) -> Py
     result.set_item("_gene_root_name", g_root_name)?;
     result.set_item("gene_names", PyList::new(py, &gene_names)?)?;
     result.set_item("g_neighbors", g_neighbors)?;
+    result.set_item("g_left_child", g_left_child)?;
+    result.set_item("g_right_child", g_right_child)?;
     result.set_item("g_leaves_names", PyList::new(py, &g_leaves_names)?)?;
     result.set_item("sp_children", sp_children)?;
     result.set_item("sp_parents", sp_parents)?;

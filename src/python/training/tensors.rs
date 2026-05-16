@@ -14,6 +14,8 @@ use super::extraction::RustBaseSample;
 /// Per-sample task tensors (before collation).
 pub(super) struct TaskTensors {
     pub(super) x_gene: Vec<i32>,
+    pub(super) gene_left_child_x: Vec<i32>,
+    pub(super) gene_right_child_x: Vec<i32>,
     pub(super) g_true_sp: Vec<i32>, // 1-based species IDs
     pub(super) event_true: Vec<i32>,
     pub(super) event_input: Vec<i32>,
@@ -443,6 +445,21 @@ pub(super) fn build_task_tensors_internal(
         }
     }
 
+    let mut gene_left_child_x = vec![0i32; n_gene];
+    let mut gene_right_child_x = vec![0i32; n_gene];
+    for (i, name) in g_names.iter().enumerate() {
+        if let Some(child_name) = sample.g_left_child.get(name) {
+            if let Some(&child_idx) = g_name_to_idx.get(child_name.as_str()) {
+                gene_left_child_x[i] = x_gene[child_idx];
+            }
+        }
+        if let Some(child_name) = sample.g_right_child.get(name) {
+            if let Some(&child_idx) = g_name_to_idx.get(child_name.as_str()) {
+                gene_right_child_x[i] = x_gene[child_idx];
+            }
+        }
+    }
+
     let mut undirected_edges: HashSet<(i32, i32)> = HashSet::new();
     for (u, vs) in active_neighbors {
         let ui = g_name_to_idx[u.as_str()] as i32;
@@ -496,6 +513,8 @@ pub(super) fn build_task_tensors_internal(
 
     Ok(TaskTensors {
         x_gene,
+        gene_left_child_x,
+        gene_right_child_x,
         g_true_sp,
         event_true,
         event_input,
@@ -563,6 +582,14 @@ pub fn build_training_tensors(
         .get_item("g_neighbors")?
         .ok_or_else(|| PyValueError::new_err("missing g_neighbors"))?
         .extract()?;
+    let g_left_child: HashMap<String, String> = match base_sample.get_item("g_left_child")? {
+        Some(v) => v.extract()?,
+        None => HashMap::new(),
+    };
+    let g_right_child: HashMap<String, String> = match base_sample.get_item("g_right_child")? {
+        Some(v) => v.extract()?,
+        None => HashMap::new(),
+    };
 
     // sp_children: Dict[str, List[str]]
     let sp_children: HashMap<String, Vec<String>> = base_sample
@@ -820,6 +847,8 @@ pub fn build_training_tensors(
     let mut g_true_sp = vec![0i32; n_gene];
     let mut event_true = vec![0i32; n_gene];
     let mut event_input = vec![0i32; n_gene];
+    let mut gene_left_child_x = vec![0i32; n_gene];
+    let mut gene_right_child_x = vec![0i32; n_gene];
     let mut frontier_mask = vec![0u8; n_gene]; // bool as u8
     let mut is_leaf = vec![0u8; n_gene];
     let mut mask_label_node = vec![0u8; n_gene];
@@ -864,6 +893,19 @@ pub fn build_training_tensors(
         // Is leaf
         if leaf_set.contains(name.as_str()) {
             is_leaf[i] = 1;
+        }
+    }
+
+    for (i, name) in g_names.iter().enumerate() {
+        if let Some(child_name) = g_left_child.get(name) {
+            if let Some(&child_idx) = g_name_to_idx.get(child_name.as_str()) {
+                gene_left_child_x[i] = x_gene[child_idx];
+            }
+        }
+        if let Some(child_name) = g_right_child.get(name) {
+            if let Some(&child_idx) = g_name_to_idx.get(child_name.as_str()) {
+                gene_right_child_x[i] = x_gene[child_idx];
+            }
         }
     }
 
@@ -950,6 +992,14 @@ pub fn build_training_tensors(
     let result = PyDict::new(py);
     result.set_item("x_sp", PyArray1::from_slice(py, &x_sp))?;
     result.set_item("x_gene", PyArray1::from_slice(py, &x_gene))?;
+    result.set_item(
+        "gene_left_child_x",
+        PyArray1::from_slice(py, &gene_left_child_x),
+    )?;
+    result.set_item(
+        "gene_right_child_x",
+        PyArray1::from_slice(py, &gene_right_child_x),
+    )?;
     result.set_item("g_true_sp", PyArray1::from_slice(py, &g_true_sp))?;
     result.set_item("event_true", PyArray1::from_slice(py, &event_true))?;
     result.set_item("event_input", PyArray1::from_slice(py, &event_input))?;
