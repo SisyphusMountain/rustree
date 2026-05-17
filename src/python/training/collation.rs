@@ -699,6 +699,8 @@ struct CollatedTask {
     gene_x: Vec<i32>,
     gene_left_child_x: Vec<i32>,
     gene_right_child_x: Vec<i32>,
+    gene_left_child_idx: Vec<i32>,
+    gene_right_child_idx: Vec<i32>,
     gene_leaf_lca_x: Vec<i32>,
     gene_neighbor_lca_x: Vec<i32>,
     gene_leafset: Vec<u8>,
@@ -887,6 +889,8 @@ fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> Coll
     let mut gene_x = Vec::new();
     let mut gene_left_child_x = Vec::new();
     let mut gene_right_child_x = Vec::new();
+    let mut gene_left_child_idx = Vec::new();
+    let mut gene_right_child_idx = Vec::new();
     let mut gene_leaf_lca_x = Vec::new();
     let mut gene_neighbor_lca_x = Vec::new();
     let mut gene_leafset = Vec::new();
@@ -922,6 +926,20 @@ fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> Coll
         gene_x.extend_from_slice(&t.x_gene);
         gene_left_child_x.extend_from_slice(&t.gene_left_child_x);
         gene_right_child_x.extend_from_slice(&t.gene_right_child_x);
+        gene_left_child_idx.extend(t.gene_left_child_idx.iter().map(|&idx| {
+            if idx >= 0 {
+                idx + cum_g
+            } else {
+                -1
+            }
+        }));
+        gene_right_child_idx.extend(t.gene_right_child_idx.iter().map(|&idx| {
+            if idx >= 0 {
+                idx + cum_g
+            } else {
+                -1
+            }
+        }));
         gene_leaf_lca_x.extend_from_slice(&leaf_lca_x);
         gene_neighbor_lca_x.extend_from_slice(&neighbor_lca_x);
         gene_leafset.extend_from_slice(&leafset);
@@ -973,6 +991,8 @@ fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> Coll
         gene_x,
         gene_left_child_x,
         gene_right_child_x,
+        gene_left_child_idx,
+        gene_right_child_idx,
         gene_leaf_lca_x,
         gene_neighbor_lca_x,
         gene_leafset,
@@ -1512,6 +1532,14 @@ pub fn build_otf_batch(
                 PyArray1::from_slice(py, &c.gene_right_child_x),
             )?;
             result.set_item(
+                format!("{}_gene_left_child_idx", prefix),
+                PyArray1::from_slice(py, &c.gene_left_child_idx),
+            )?;
+            result.set_item(
+                format!("{}_gene_right_child_idx", prefix),
+                PyArray1::from_slice(py, &c.gene_right_child_idx),
+            )?;
+            result.set_item(
                 format!("{}_gene_leaf_lca_x", prefix),
                 PyArray1::from_slice(py, &c.gene_leaf_lca_x),
             )?;
@@ -1925,6 +1953,14 @@ pub fn build_inference_batch(
     result.set_item(
         "map_gene_right_child_x",
         PyArray1::from_slice(py, &c.gene_right_child_x),
+    )?;
+    result.set_item(
+        "map_gene_left_child_idx",
+        PyArray1::from_slice(py, &c.gene_left_child_idx),
+    )?;
+    result.set_item(
+        "map_gene_right_child_idx",
+        PyArray1::from_slice(py, &c.gene_right_child_idx),
     )?;
     result.set_item(
         "map_gene_leaf_lca_x",

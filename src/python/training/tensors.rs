@@ -17,6 +17,8 @@ pub(super) struct TaskTensors {
     pub(super) x_gene: Vec<i32>,
     pub(super) gene_left_child_x: Vec<i32>,
     pub(super) gene_right_child_x: Vec<i32>,
+    pub(super) gene_left_child_idx: Vec<i32>,
+    pub(super) gene_right_child_idx: Vec<i32>,
     pub(super) g_true_sp: Vec<i32>, // 1-based species IDs
     pub(super) event_true: Vec<i32>,
     pub(super) event_input: Vec<i32>,
@@ -448,14 +450,18 @@ pub(super) fn build_task_tensors_internal(
 
     let mut gene_left_child_x = vec![0i32; n_gene];
     let mut gene_right_child_x = vec![0i32; n_gene];
+    let mut gene_left_child_idx = vec![-1i32; n_gene];
+    let mut gene_right_child_idx = vec![-1i32; n_gene];
     for (i, name) in g_names.iter().enumerate() {
         if let Some(child_name) = sample.g_left_child.get(name) {
             if let Some(&child_idx) = g_name_to_idx.get(child_name.as_str()) {
+                gene_left_child_idx[i] = child_idx as i32;
                 gene_left_child_x[i] = x_gene[child_idx];
             }
         }
         if let Some(child_name) = sample.g_right_child.get(name) {
             if let Some(&child_idx) = g_name_to_idx.get(child_name.as_str()) {
+                gene_right_child_idx[i] = child_idx as i32;
                 gene_right_child_x[i] = x_gene[child_idx];
             }
         }
@@ -517,6 +523,8 @@ pub(super) fn build_task_tensors_internal(
         x_gene,
         gene_left_child_x,
         gene_right_child_x,
+        gene_left_child_idx,
+        gene_right_child_idx,
         g_true_sp,
         event_true,
         event_input,
@@ -851,6 +859,8 @@ pub fn build_training_tensors(
     let mut event_input = vec![0i32; n_gene];
     let mut gene_left_child_x = vec![0i32; n_gene];
     let mut gene_right_child_x = vec![0i32; n_gene];
+    let mut gene_left_child_idx = vec![-1i32; n_gene];
+    let mut gene_right_child_idx = vec![-1i32; n_gene];
     let mut frontier_mask = vec![0u8; n_gene]; // bool as u8
     let mut is_leaf = vec![0u8; n_gene];
     let mut mask_label_node = vec![0u8; n_gene];
@@ -901,11 +911,13 @@ pub fn build_training_tensors(
     for (i, name) in g_names.iter().enumerate() {
         if let Some(child_name) = g_left_child.get(name) {
             if let Some(&child_idx) = g_name_to_idx.get(child_name.as_str()) {
+                gene_left_child_idx[i] = child_idx as i32;
                 gene_left_child_x[i] = x_gene[child_idx];
             }
         }
         if let Some(child_name) = g_right_child.get(name) {
             if let Some(&child_idx) = g_name_to_idx.get(child_name.as_str()) {
+                gene_right_child_idx[i] = child_idx as i32;
                 gene_right_child_x[i] = x_gene[child_idx];
             }
         }
@@ -1001,6 +1013,14 @@ pub fn build_training_tensors(
     result.set_item(
         "gene_right_child_x",
         PyArray1::from_slice(py, &gene_right_child_x),
+    )?;
+    result.set_item(
+        "gene_left_child_idx",
+        PyArray1::from_slice(py, &gene_left_child_idx),
+    )?;
+    result.set_item(
+        "gene_right_child_idx",
+        PyArray1::from_slice(py, &gene_right_child_idx),
     )?;
     result.set_item("g_true_sp", PyArray1::from_slice(py, &g_true_sp))?;
     result.set_item("event_true", PyArray1::from_slice(py, &event_true))?;
