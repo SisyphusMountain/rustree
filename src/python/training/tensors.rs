@@ -13,6 +13,7 @@ use super::extraction::RustBaseSample;
 
 /// Per-sample task tensors (before collation).
 pub(super) struct TaskTensors {
+    pub(super) gene_names: Vec<String>,
     pub(super) x_gene: Vec<i32>,
     pub(super) gene_left_child_x: Vec<i32>,
     pub(super) gene_right_child_x: Vec<i32>,
@@ -512,6 +513,7 @@ pub(super) fn build_task_tensors_internal(
     };
 
     Ok(TaskTensors {
+        gene_names: g_names,
         x_gene,
         gene_left_child_x,
         gene_right_child_x,

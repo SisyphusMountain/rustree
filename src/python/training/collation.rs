@@ -695,6 +695,7 @@ fn write_tree_metadata_bundle(
 
 /// Collated tensors for one task across a full batch.
 struct CollatedTask {
+    gene_names: Vec<Vec<String>>,
     gene_x: Vec<i32>,
     gene_left_child_x: Vec<i32>,
     gene_right_child_x: Vec<i32>,
@@ -882,6 +883,7 @@ fn compute_gene_leafset(t: &TaskTensors, species_width: usize) -> Vec<u8> {
 ///
 /// Also applies GCN normalization to gene edges and computes varlen attention metadata.
 fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> CollatedTask {
+    let mut gene_names = Vec::new();
     let mut gene_x = Vec::new();
     let mut gene_left_child_x = Vec::new();
     let mut gene_right_child_x = Vec::new();
@@ -916,6 +918,7 @@ fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> Coll
         let neighbor_lca_x = compute_gene_neighbor_lca_x(t, species_parent);
         let leafset = compute_gene_leafset(t, species_parent.len());
 
+        gene_names.push(t.gene_names.clone());
         gene_x.extend_from_slice(&t.x_gene);
         gene_left_child_x.extend_from_slice(&t.gene_left_child_x);
         gene_right_child_x.extend_from_slice(&t.gene_right_child_x);
@@ -966,6 +969,7 @@ fn collate_task_tensors(tensors: &[TaskTensors], species_parent: &[i32]) -> Coll
     let (cu_g, max_g) = compute_varlen_metadata(&g_sizes);
 
     CollatedTask {
+        gene_names,
         gene_x,
         gene_left_child_x,
         gene_right_child_x,
@@ -1691,7 +1695,7 @@ pub fn build_inference_batch(
     sample_order: &str,
 ) -> PyResult<PyObject> {
     use numpy::PyArray1;
-    use pyo3::types::PyDict;
+    use pyo3::types::{PyDict, PyList};
 
     // Parse the base_sample dict into RustBaseSample
     let base = parse_base_sample_dict(base_sample)?;
@@ -1901,6 +1905,18 @@ pub fn build_inference_batch(
 
     // Mapping task (only task needed for inference)
     let c = &map_c;
+    let gene_names = PyList::empty(py);
+    let gene_name_to_index = PyList::empty(py);
+    for names in &c.gene_names {
+        gene_names.append(PyList::new(py, names)?)?;
+        let mapping = PyDict::new(py);
+        for (idx, name) in names.iter().enumerate() {
+            mapping.set_item(name, idx)?;
+        }
+        gene_name_to_index.append(mapping)?;
+    }
+    result.set_item("map_gene_names", gene_names)?;
+    result.set_item("map_gene_name_to_index", gene_name_to_index)?;
     result.set_item("map_gene_x", PyArray1::from_slice(py, &c.gene_x))?;
     result.set_item(
         "map_gene_left_child_x",
