@@ -232,3 +232,195 @@ fn simulate_dtl_per_species_stream_newick_r(
 
     Ok(output_dir.to_string())
 }
+
+/// Stream DTL gene trees with full branch-specific rates to RecPhyloXML files.
+///
+/// @export
+#[extendr]
+fn simulate_dtl_stream_xml_with_branch_rates_r(
+    newick: &str,
+    n: i32,
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+    transfer_alpha: Robj,
+    replacement_transfer: Robj,
+    require_extant: bool,
+    seed: Robj,
+    output_dir: &str,
+) -> Result<String> {
+    if n <= 0 {
+        return Err("Number of trees must be positive".into());
+    }
+
+    let species_tree = parse_newick_to_flattree(newick)?;
+    let mut rng = make_rng(&seed)?;
+    let alpha = extract_alpha(&transfer_alpha)?;
+    let repl = extract_replacement(&replacement_transfer)?;
+    let branch_rates = make_branch_rates(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )?;
+
+    crate::dtl::simulate_dtl_iter_with_branch_rates(
+        &species_tree,
+        branch_rates,
+        alpha,
+        repl,
+        n as usize,
+        require_extant,
+        &mut rng,
+    )
+    .map_err(|e| Error::Other(e.to_string()))?
+    .save_xml(output_dir)
+    .map_err(|e| Error::Other(e.to_string()))?;
+
+    Ok(output_dir.to_string())
+}
+
+/// Stream DTL gene trees with full branch-specific rates to Newick files.
+///
+/// @export
+#[extendr]
+fn simulate_dtl_stream_newick_with_branch_rates_r(
+    newick: &str,
+    n: i32,
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+    transfer_alpha: Robj,
+    replacement_transfer: Robj,
+    require_extant: bool,
+    seed: Robj,
+    output_dir: &str,
+) -> Result<String> {
+    if n <= 0 {
+        return Err("Number of trees must be positive".into());
+    }
+
+    let species_tree = parse_newick_to_flattree(newick)?;
+    let mut rng = make_rng(&seed)?;
+    let alpha = extract_alpha(&transfer_alpha)?;
+    let repl = extract_replacement(&replacement_transfer)?;
+    let branch_rates = make_branch_rates(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )?;
+
+    crate::dtl::simulate_dtl_iter_with_branch_rates(
+        &species_tree,
+        branch_rates,
+        alpha,
+        repl,
+        n as usize,
+        require_extant,
+        &mut rng,
+    )
+    .map_err(|e| Error::Other(e.to_string()))?
+    .save_newick(output_dir)
+    .map_err(|e| Error::Other(e.to_string()))?;
+
+    Ok(output_dir.to_string())
+}
+
+/// Stream per-species DTL gene trees with full branch-specific rates to RecPhyloXML files.
+///
+/// @export
+#[extendr]
+fn simulate_dtl_per_species_stream_xml_with_branch_rates_r(
+    newick: &str,
+    n: i32,
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+    transfer_alpha: Robj,
+    replacement_transfer: Robj,
+    require_extant: bool,
+    seed: Robj,
+    output_dir: &str,
+) -> Result<String> {
+    if n <= 0 {
+        return Err("Number of trees must be positive".into());
+    }
+
+    let species_tree = parse_newick_to_flattree(newick)?;
+    let mut rng = make_rng(&seed)?;
+    let alpha = extract_alpha(&transfer_alpha)?;
+    let repl = extract_replacement(&replacement_transfer)?;
+    let branch_rates = make_branch_rates(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )?;
+
+    crate::dtl::simulate_dtl_per_species_iter_with_branch_rates(
+        &species_tree,
+        branch_rates,
+        alpha,
+        repl,
+        n as usize,
+        require_extant,
+        &mut rng,
+    )
+    .map_err(|e| Error::Other(e.to_string()))?
+    .save_xml(output_dir)
+    .map_err(|e| Error::Other(e.to_string()))?;
+
+    Ok(output_dir.to_string())
+}
+
+/// Stream per-species DTL gene trees with full branch-specific rates to Newick files.
+///
+/// @export
+#[extendr]
+fn simulate_dtl_per_species_stream_newick_with_branch_rates_r(
+    newick: &str,
+    n: i32,
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+    transfer_alpha: Robj,
+    replacement_transfer: Robj,
+    require_extant: bool,
+    seed: Robj,
+    output_dir: &str,
+) -> Result<String> {
+    if n <= 0 {
+        return Err("Number of trees must be positive".into());
+    }
+
+    let species_tree = parse_newick_to_flattree(newick)?;
+    let mut rng = make_rng(&seed)?;
+    let alpha = extract_alpha(&transfer_alpha)?;
+    let repl = extract_replacement(&replacement_transfer)?;
+    let branch_rates = make_branch_rates(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )?;
+
+    crate::dtl::simulate_dtl_per_species_iter_with_branch_rates(
+        &species_tree,
+        branch_rates,
+        alpha,
+        repl,
+        n as usize,
+        require_extant,
+        &mut rng,
+    )
+    .map_err(|e| Error::Other(e.to_string()))?
+    .save_newick(output_dir)
+    .map_err(|e| Error::Other(e.to_string()))?;
+
+    Ok(output_dir.to_string())
+}

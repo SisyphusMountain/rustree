@@ -12,7 +12,7 @@ use rand::Rng;
 use super::event::DTLEvent;
 use super::gillespie::DTLMode;
 use super::stream::DtlSimIter;
-use super::{prepare_simulation, DTLConfig};
+use super::{prepare_simulation, BranchDTLRates, DTLConfig};
 
 /// Returns a lazy iterator that generates gene trees one at a time (per-species model).
 ///
@@ -91,12 +91,34 @@ pub fn simulate_dtl_per_species_iter_with_config<'a, R: Rng>(
         prepared.depths,
         prepared.contemporaneity,
         prepared.lca_depths,
+        prepared.runtime,
         origin_species,
         config,
         n_simulations,
         require_extant,
         rng,
     ))
+}
+
+/// Returns a lazy per-species DTL iterator using full per-branch rates.
+pub fn simulate_dtl_per_species_iter_with_branch_rates<'a, R: Rng>(
+    species_tree: &FlatTree,
+    branch_rates: BranchDTLRates,
+    transfer_alpha: Option<f64>,
+    replacement_transfer: Option<f64>,
+    n_simulations: usize,
+    require_extant: bool,
+    rng: &'a mut R,
+) -> Result<DtlSimIter<'a, R>, RustreeError> {
+    let config = DTLConfig::with_branch_rates(branch_rates, transfer_alpha, replacement_transfer)?;
+    simulate_dtl_per_species_iter_with_config(
+        species_tree,
+        species_tree.root,
+        config,
+        n_simulations,
+        require_extant,
+        rng,
+    )
 }
 
 /// Simulates a gene tree using Zombi-style per-species rates.
@@ -128,6 +150,27 @@ pub fn simulate_dtl_per_species<R: Rng>(
     .single()
 }
 
+/// Simulates a gene tree using the per-species model with full per-branch rates.
+pub fn simulate_dtl_per_species_with_branch_rates<R: Rng>(
+    species_tree: &FlatTree,
+    branch_rates: BranchDTLRates,
+    transfer_alpha: Option<f64>,
+    replacement_transfer: Option<f64>,
+    require_extant: bool,
+    rng: &mut R,
+) -> Result<(RecTree, Vec<DTLEvent>), RustreeError> {
+    simulate_dtl_per_species_iter_with_branch_rates(
+        species_tree,
+        branch_rates,
+        transfer_alpha,
+        replacement_transfer,
+        1,
+        require_extant,
+        rng,
+    )?
+    .single()
+}
+
 /// Simulates multiple gene trees using the Zombi-style per-species DTL model.
 ///
 /// Backward-compatible wrapper around [`simulate_dtl_per_species_iter`].
@@ -149,6 +192,28 @@ pub fn simulate_dtl_per_species_batch<R: Rng>(
         lambda_d,
         lambda_t,
         lambda_l,
+        transfer_alpha,
+        replacement_transfer,
+        n_simulations,
+        require_extant,
+        rng,
+    )?
+    .collect_all()
+}
+
+/// Simulates multiple gene trees using the per-species model with full per-branch rates.
+pub fn simulate_dtl_per_species_batch_with_branch_rates<R: Rng>(
+    species_tree: &FlatTree,
+    branch_rates: BranchDTLRates,
+    transfer_alpha: Option<f64>,
+    replacement_transfer: Option<f64>,
+    n_simulations: usize,
+    require_extant: bool,
+    rng: &mut R,
+) -> Result<(Vec<RecTree>, Vec<Vec<DTLEvent>>), RustreeError> {
+    simulate_dtl_per_species_iter_with_branch_rates(
+        species_tree,
+        branch_rates,
         transfer_alpha,
         replacement_transfer,
         n_simulations,

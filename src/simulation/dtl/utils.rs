@@ -3,9 +3,13 @@
 use crate::bd::{generate_events_from_tree, BDEvent, TreeEvent};
 use crate::error::RustreeError;
 use crate::node::{Event, FlatNode, FlatTree, RecTree};
+use crate::simulation::utils::draw_waiting_time;
 use rand::Rng;
 use std::sync::Arc;
 
+use super::event::DTLEvent;
+use super::gillespie::DTLMode;
+use super::state::SimulationState;
 use super::DTLConfig;
 
 /// Shared precomputed state used by DTL iterators.
@@ -15,6 +19,53 @@ pub(crate) struct PreparedDtlSimulation {
     pub depths: Vec<f64>,
     pub contemporaneity: Vec<Vec<usize>>,
     pub lca_depths: Option<Vec<Vec<f64>>>,
+    pub runtime: PreparedDtlRuntime,
+}
+
+/// Precomputed data used by repeated Gillespie simulations.
+pub(crate) struct PreparedDtlRuntime {
+    default_origin_start_time: f64,
+    branch_start_times: Option<Vec<f64>>,
+    branch_total_rates: Option<Vec<f64>>,
+    per_species_interval_total_rates: Option<Vec<f64>>,
+}
+
+impl PreparedDtlRuntime {
+    fn from_parts(
+        default_origin_start_time: f64,
+        branch_start_times: Option<Vec<f64>>,
+        config: &DTLConfig,
+        contemporaneity: &[Vec<usize>],
+    ) -> Self {
+        let branch_total_rates = config.branch_rates.as_ref().map(|rates| {
+            (0..rates.lambda_d.len())
+                .map(|species| rates.total_rate(species))
+                .collect::<Vec<_>>()
+        });
+
+        let per_species_interval_total_rates = branch_total_rates.as_ref().map(|rates| {
+            contemporaneity
+                .iter()
+                .map(|species| species.iter().map(|&sp| rates[sp]).sum())
+                .collect()
+        });
+
+        Self {
+            default_origin_start_time,
+            branch_start_times,
+            branch_total_rates,
+            per_species_interval_total_rates,
+        }
+    }
+
+    #[inline]
+    fn origin_start_time(&self, origin_species: usize) -> f64 {
+        self.branch_start_times
+            .as_ref()
+            .map_or(self.default_origin_start_time, |starts| {
+                starts[origin_species]
+            })
+    }
 }
 
 /// Prepare shared, reusable DTL simulation state.
@@ -25,56 +76,36 @@ pub(crate) fn prepare_simulation(
 ) -> Result<PreparedDtlSimulation, RustreeError> {
     const OPERATION: &str = "prepare_dtl_simulation";
 
-    config.validate()?;
-
-    let origin_node = species_tree.nodes.get(origin_species).ok_or_else(|| {
-        RustreeError::Index(format!(
-            "origin_species {origin_species} is out of bounds (species tree has {} nodes)",
-            species_tree.nodes.len()
-        ))
-    })?;
-
-    let origin_depth = origin_node
-        .depth
-        .ok_or_else(|| RustreeError::missing_depth(OPERATION, origin_species, &origin_node.name))?;
-    if !origin_depth.is_finite() {
-        return Err(RustreeError::invalid_depth(
-            OPERATION,
-            origin_species,
-            &origin_node.name,
-            origin_depth,
-        ));
-    }
-    if !origin_node.length.is_finite() {
-        return Err(RustreeError::invalid_length(
-            OPERATION,
-            origin_species,
-            &origin_node.name,
-            origin_node.length,
-        ));
-    }
+    config.validate_for_tree(species_tree.nodes.len())?;
 
     let species_events = generate_events_from_tree(species_tree)?;
 
-    // Include origin start time in depths so the stem period is covered
+    // Include possible origin start times in depths so stem periods are covered
     // by contemporaneity (make_subdivision only has node depths, not branch starts).
-    let origin_start = origin_depth - origin_node.length;
-    if !origin_start.is_finite() {
-        return Err(RustreeError::InvalidDepth {
-            operation: OPERATION,
-            node_index: origin_species,
-            node_name: origin_node.name.clone(),
-            depth: origin_start,
-        });
-    }
+    let origin_start_time = branch_start_time(species_tree, origin_species, OPERATION)?;
+    let branch_start_times = if config.uses_branch_rates() {
+        Some(precompute_branch_start_times(species_tree, OPERATION)?)
+    } else {
+        None
+    };
 
     let mut depths = species_tree.make_subdivision();
-    depths.push(origin_start);
+    if let Some(starts) = branch_start_times.as_ref() {
+        depths.extend(starts.iter().copied());
+    } else {
+        depths.push(origin_start_time);
+    }
     depths.sort_by(|a, b| a.total_cmp(b));
     depths.dedup();
 
     let contemporaneity = species_tree.find_contemporaneity(&depths);
     let lca_depths = precompute_lca(species_tree, config.transfer_alpha)?;
+    let runtime = PreparedDtlRuntime::from_parts(
+        origin_start_time,
+        branch_start_times,
+        config,
+        &contemporaneity,
+    );
 
     Ok(PreparedDtlSimulation {
         species_tree: Arc::new(species_tree.clone()),
@@ -82,7 +113,62 @@ pub(crate) fn prepare_simulation(
         depths,
         contemporaneity,
         lca_depths,
+        runtime,
     })
+}
+
+fn branch_start_time(
+    species_tree: &FlatTree,
+    species_idx: usize,
+    operation: &'static str,
+) -> Result<f64, RustreeError> {
+    let node = species_tree.nodes.get(species_idx).ok_or_else(|| {
+        RustreeError::Index(format!(
+            "origin_species {species_idx} is out of bounds (species tree has {} nodes)",
+            species_tree.nodes.len()
+        ))
+    })?;
+
+    let depth = node
+        .depth
+        .ok_or_else(|| RustreeError::missing_depth(operation, species_idx, &node.name))?;
+    if !depth.is_finite() {
+        return Err(RustreeError::invalid_depth(
+            operation,
+            species_idx,
+            &node.name,
+            depth,
+        ));
+    }
+    if !node.length.is_finite() {
+        return Err(RustreeError::invalid_length(
+            operation,
+            species_idx,
+            &node.name,
+            node.length,
+        ));
+    }
+
+    let start = depth - node.length;
+    if !start.is_finite() {
+        return Err(RustreeError::InvalidDepth {
+            operation,
+            node_index: species_idx,
+            node_name: node.name.clone(),
+            depth: start,
+        });
+    }
+
+    Ok(start)
+}
+
+fn precompute_branch_start_times(
+    species_tree: &FlatTree,
+    operation: &'static str,
+) -> Result<Vec<f64>, RustreeError> {
+    (0..species_tree.nodes.len())
+        .map(|idx| branch_start_time(species_tree, idx, operation))
+        .collect()
 }
 
 /// Precompute LCA depths if transfer_alpha is provided
@@ -98,6 +184,300 @@ pub(crate) fn precompute_lca(
                 .map_err(RustreeError::Simulation)
         })
         .transpose()
+}
+
+fn total_event_rate(
+    mode: DTLMode,
+    state: &SimulationState<'_>,
+    depths: &[f64],
+    contemporaneity: &[Vec<usize>],
+    current_time: f64,
+    config: &DTLConfig,
+    runtime: &PreparedDtlRuntime,
+) -> f64 {
+    match mode {
+        DTLMode::PerGene => {
+            if let Some(branch_total_rates) = runtime.branch_total_rates.as_ref() {
+                state.total_gene_weighted_rate(|species| branch_total_rates[species])
+            } else {
+                state.total_gene_copies() as f64 * config.branch_total_rate(0)
+            }
+        }
+        DTLMode::PerSpecies => {
+            let time_idx = find_time_index(depths, current_time);
+            if let Some(interval_rates) = runtime.per_species_interval_total_rates.as_ref() {
+                interval_rates[time_idx]
+            } else {
+                contemporaneity[time_idx].len() as f64 * config.branch_total_rate(0)
+            }
+        }
+    }
+}
+
+fn select_affected_gene<R: Rng>(
+    mode: DTLMode,
+    state: &SimulationState<'_>,
+    depths: &[f64],
+    contemporaneity: &[Vec<usize>],
+    current_time: f64,
+    runtime: &PreparedDtlRuntime,
+    rng: &mut R,
+) -> Option<(usize, usize)> {
+    match mode {
+        DTLMode::PerGene => {
+            if let Some(branch_total_rates) = runtime.branch_total_rates.as_ref() {
+                state.random_gene_copy_weighted(|species| branch_total_rates[species], rng)
+            } else {
+                state.random_gene_copy(rng)
+            }
+        }
+        DTLMode::PerSpecies => {
+            let time_idx = find_time_index(depths, current_time);
+            let alive_species = &contemporaneity[time_idx];
+            if alive_species.is_empty() {
+                return None;
+            }
+
+            let species = if let Some(branch_total_rates) = runtime.branch_total_rates.as_ref() {
+                let total_rate = runtime
+                    .per_species_interval_total_rates
+                    .as_ref()
+                    .map_or_else(
+                        || {
+                            alive_species
+                                .iter()
+                                .map(|&sp| branch_total_rates[sp])
+                                .sum::<f64>()
+                        },
+                        |rates| rates[time_idx],
+                    );
+                if total_rate <= 0.0 {
+                    return None;
+                }
+
+                let mut threshold = rng.gen::<f64>() * total_rate;
+                let mut species = *alive_species.last()?;
+                for &candidate in alive_species {
+                    let rate = branch_total_rates[candidate];
+                    if rate <= 0.0 {
+                        continue;
+                    }
+                    if threshold < rate {
+                        species = candidate;
+                        break;
+                    }
+                    threshold -= rate;
+                }
+                species
+            } else {
+                alive_species[rng.gen_range(0..alive_species.len())]
+            };
+
+            match state.genes_per_species.get(&species) {
+                Some(genes) if !genes.is_empty() => {
+                    let gene = genes[rng.gen_range(0..genes.len())];
+                    Some((species, gene))
+                }
+                _ => None,
+            }
+        }
+    }
+}
+
+/// Shared Gillespie-style DTL simulation using prepared runtime data.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn simulate_dtl_gillespie_prepared<R: Rng>(
+    mode: DTLMode,
+    species_tree: &Arc<FlatTree>,
+    species_events: &[TreeEvent],
+    depths: &[f64],
+    contemporaneity: &[Vec<usize>],
+    lca_depths: Option<&[Vec<f64>]>,
+    origin_species: usize,
+    config: &DTLConfig,
+    runtime: &PreparedDtlRuntime,
+    rng: &mut R,
+) -> Result<(RecTree, Vec<DTLEvent>), RustreeError> {
+    let transfer_alpha = config.transfer_alpha;
+    let replacement_transfer = config.replacement_transfer;
+    let origin_species = config.sample_origin(origin_species, rng);
+
+    let estimated_capacity = species_tree.nodes.len();
+    let mut state = SimulationState::with_branch_total_rates(
+        estimated_capacity,
+        species_tree,
+        runtime.branch_total_rates.as_deref(),
+    );
+
+    let origin_start_time = runtime.origin_start_time(origin_species);
+    let mut current_time = origin_start_time;
+
+    let mut species_event_idx = 0;
+    while species_event_idx < species_events.len()
+        && species_events[species_event_idx].time < origin_start_time
+    {
+        species_event_idx += 1;
+    }
+
+    let initial_gene_idx =
+        state.create_gene_node(None, origin_species, Event::Speciation, origin_start_time);
+    state.add_gene_to_species(origin_species, initial_gene_idx);
+
+    current_time = current_time.next_up();
+
+    loop {
+        let next_species_event_time = species_events
+            .get(species_event_idx)
+            .map_or(f64::INFINITY, |e| e.time);
+
+        if state.total_gene_copies() == 0 {
+            break;
+        }
+
+        let dtl_total_rate = total_event_rate(
+            mode,
+            &state,
+            depths,
+            contemporaneity,
+            current_time,
+            config,
+            runtime,
+        );
+
+        let next_dtl_time = current_time + draw_waiting_time(dtl_total_rate, rng);
+
+        if next_species_event_time == f64::INFINITY && next_dtl_time == f64::INFINITY {
+            break;
+        }
+        if next_species_event_time <= next_dtl_time && species_event_idx < species_events.len() {
+            let sp_event = species_events[species_event_idx].clone();
+            current_time = sp_event.time;
+
+            match sp_event.event_type {
+                BDEvent::Speciation => {
+                    let child1 = sp_event.child1.ok_or_else(|| {
+                        RustreeError::Simulation(format!(
+                            "Speciation event for node {} has no child1",
+                            sp_event.node_id
+                        ))
+                    })?;
+                    let child2 = sp_event.child2.ok_or_else(|| {
+                        RustreeError::Simulation(format!(
+                            "Speciation event for node {} has no child2",
+                            sp_event.node_id
+                        ))
+                    })?;
+                    if let Some(genes) = state.take_genes_for_species(sp_event.node_id) {
+                        for gene_idx in genes {
+                            state.handle_speciation(
+                                gene_idx,
+                                sp_event.node_id,
+                                child1,
+                                child2,
+                                current_time,
+                            );
+                        }
+                    }
+                }
+                BDEvent::Extinction => {
+                    if let Some(genes) = state.take_genes_for_species(sp_event.node_id) {
+                        for gene_idx in genes {
+                            state.handle_loss(gene_idx, sp_event.node_id, current_time);
+                        }
+                    }
+                }
+                BDEvent::Leaf => {
+                    if let Some(genes) = state.take_genes_for_species(sp_event.node_id) {
+                        for gene_idx in genes {
+                            state.handle_leaf(gene_idx, sp_event.node_id, current_time);
+                        }
+                    }
+                }
+            }
+
+            species_event_idx += 1;
+            current_time = current_time.next_up();
+        } else {
+            current_time = next_dtl_time;
+
+            let selection = select_affected_gene(
+                mode,
+                &state,
+                depths,
+                contemporaneity,
+                current_time,
+                runtime,
+                rng,
+            );
+
+            let (affected_species, affected_gene) = match selection {
+                Some(s) => s,
+                None => continue,
+            };
+
+            let (lambda_d, lambda_t, lambda_l) = config.branch_event_rates(affected_species);
+            let branch_total_rate = lambda_d + lambda_t + lambda_l;
+            if branch_total_rate <= 0.0 {
+                continue;
+            }
+
+            let event_draw = rng.gen::<f64>() * branch_total_rate;
+            if event_draw < lambda_d {
+                state.handle_duplication(affected_gene, affected_species, current_time);
+            } else if event_draw < lambda_d + lambda_t {
+                let recipient = match (transfer_alpha, lca_depths) {
+                    (Some(alpha), Some(lca)) => select_transfer_recipient_assortative(
+                        depths,
+                        contemporaneity,
+                        lca,
+                        current_time,
+                        affected_species,
+                        alpha,
+                        rng,
+                    ),
+                    _ => select_transfer_recipient(
+                        depths,
+                        contemporaneity,
+                        current_time,
+                        affected_species,
+                        rng,
+                    ),
+                };
+
+                if let Some(recipient_species) = recipient {
+                    let is_replacement =
+                        replacement_transfer.is_some_and(|p| p > 0.0 && rng.gen::<f64>() < p);
+                    if is_replacement {
+                        if let Some(victim) = state.random_gene_in_species(recipient_species, rng) {
+                            state.handle_loss(victim, recipient_species, current_time);
+                        }
+                    }
+                    state.handle_transfer(
+                        affected_gene,
+                        affected_species,
+                        recipient_species,
+                        current_time,
+                    );
+                }
+            } else if lambda_l > 0.0 {
+                state.handle_loss(affected_gene, affected_species, current_time);
+            }
+        }
+
+        if species_event_idx >= species_events.len() && state.total_gene_copies() == 0 {
+            break;
+        }
+    }
+
+    let rec_tree = finalize_simulation(
+        species_tree.clone(),
+        state.gene_nodes,
+        state.node_mapping,
+        state.event_mapping,
+        origin_species,
+        origin_start_time,
+    )?;
+    Ok((rec_tree, state.events))
 }
 
 // ============================================================================

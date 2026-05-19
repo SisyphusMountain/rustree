@@ -22,11 +22,20 @@ pub(crate) struct SimulationState<'a> {
     /// Incrementally maintained total count of alive gene copies across all species.
     /// Avoids O(n_species) summation on every query.
     total_gene_count: usize,
+    /// Optional branch-specific total DTL rates, indexed by species node.
+    /// Present only when branch-rate mode is active.
+    branch_total_rates: Option<&'a [f64]>,
+    /// Incrementally maintained sum of branch total rates over alive gene copies.
+    /// Used only when branch_total_rates is present.
+    total_gene_weighted_rate: f64,
 }
 
 impl<'a> SimulationState<'a> {
-    // TODO: make the function names more coherent and clear.
-    pub fn new(capacity: usize, species_tree: &'a FlatTree) -> Self {
+    pub fn with_branch_total_rates(
+        capacity: usize,
+        species_tree: &'a FlatTree,
+        branch_total_rates: Option<&'a [f64]>,
+    ) -> Self {
         Self {
             species_tree,
             gene_nodes: Vec::with_capacity(capacity),
@@ -35,6 +44,32 @@ impl<'a> SimulationState<'a> {
             events: Vec::with_capacity(capacity),
             genes_per_species: BTreeMap::new(),
             total_gene_count: 0,
+            branch_total_rates,
+            total_gene_weighted_rate: 0.0,
+        }
+    }
+
+    fn cached_branch_rate(&self, species_idx: usize) -> Option<f64> {
+        self.branch_total_rates
+            .as_ref()
+            .map(|rates| rates.get(species_idx).copied().unwrap_or(0.0))
+    }
+
+    fn increment_gene_tracking(&mut self, species_idx: usize, count: usize) {
+        self.total_gene_count += count;
+        if let Some(rate) = self.cached_branch_rate(species_idx) {
+            self.total_gene_weighted_rate += rate * count as f64;
+        }
+    }
+
+    fn decrement_gene_tracking(&mut self, species_idx: usize, count: usize) {
+        self.total_gene_count -= count;
+        if let Some(rate) = self.cached_branch_rate(species_idx) {
+            if self.total_gene_count == 0 {
+                self.total_gene_weighted_rate = 0.0;
+            } else {
+                self.total_gene_weighted_rate -= rate * count as f64;
+            }
         }
     }
 
@@ -76,16 +111,24 @@ impl<'a> SimulationState<'a> {
             .entry(species_idx)
             .or_default()
             .push(gene_idx);
-        self.total_gene_count += 1;
+        self.increment_gene_tracking(species_idx, 1);
     }
 
     /// Remove gene from a species (per-species mode only, no-op otherwise)
     fn remove_gene_from_species(&mut self, species_idx: usize, gene_idx: usize) {
-        if let Some(genes) = self.genes_per_species.get_mut(&species_idx) {
+        let removed = if let Some(genes) = self.genes_per_species.get_mut(&species_idx) {
             if let Some(pos) = genes.iter().position(|&g| g == gene_idx) {
                 genes.swap_remove(pos);
-                self.total_gene_count -= 1;
+                true
+            } else {
+                false
             }
+        } else {
+            false
+        };
+
+        if removed {
+            self.decrement_gene_tracking(species_idx, 1);
         }
     }
 
@@ -94,7 +137,7 @@ impl<'a> SimulationState<'a> {
     /// the entire species entry is consumed at once.
     pub fn take_genes_for_species(&mut self, species_idx: usize) -> Option<Vec<usize>> {
         if let Some(genes) = self.genes_per_species.remove(&species_idx) {
-            self.total_gene_count -= genes.len();
+            self.decrement_gene_tracking(species_idx, genes.len());
             return Some(genes);
         }
         None
@@ -221,6 +264,57 @@ impl<'a> SimulationState<'a> {
             target -= genes.len();
         }
         None
+    }
+
+    /// Sum branch-specific rates over all alive gene copies.
+    pub fn total_gene_weighted_rate<F>(&self, mut rate_for_species: F) -> f64
+    where
+        F: FnMut(usize) -> f64,
+    {
+        if self.branch_total_rates.is_some() {
+            return self.total_gene_weighted_rate;
+        }
+
+        self.genes_per_species
+            .iter()
+            .map(|(&species, genes)| rate_for_species(species) * genes.len() as f64)
+            .sum()
+    }
+
+    /// Picks a random gene copy with probability proportional to its branch rate.
+    pub fn random_gene_copy_weighted<R: Rng, F>(
+        &self,
+        mut rate_for_species: F,
+        rng: &mut R,
+    ) -> Option<(usize, usize)>
+    where
+        F: FnMut(usize) -> f64,
+    {
+        let total_rate = self.total_gene_weighted_rate(&mut rate_for_species);
+        if total_rate <= 0.0 {
+            return None;
+        }
+
+        let mut threshold = rng.gen::<f64>() * total_rate;
+        let mut last_eligible = None;
+
+        for (&species, genes) in self.genes_per_species.iter() {
+            let species_rate = rate_for_species(species);
+            if species_rate <= 0.0 || genes.is_empty() {
+                continue;
+            }
+
+            let species_weight = species_rate * genes.len() as f64;
+            if threshold < species_weight {
+                let gene = genes[(threshold / species_rate).floor() as usize];
+                return Some((species, gene));
+            }
+
+            threshold -= species_weight;
+            last_eligible = genes.last().map(|&gene| (species, gene));
+        }
+
+        last_eligible
     }
 
     /// Returns the total number of alive gene copies across all species.

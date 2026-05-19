@@ -511,3 +511,420 @@ fn simulate_dtl_per_species_batch_ape_r(
         include_root_edge,
     )
 }
+
+/// Simulate a single DTL gene tree using full branch-specific rates.
+///
+/// `lambda_d`, `lambda_t`, `lambda_l`, and `origination_probability` must each
+/// contain one value per species-tree node. Node indices identify branches; the
+/// root node index represents the root stem branch.
+///
+/// @export
+#[extendr]
+fn simulate_dtl_with_branch_rates_r(
+    species_tree_list: List,
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+    transfer_alpha: Robj,
+    replacement_transfer: Robj,
+    require_extant: bool,
+    seed: Robj,
+) -> Result<List> {
+    let species_tree = rlist_to_flattree(&species_tree_list)?;
+    let mut rng = make_rng(&seed)?;
+    let alpha = extract_alpha(&transfer_alpha)?;
+    let repl = extract_replacement(&replacement_transfer)?;
+    let branch_rates = make_branch_rates(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )?;
+
+    let (rec_tree, events) = crate::dtl::simulate_dtl_with_branch_rates(
+        &species_tree,
+        branch_rates,
+        alpha,
+        repl,
+        require_extant,
+        &mut rng,
+    )
+    .map_err(|e| Error::Other(e.to_string()))?;
+
+    let result = rectree_to_rlist(
+        &species_tree,
+        &rec_tree.gene_tree,
+        &rec_tree.node_mapping,
+        &rec_tree.event_mapping,
+    )?;
+    result.set_attrib("dtl_events", dtl_events_to_rlist(&events, &species_tree))?;
+    Ok(result)
+}
+
+/// Simulate a batch of DTL gene trees using full branch-specific rates.
+///
+/// @export
+#[extendr]
+fn simulate_dtl_batch_with_branch_rates_r(
+    species_tree_list: List,
+    n: i32,
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+    transfer_alpha: Robj,
+    replacement_transfer: Robj,
+    require_extant: bool,
+    seed: Robj,
+) -> Result<List> {
+    if n <= 0 {
+        return Err("Number of trees must be positive".into());
+    }
+
+    let species_tree = rlist_to_flattree(&species_tree_list)?;
+    let mut rng = make_rng(&seed)?;
+    let alpha = extract_alpha(&transfer_alpha)?;
+    let repl = extract_replacement(&replacement_transfer)?;
+    let branch_rates = make_branch_rates(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )?;
+
+    let (rec_trees, all_events) = crate::dtl::simulate_dtl_batch_with_branch_rates(
+        &species_tree,
+        branch_rates,
+        alpha,
+        repl,
+        n as usize,
+        require_extant,
+        &mut rng,
+    )
+    .map_err(|e| Error::Other(e.to_string()))?;
+
+    let gene_tree_lists: Vec<List> = rec_trees
+        .iter()
+        .zip(all_events.iter())
+        .map(|(rec_tree, events)| {
+            let gt_list = rectree_to_rlist(
+                &species_tree,
+                &rec_tree.gene_tree,
+                &rec_tree.node_mapping,
+                &rec_tree.event_mapping,
+            )?;
+            gt_list.set_attrib("dtl_events", dtl_events_to_rlist(events, &species_tree))?;
+            Ok(gt_list)
+        })
+        .collect::<Result<Vec<List>>>()?;
+
+    Ok(List::from_values(gene_tree_lists))
+}
+
+/// Simulate a single per-species DTL gene tree using full branch-specific rates.
+///
+/// @export
+#[extendr]
+fn simulate_dtl_per_species_with_branch_rates_r(
+    species_tree_list: List,
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+    transfer_alpha: Robj,
+    replacement_transfer: Robj,
+    require_extant: bool,
+    seed: Robj,
+) -> Result<List> {
+    let species_tree = rlist_to_flattree(&species_tree_list)?;
+    let mut rng = make_rng(&seed)?;
+    let alpha = extract_alpha(&transfer_alpha)?;
+    let repl = extract_replacement(&replacement_transfer)?;
+    let branch_rates = make_branch_rates(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )?;
+
+    let (rec_tree, events) = crate::dtl::simulate_dtl_per_species_with_branch_rates(
+        &species_tree,
+        branch_rates,
+        alpha,
+        repl,
+        require_extant,
+        &mut rng,
+    )
+    .map_err(|e| Error::Other(e.to_string()))?;
+
+    let result = rectree_to_rlist(
+        &species_tree,
+        &rec_tree.gene_tree,
+        &rec_tree.node_mapping,
+        &rec_tree.event_mapping,
+    )?;
+    result.set_attrib("dtl_events", dtl_events_to_rlist(&events, &species_tree))?;
+    Ok(result)
+}
+
+/// Simulate a batch of per-species DTL gene trees using full branch-specific rates.
+///
+/// @export
+#[extendr]
+fn simulate_dtl_per_species_batch_with_branch_rates_r(
+    species_tree_list: List,
+    n: i32,
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+    transfer_alpha: Robj,
+    replacement_transfer: Robj,
+    require_extant: bool,
+    seed: Robj,
+) -> Result<List> {
+    if n <= 0 {
+        return Err("Number of trees must be positive".into());
+    }
+
+    let species_tree = rlist_to_flattree(&species_tree_list)?;
+    let mut rng = make_rng(&seed)?;
+    let alpha = extract_alpha(&transfer_alpha)?;
+    let repl = extract_replacement(&replacement_transfer)?;
+    let branch_rates = make_branch_rates(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )?;
+
+    let (rec_trees, all_events) =
+        crate::dtl::simulate_dtl_per_species_batch_with_branch_rates(
+            &species_tree,
+            branch_rates,
+            alpha,
+            repl,
+            n as usize,
+            require_extant,
+            &mut rng,
+        )
+        .map_err(|e| Error::Other(e.to_string()))?;
+
+    let gene_tree_lists: Vec<List> = rec_trees
+        .iter()
+        .zip(all_events.iter())
+        .map(|(rec_tree, events)| {
+            let gt_list = rectree_to_rlist(
+                &species_tree,
+                &rec_tree.gene_tree,
+                &rec_tree.node_mapping,
+                &rec_tree.event_mapping,
+            )?;
+            gt_list.set_attrib("dtl_events", dtl_events_to_rlist(events, &species_tree))?;
+            Ok(gt_list)
+        })
+        .collect::<Result<Vec<List>>>()?;
+
+    Ok(List::from_values(gene_tree_lists))
+}
+
+/// Simulate a DTL gene tree with full branch-specific rates and return ape phylo.
+///
+/// @export
+#[extendr]
+fn simulate_dtl_ape_with_branch_rates_r(
+    species_tree_list: List,
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+    transfer_alpha: Robj,
+    replacement_transfer: Robj,
+    require_extant: bool,
+    seed: Robj,
+    order: &str,
+    use_node_labels: bool,
+    include_root_edge: bool,
+) -> Result<Robj> {
+    let species_tree = rlist_to_flattree(&species_tree_list)?;
+    let mut rng = make_rng(&seed)?;
+    let alpha = extract_alpha(&transfer_alpha)?;
+    let repl = extract_replacement(&replacement_transfer)?;
+    let branch_rates = make_branch_rates(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )?;
+
+    let (rec_tree, _) = crate::dtl::simulate_dtl_with_branch_rates(
+        &species_tree,
+        branch_rates,
+        alpha,
+        repl,
+        require_extant,
+        &mut rng,
+    )
+    .map_err(|e| Error::Other(e.to_string()))?;
+
+    flattree_to_ape_phylo(
+        &rec_tree.gene_tree,
+        order,
+        use_node_labels,
+        include_root_edge,
+    )
+}
+
+/// Simulate a DTL batch with full branch-specific rates and return ape multiPhylo.
+///
+/// @export
+#[extendr]
+fn simulate_dtl_batch_ape_with_branch_rates_r(
+    species_tree_list: List,
+    n: i32,
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+    transfer_alpha: Robj,
+    replacement_transfer: Robj,
+    require_extant: bool,
+    seed: Robj,
+    order: &str,
+    use_node_labels: bool,
+    include_root_edge: bool,
+) -> Result<Robj> {
+    if n <= 0 {
+        return Err("Number of trees must be positive".into());
+    }
+
+    let species_tree = rlist_to_flattree(&species_tree_list)?;
+    let mut rng = make_rng(&seed)?;
+    let alpha = extract_alpha(&transfer_alpha)?;
+    let repl = extract_replacement(&replacement_transfer)?;
+    let branch_rates = make_branch_rates(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )?;
+
+    let (rec_trees, _) = crate::dtl::simulate_dtl_batch_with_branch_rates(
+        &species_tree,
+        branch_rates,
+        alpha,
+        repl,
+        n as usize,
+        require_extant,
+        &mut rng,
+    )
+    .map_err(|e| Error::Other(e.to_string()))?;
+
+    flattrees_to_ape_multiphylo(
+        rec_trees.iter().map(|rt| &rt.gene_tree),
+        order,
+        use_node_labels,
+        include_root_edge,
+    )
+}
+
+/// Simulate a per-species DTL gene tree with full branch-specific rates and return ape phylo.
+///
+/// @export
+#[extendr]
+fn simulate_dtl_per_species_ape_with_branch_rates_r(
+    species_tree_list: List,
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+    transfer_alpha: Robj,
+    replacement_transfer: Robj,
+    require_extant: bool,
+    seed: Robj,
+    order: &str,
+    use_node_labels: bool,
+    include_root_edge: bool,
+) -> Result<Robj> {
+    let species_tree = rlist_to_flattree(&species_tree_list)?;
+    let mut rng = make_rng(&seed)?;
+    let alpha = extract_alpha(&transfer_alpha)?;
+    let repl = extract_replacement(&replacement_transfer)?;
+    let branch_rates = make_branch_rates(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )?;
+
+    let (rec_tree, _) = crate::dtl::simulate_dtl_per_species_with_branch_rates(
+        &species_tree,
+        branch_rates,
+        alpha,
+        repl,
+        require_extant,
+        &mut rng,
+    )
+    .map_err(|e| Error::Other(e.to_string()))?;
+
+    flattree_to_ape_phylo(
+        &rec_tree.gene_tree,
+        order,
+        use_node_labels,
+        include_root_edge,
+    )
+}
+
+/// Simulate a per-species DTL batch with full branch-specific rates and return ape multiPhylo.
+///
+/// @export
+#[extendr]
+fn simulate_dtl_per_species_batch_ape_with_branch_rates_r(
+    species_tree_list: List,
+    n: i32,
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+    transfer_alpha: Robj,
+    replacement_transfer: Robj,
+    require_extant: bool,
+    seed: Robj,
+    order: &str,
+    use_node_labels: bool,
+    include_root_edge: bool,
+) -> Result<Robj> {
+    if n <= 0 {
+        return Err("Number of trees must be positive".into());
+    }
+
+    let species_tree = rlist_to_flattree(&species_tree_list)?;
+    let mut rng = make_rng(&seed)?;
+    let alpha = extract_alpha(&transfer_alpha)?;
+    let repl = extract_replacement(&replacement_transfer)?;
+    let branch_rates = make_branch_rates(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )?;
+
+    let (rec_trees, _) = crate::dtl::simulate_dtl_per_species_batch_with_branch_rates(
+        &species_tree,
+        branch_rates,
+        alpha,
+        repl,
+        n as usize,
+        require_extant,
+        &mut rng,
+    )
+    .map_err(|e| Error::Other(e.to_string()))?;
+
+    flattrees_to_ape_multiphylo(
+        rec_trees.iter().map(|rt| &rt.gene_tree),
+        order,
+        use_node_labels,
+        include_root_edge,
+    )
+}

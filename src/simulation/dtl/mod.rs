@@ -16,15 +16,234 @@ use crate::error::RustreeError;
 
 pub use event::DTLEvent;
 pub use per_gene::{
-    simulate_dtl, simulate_dtl_batch, simulate_dtl_iter, simulate_dtl_iter_with_config,
+    simulate_dtl, simulate_dtl_batch, simulate_dtl_batch_with_branch_rates, simulate_dtl_iter,
+    simulate_dtl_iter_with_branch_rates, simulate_dtl_iter_with_config,
+    simulate_dtl_with_branch_rates,
 };
 pub use per_species::{
-    simulate_dtl_per_species, simulate_dtl_per_species_batch, simulate_dtl_per_species_iter,
-    simulate_dtl_per_species_iter_with_config,
+    simulate_dtl_per_species, simulate_dtl_per_species_batch,
+    simulate_dtl_per_species_batch_with_branch_rates, simulate_dtl_per_species_iter,
+    simulate_dtl_per_species_iter_with_branch_rates, simulate_dtl_per_species_iter_with_config,
+    simulate_dtl_per_species_with_branch_rates,
 };
 pub use stream::DtlSimIter;
 pub(crate) use utils::prepare_simulation;
 pub use utils::{count_events, count_extant_genes};
+
+const ORIGINATION_SUM_TOLERANCE: f64 = 1e-8;
+
+/// Full per-branch DTL rates and origination probabilities.
+///
+/// Branches are identified by species-tree node index. The value at index `i`
+/// applies while a gene copy resides on species branch/node `i`; the root index
+/// represents the root stem branch.
+#[derive(Clone, Debug)]
+pub struct BranchDTLRates {
+    /// Duplication rate per species-tree branch/node index
+    pub lambda_d: Vec<f64>,
+    /// Transfer rate per species-tree branch/node index
+    pub lambda_t: Vec<f64>,
+    /// Loss rate per species-tree branch/node index
+    pub lambda_l: Vec<f64>,
+    /// Precomputed total DTL event rate per species-tree branch/node index
+    pub lambda_total: Vec<f64>,
+    /// Categorical origination probability per species-tree branch/node index
+    pub origination_probability: Vec<f64>,
+    /// Precomputed cumulative origination probability per species-tree branch/node index
+    pub origination_cdf: Vec<f64>,
+}
+
+impl BranchDTLRates {
+    /// Create a validated full branch-rate table.
+    pub fn new(
+        lambda_d: Vec<f64>,
+        lambda_t: Vec<f64>,
+        lambda_l: Vec<f64>,
+        origination_probability: Vec<f64>,
+    ) -> Result<Self, RustreeError> {
+        let (lambda_total, origination_cdf) = Self::validate_and_precompute(
+            &lambda_d,
+            &lambda_t,
+            &lambda_l,
+            &origination_probability,
+        )?;
+
+        Ok(Self {
+            lambda_d,
+            lambda_t,
+            lambda_l,
+            lambda_total,
+            origination_probability,
+            origination_cdf,
+        })
+    }
+
+    /// Validate vector shape and numeric values.
+    pub fn validate(&self) -> Result<(), RustreeError> {
+        let (lambda_total, origination_cdf) = Self::validate_and_precompute(
+            &self.lambda_d,
+            &self.lambda_t,
+            &self.lambda_l,
+            &self.origination_probability,
+        )?;
+
+        Self::validate_precomputed_vector("lambda_total", &self.lambda_total, &lambda_total)?;
+        Self::validate_precomputed_vector(
+            "origination_cdf",
+            &self.origination_cdf,
+            &origination_cdf,
+        )?;
+
+        Ok(())
+    }
+
+    fn validate_and_precompute(
+        lambda_d: &[f64],
+        lambda_t: &[f64],
+        lambda_l: &[f64],
+        origination_probability: &[f64],
+    ) -> Result<(Vec<f64>, Vec<f64>), RustreeError> {
+        let n = lambda_d.len();
+        if n == 0 {
+            return Err(RustreeError::Validation(
+                "branch DTL rates cannot be empty".to_string(),
+            ));
+        }
+        if lambda_t.len() != n || lambda_l.len() != n {
+            return Err(RustreeError::Validation(format!(
+                "branch DTL rate vectors must have the same length: lambda_d={}, lambda_t={}, lambda_l={}",
+                lambda_d.len(),
+                lambda_t.len(),
+                lambda_l.len()
+            )));
+        }
+        if origination_probability.len() != n {
+            return Err(RustreeError::Validation(format!(
+                "origination_probability length ({}) must match branch rate length ({n})",
+                origination_probability.len()
+            )));
+        }
+
+        for (idx, &value) in lambda_d.iter().enumerate() {
+            validate_rate(&format!("Duplication rate at branch {idx}"), value)?;
+        }
+        for (idx, &value) in lambda_t.iter().enumerate() {
+            validate_rate(&format!("Transfer rate at branch {idx}"), value)?;
+        }
+        for (idx, &value) in lambda_l.iter().enumerate() {
+            validate_rate(&format!("Loss rate at branch {idx}"), value)?;
+        }
+
+        let mut sum = 0.0;
+        let mut origination_cdf = Vec::with_capacity(n);
+        let mut last_positive = None;
+        for (idx, &p) in origination_probability.iter().enumerate() {
+            if p < 0.0 || !p.is_finite() {
+                return Err(RustreeError::Validation(format!(
+                    "origination_probability at branch {idx} must be non-negative and finite, got {p}"
+                )));
+            }
+            sum += p;
+            origination_cdf.push(sum);
+            if p > 0.0 {
+                last_positive = Some(idx);
+            }
+        }
+        if (sum - 1.0).abs() > ORIGINATION_SUM_TOLERANCE {
+            return Err(RustreeError::Validation(format!(
+                "origination_probability must sum to 1.0 (within {ORIGINATION_SUM_TOLERANCE}), got {sum}"
+            )));
+        }
+        if sum < 1.0 {
+            if let Some(last_positive) = last_positive {
+                for cdf in &mut origination_cdf[last_positive..] {
+                    *cdf = 1.0;
+                }
+            }
+        }
+
+        let mut lambda_total = Vec::with_capacity(n);
+        for idx in 0..n {
+            let total = lambda_d[idx] + lambda_t[idx] + lambda_l[idx];
+            if !total.is_finite() {
+                return Err(RustreeError::Validation(format!(
+                    "total DTL rate at branch {idx} must be finite, got {total}"
+                )));
+            }
+            lambda_total.push(total);
+        }
+
+        Ok((lambda_total, origination_cdf))
+    }
+
+    fn validate_precomputed_vector(
+        name: &str,
+        actual: &[f64],
+        expected: &[f64],
+    ) -> Result<(), RustreeError> {
+        if actual.len() != expected.len() {
+            return Err(RustreeError::Validation(format!(
+                "{name} length ({}) must match branch rate length ({})",
+                actual.len(),
+                expected.len()
+            )));
+        }
+
+        for (idx, (&actual, &expected)) in actual.iter().zip(expected.iter()).enumerate() {
+            let tolerance = f64::EPSILON * actual.abs().max(expected.abs()).max(1.0) * 8.0;
+            if !actual.is_finite() || (actual - expected).abs() > tolerance {
+                return Err(RustreeError::Validation(format!(
+                    "precomputed {name} at branch {idx} is out of date: got {actual}, expected {expected}"
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate this table against a concrete species tree size.
+    pub fn validate_for_tree(&self, node_count: usize) -> Result<(), RustreeError> {
+        self.validate()?;
+        if self.lambda_d.len() != node_count {
+            return Err(RustreeError::Validation(format!(
+                "branch DTL tables must have one value per species-tree node/branch: got {}, expected {}",
+                self.lambda_d.len(),
+                node_count
+            )));
+        }
+        Ok(())
+    }
+
+    #[inline]
+    pub(crate) fn total_rate(&self, species_idx: usize) -> f64 {
+        self.lambda_total[species_idx]
+    }
+
+    #[inline]
+    pub(crate) fn event_rates(&self, species_idx: usize) -> (f64, f64, f64) {
+        debug_assert!(
+            (self.lambda_total[species_idx]
+                - (self.lambda_d[species_idx]
+                    + self.lambda_t[species_idx]
+                    + self.lambda_l[species_idx]))
+                .abs()
+                <= f64::EPSILON * self.lambda_total[species_idx].abs().max(1.0) * 8.0
+        );
+        (
+            self.lambda_d[species_idx],
+            self.lambda_t[species_idx],
+            self.lambda_l[species_idx],
+        )
+    }
+
+    pub(crate) fn sample_origin<R: rand::Rng>(&self, rng: &mut R) -> usize {
+        let threshold = rng.gen::<f64>();
+        let idx = self
+            .origination_cdf
+            .partition_point(|&cdf| threshold >= cdf);
+        idx.min(self.origination_cdf.len().saturating_sub(1))
+    }
+}
 
 /// Configuration for DTL (Duplication-Transfer-Loss) simulation.
 #[derive(Clone, Debug)]
@@ -39,6 +258,8 @@ pub struct DTLConfig {
     pub transfer_alpha: Option<f64>,
     /// Replacement transfer probability (None = additive only)
     pub replacement_transfer: Option<f64>,
+    /// Optional full per-branch DTL rates and origination probabilities
+    pub branch_rates: Option<BranchDTLRates>,
 }
 
 impl DTLConfig {
@@ -56,6 +277,25 @@ impl DTLConfig {
             lambda_l,
             transfer_alpha,
             replacement_transfer,
+            branch_rates: None,
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Create a validated DTL configuration backed by full per-branch rates.
+    pub fn with_branch_rates(
+        branch_rates: BranchDTLRates,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+    ) -> Result<Self, RustreeError> {
+        let config = Self {
+            lambda_d: 0.0,
+            lambda_t: 0.0,
+            lambda_l: 0.0,
+            transfer_alpha,
+            replacement_transfer,
+            branch_rates: Some(branch_rates),
         };
         config.validate()?;
         Ok(config)
@@ -83,7 +323,48 @@ impl DTLConfig {
             }
         }
 
+        if let Some(branch_rates) = &self.branch_rates {
+            branch_rates.validate()?;
+        }
+
         Ok(())
+    }
+
+    /// Validate branch-table shape against a concrete species tree.
+    pub fn validate_for_tree(&self, node_count: usize) -> Result<(), RustreeError> {
+        self.validate()?;
+        if let Some(branch_rates) = &self.branch_rates {
+            branch_rates.validate_for_tree(node_count)?;
+        }
+        Ok(())
+    }
+
+    #[inline]
+    pub(crate) fn branch_total_rate(&self, species_idx: usize) -> f64 {
+        self.branch_rates
+            .as_ref()
+            .map_or(self.lambda_d + self.lambda_t + self.lambda_l, |rates| {
+                rates.total_rate(species_idx)
+            })
+    }
+
+    #[inline]
+    pub(crate) fn branch_event_rates(&self, species_idx: usize) -> (f64, f64, f64) {
+        self.branch_rates
+            .as_ref()
+            .map_or((self.lambda_d, self.lambda_t, self.lambda_l), |rates| {
+                rates.event_rates(species_idx)
+            })
+    }
+
+    pub(crate) fn sample_origin<R: rand::Rng>(&self, default_origin: usize, rng: &mut R) -> usize {
+        self.branch_rates
+            .as_ref()
+            .map_or(default_origin, |rates| rates.sample_origin(rng))
+    }
+
+    pub(crate) fn uses_branch_rates(&self) -> bool {
+        self.branch_rates.is_some()
     }
 }
 
@@ -110,6 +391,126 @@ mod tests {
         let mut nodes = parse_newick(newick).unwrap();
         let root = nodes.pop().expect("No tree found");
         root.to_flat_tree()
+    }
+
+    fn zero_branch_rates_with_origin(
+        species_tree: &crate::node::FlatTree,
+        origin_species: usize,
+    ) -> BranchDTLRates {
+        let n = species_tree.nodes.len();
+        let mut origination_probability = vec![0.0; n];
+        origination_probability[origin_species] = 1.0;
+        BranchDTLRates::new(
+            vec![0.0; n],
+            vec![0.0; n],
+            vec![0.0; n],
+            origination_probability,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_branch_dtl_rates_validation() {
+        assert!(BranchDTLRates::new(vec![0.0], vec![0.0], vec![0.0], vec![1.0]).is_ok());
+        assert!(BranchDTLRates::new(vec![0.0], vec![0.0, 0.0], vec![0.0], vec![1.0]).is_err());
+        assert!(BranchDTLRates::new(vec![0.0], vec![0.0], vec![-0.1], vec![1.0]).is_err());
+        assert!(BranchDTLRates::new(
+            vec![0.0, 0.0],
+            vec![0.0, 0.0],
+            vec![0.0, 0.0],
+            vec![0.5, 0.25]
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_branch_dtl_origin_can_be_non_root() {
+        let newick = "((A:1,B:1)AB:1,C:2)root:0;";
+        let mut species_tree = parse_tree(newick);
+        species_tree.assign_depths();
+        let origin_species = species_tree
+            .nodes
+            .iter()
+            .position(|node| node.name == "AB")
+            .unwrap();
+
+        let branch_rates = zero_branch_rates_with_origin(&species_tree, origin_species);
+        let mut rng = StdRng::seed_from_u64(42);
+        let (rec_tree, _events) = simulate_dtl_with_branch_rates(
+            &species_tree,
+            branch_rates,
+            None,
+            None,
+            false,
+            &mut rng,
+        )
+        .unwrap();
+
+        let extant_leaf_species: std::collections::BTreeSet<_> = rec_tree
+            .gene_tree
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, node)| {
+                if node.left_child.is_none()
+                    && node.right_child.is_none()
+                    && rec_tree.event_mapping[idx] == crate::node::Event::Leaf
+                {
+                    rec_tree.node_mapping[idx]
+                        .map(|sp| rec_tree.species_tree.nodes[sp].name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(
+            extant_leaf_species,
+            ["A".to_string(), "B".to_string()].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn test_branch_dtl_rates_on_unoccupied_branches_do_not_fire() {
+        let newick = "((A:1,B:1)AB:1,C:2)root:0;";
+        let mut species_tree = parse_tree(newick);
+        species_tree.assign_depths();
+        let origin_species = species_tree
+            .nodes
+            .iter()
+            .position(|node| node.name == "AB")
+            .unwrap();
+        let c_species = species_tree
+            .nodes
+            .iter()
+            .position(|node| node.name == "C")
+            .unwrap();
+
+        let n = species_tree.nodes.len();
+        let mut lambda_l = vec![0.0; n];
+        lambda_l[c_species] = 1_000.0;
+        let mut origination_probability = vec![0.0; n];
+        origination_probability[origin_species] = 1.0;
+        let branch_rates = BranchDTLRates::new(
+            vec![0.0; n],
+            vec![0.0; n],
+            lambda_l,
+            origination_probability,
+        )
+        .unwrap();
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let (rec_tree, _events) = simulate_dtl_with_branch_rates(
+            &species_tree,
+            branch_rates,
+            None,
+            None,
+            false,
+            &mut rng,
+        )
+        .unwrap();
+
+        assert_eq!(count_extant_genes(&rec_tree), 2);
     }
 
     #[test]

@@ -829,6 +829,94 @@ class PySpeciesTree:
         """
         ...
 
+    def simulate_dtl_with_branch_rates(
+        self,
+        lambda_d: List[float],
+        lambda_t: List[float],
+        lambda_l: List[float],
+        origination_probability: List[float],
+        transfer_alpha: Optional[float] = None,
+        replacement_transfer: Optional[float] = None,
+        require_extant: bool = False,
+        seed: Optional[int] = None,
+    ) -> PyGeneTree:
+        """Simulate a DTL gene tree with full branch-specific rates."""
+        ...
+
+    def simulate_dtl_batch_with_branch_rates(
+        self,
+        n: int,
+        lambda_d: List[float],
+        lambda_t: List[float],
+        lambda_l: List[float],
+        origination_probability: List[float],
+        transfer_alpha: Optional[float] = None,
+        replacement_transfer: Optional[float] = None,
+        require_extant: bool = False,
+        seed: Optional[int] = None,
+    ) -> GeneForest:
+        """Simulate a DTL batch with full branch-specific rates."""
+        ...
+
+    def simulate_dtl_iter_with_branch_rates(
+        self,
+        lambda_d: List[float],
+        lambda_t: List[float],
+        lambda_l: List[float],
+        origination_probability: List[float],
+        transfer_alpha: Optional[float] = None,
+        replacement_transfer: Optional[float] = None,
+        n: int = 1,
+        require_extant: bool = False,
+        seed: Optional[int] = None,
+    ) -> PyDtlSimIter:
+        """Create a lazy per-gene DTL iterator with full branch-specific rates."""
+        ...
+
+    def simulate_dtl_per_species_with_branch_rates(
+        self,
+        lambda_d: List[float],
+        lambda_t: List[float],
+        lambda_l: List[float],
+        origination_probability: List[float],
+        transfer_alpha: Optional[float] = None,
+        replacement_transfer: Optional[float] = None,
+        require_extant: bool = False,
+        seed: Optional[int] = None,
+    ) -> PyGeneTree:
+        """Simulate a per-species DTL gene tree with full branch-specific rates."""
+        ...
+
+    def simulate_dtl_per_species_batch_with_branch_rates(
+        self,
+        n: int,
+        lambda_d: List[float],
+        lambda_t: List[float],
+        lambda_l: List[float],
+        origination_probability: List[float],
+        transfer_alpha: Optional[float] = None,
+        replacement_transfer: Optional[float] = None,
+        require_extant: bool = False,
+        seed: Optional[int] = None,
+    ) -> GeneForest:
+        """Simulate a per-species DTL batch with full branch-specific rates."""
+        ...
+
+    def simulate_dtl_per_species_iter_with_branch_rates(
+        self,
+        lambda_d: List[float],
+        lambda_t: List[float],
+        lambda_l: List[float],
+        origination_probability: List[float],
+        transfer_alpha: Optional[float] = None,
+        replacement_transfer: Optional[float] = None,
+        n: int = 1,
+        require_extant: bool = False,
+        seed: Optional[int] = None,
+    ) -> PyDtlSimIter:
+        """Create a lazy per-species DTL iterator with full branch-specific rates."""
+        ...
+
     def pairwise_distances(
         self,
         distance_type: str,

@@ -44,3 +44,19 @@ fn extract_replacement(replacement_transfer: &Robj) -> Result<Option<f64>> {
         Ok(Some(replacement_transfer.as_real().ok_or("replacement_transfer must be a number")?))
     }
 }
+
+/// Helper: create branch-specific DTL rates from full numeric vectors.
+fn make_branch_rates(
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+) -> Result<crate::dtl::BranchDTLRates> {
+    crate::dtl::BranchDTLRates::new(
+        lambda_d,
+        lambda_t,
+        lambda_l,
+        origination_probability,
+    )
+    .map_err(|e| Error::Other(e.to_string()))
+}

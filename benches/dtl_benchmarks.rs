@@ -2,8 +2,12 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rustree::bd::simulate_bd_tree_bwd;
-use rustree::dtl::{simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species};
+use rustree::dtl::{
+    simulate_dtl, simulate_dtl_batch, simulate_dtl_batch_with_branch_rates,
+    simulate_dtl_per_species, BranchDTLRates,
+};
 use rustree::FlatTree;
+use std::time::Duration;
 
 /// Create a species tree of size n with deterministic seed.
 fn make_species_tree(n: usize, seed: u64) -> FlatTree {
@@ -11,6 +15,20 @@ fn make_species_tree(n: usize, seed: u64) -> FlatTree {
     let (mut tree, _) = simulate_bd_tree_bwd(n, 1.0, 0.3, &mut rng).unwrap();
     tree.assign_depths();
     tree
+}
+
+/// Create a full branch-rate table equivalent to scalar DTL rates.
+fn expanded_branch_rates(
+    species_tree: &FlatTree,
+    origin_species: usize,
+    d: f64,
+    t: f64,
+    l: f64,
+) -> BranchDTLRates {
+    let n = species_tree.nodes.len();
+    let mut origination_probability = vec![0.0; n];
+    origination_probability[origin_species] = 1.0;
+    BranchDTLRates::new(vec![d; n], vec![t; n], vec![l; n], origination_probability).unwrap()
 }
 
 /// Pilot 10 per-gene DTL simulations to estimate average events per run.
@@ -157,12 +175,66 @@ fn dtl_batch_pergene(c: &mut Criterion) {
     }
 }
 
+fn dtl_scalar_vs_branch_rate_full_tables(c: &mut Criterion) {
+    let species_tree = make_species_tree(20, 99);
+    let root = species_tree.root;
+    let (d, t, l) = (0.05, 0.02, 0.02);
+    let batch_size = 10usize;
+    let avg_per_sim = pilot_dtl_events(&species_tree, d, t, l);
+    let total_events = avg_per_sim * batch_size as u64;
+    let branch_rates = expanded_branch_rates(&species_tree, root, d, t, l);
+
+    let mut group = c.benchmark_group("dtl_scalar_vs_branch_rate_full_tables");
+    group.sample_size(10);
+    group.warm_up_time(Duration::from_millis(100));
+    group.measurement_time(Duration::from_millis(500));
+    group.throughput(Throughput::Elements(total_events));
+
+    group.bench_function("scalar_batch", |b| {
+        let mut rng = StdRng::seed_from_u64(123);
+        b.iter(|| {
+            simulate_dtl_batch(
+                &species_tree,
+                root,
+                d,
+                t,
+                l,
+                None,
+                None,
+                batch_size,
+                false,
+                &mut rng,
+            )
+            .unwrap()
+        });
+    });
+
+    group.bench_function("branch_rate_full_batch", |b| {
+        let mut rng = StdRng::seed_from_u64(123);
+        b.iter(|| {
+            simulate_dtl_batch_with_branch_rates(
+                &species_tree,
+                branch_rates.clone(),
+                None,
+                None,
+                batch_size,
+                false,
+                &mut rng,
+            )
+            .unwrap()
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     dtl_pergene_scaling,
     dtl_pergene_rate_sweep,
     dtl_perspecies_scaling,
     dtl_perspecies_rate_sweep,
-    dtl_batch_pergene
+    dtl_batch_pergene,
+    dtl_scalar_vs_branch_rate_full_tables
 );
 criterion_main!(benches);

@@ -1169,3 +1169,29 @@ cargo build --release --no-default-features --features python
 **Last Updated:** 2026-02-14
 **rustree Version:** 0.1.0
 **Project Root:** repository root
+
+## Branch-specific DTL rates
+
+Use the `*_with_branch_rates()` DTL functions to provide one D/T/L rate and one origination probability for every species-tree node:
+
+```r
+n <- length(sp_tree$name)
+lambda_d <- rep(0.1, n)
+lambda_t <- rep(0.0, n)
+lambda_l <- rep(0.05, n)
+origination_probability <- rep(0.0, n)
+origination_probability[sp_tree$root + 1L] <- 1.0  # R vectors are 1-based
+
+gene_tree <- simulate_dtl_with_branch_rates(
+  sp_tree,
+  lambda_d,
+  lambda_t,
+  lambda_l,
+  origination_probability,
+  seed = 42L
+)
+```
+
+Species-tree node indices identify branches; the root node index represents the root stem branch. `origination_probability` is a categorical distribution over branches and must sum to `1.0`, so each simulated family has one sampled origin branch.
+
+Branch-rate variants are available for regular, batch, per-species, ape, and streaming DTL functions.

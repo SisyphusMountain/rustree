@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::dtl::{
     prepare_simulation, simulate_dtl, simulate_dtl_batch, simulate_dtl_per_species,
-    simulate_dtl_per_species_batch, DTLConfig,
+    simulate_dtl_per_species_batch, BranchDTLRates, DTLConfig,
 };
 use crate::node::{FlatTree, RecTree};
 use crate::sampling::{
@@ -25,6 +25,16 @@ use super::sim_iter::PyDtlSimIter;
 use super::{
     init_rng, is_leaf, parse_distance_type, validate_dtl_rates, validate_replacement_transfer,
 };
+
+fn make_branch_rates(
+    lambda_d: Vec<f64>,
+    lambda_t: Vec<f64>,
+    lambda_l: Vec<f64>,
+    origination_probability: Vec<f64>,
+) -> PyResult<BranchDTLRates> {
+    BranchDTLRates::new(lambda_d, lambda_t, lambda_l, origination_probability)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
 
 /// A species tree simulated under the birth-death process.
 #[pyclass]
@@ -697,6 +707,90 @@ impl PySpeciesTree {
         })
     }
 
+    /// Simulate a gene tree using full branch-specific DTL rates and origination probabilities.
+    ///
+    /// Each vector must contain exactly one value per species-tree node. Node indices identify
+    /// branches; the root node index represents the root stem branch.
+    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, origination_probability, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
+    fn simulate_dtl_with_branch_rates(
+        &self,
+        lambda_d: Vec<f64>,
+        lambda_t: Vec<f64>,
+        lambda_l: Vec<f64>,
+        origination_probability: Vec<f64>,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+        require_extant: bool,
+        seed: Option<u64>,
+    ) -> PyResult<PyGeneTree> {
+        validate_replacement_transfer(replacement_transfer)?;
+        let branch_rates =
+            make_branch_rates(lambda_d, lambda_t, lambda_l, origination_probability)?;
+        let mut rng = init_rng(seed);
+
+        let (mut rec_tree, events) = crate::dtl::simulate_dtl_with_branch_rates(
+            &self.tree,
+            branch_rates,
+            transfer_alpha,
+            replacement_transfer,
+            require_extant,
+            &mut rng,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        rec_tree.species_tree = Arc::clone(&self.tree);
+        rec_tree.dtl_events = Some(events);
+        Ok(PyGeneTree { rec_tree })
+    }
+
+    /// Simulate multiple gene trees using full branch-specific DTL rates.
+    #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, origination_probability, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
+    fn simulate_dtl_batch_with_branch_rates(
+        &self,
+        n: usize,
+        lambda_d: Vec<f64>,
+        lambda_t: Vec<f64>,
+        lambda_l: Vec<f64>,
+        origination_probability: Vec<f64>,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+        require_extant: bool,
+        seed: Option<u64>,
+    ) -> PyResult<PyGeneForest> {
+        validate_replacement_transfer(replacement_transfer)?;
+        let branch_rates =
+            make_branch_rates(lambda_d, lambda_t, lambda_l, origination_probability)?;
+        let mut rng = init_rng(seed);
+
+        let (rec_trees, all_events) = crate::dtl::simulate_dtl_batch_with_branch_rates(
+            &self.tree,
+            branch_rates,
+            transfer_alpha,
+            replacement_transfer,
+            n,
+            require_extant,
+            &mut rng,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        let gene_trees: Vec<RecTree> = rec_trees
+            .into_iter()
+            .zip(all_events)
+            .map(|(mut rec_tree, events)| {
+                rec_tree.species_tree = Arc::clone(&self.tree);
+                rec_tree.dtl_events = Some(events);
+                rec_tree
+            })
+            .collect();
+
+        Ok(PyGeneForest {
+            forest: crate::node::gene_forest::GeneForest::from_rec_trees(
+                Arc::clone(&self.tree),
+                gene_trees,
+            ),
+        })
+    }
+
     /// Simulate a gene tree using the Zombi-style per-species DTL model.
     #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
     fn simulate_dtl_per_species(
@@ -780,6 +874,87 @@ impl PySpeciesTree {
         })
     }
 
+    /// Simulate a gene tree using the per-species model with full branch-specific rates.
+    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, origination_probability, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
+    fn simulate_dtl_per_species_with_branch_rates(
+        &self,
+        lambda_d: Vec<f64>,
+        lambda_t: Vec<f64>,
+        lambda_l: Vec<f64>,
+        origination_probability: Vec<f64>,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+        require_extant: bool,
+        seed: Option<u64>,
+    ) -> PyResult<PyGeneTree> {
+        validate_replacement_transfer(replacement_transfer)?;
+        let branch_rates =
+            make_branch_rates(lambda_d, lambda_t, lambda_l, origination_probability)?;
+        let mut rng = init_rng(seed);
+
+        let (mut rec_tree, events) = crate::dtl::simulate_dtl_per_species_with_branch_rates(
+            &self.tree,
+            branch_rates,
+            transfer_alpha,
+            replacement_transfer,
+            require_extant,
+            &mut rng,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        rec_tree.species_tree = Arc::clone(&self.tree);
+        rec_tree.dtl_events = Some(events);
+        Ok(PyGeneTree { rec_tree })
+    }
+
+    /// Simulate multiple gene trees using the per-species model with full branch-specific rates.
+    #[pyo3(signature = (n, lambda_d, lambda_t, lambda_l, origination_probability, transfer_alpha=None, replacement_transfer=None, require_extant=false, seed=None))]
+    fn simulate_dtl_per_species_batch_with_branch_rates(
+        &self,
+        n: usize,
+        lambda_d: Vec<f64>,
+        lambda_t: Vec<f64>,
+        lambda_l: Vec<f64>,
+        origination_probability: Vec<f64>,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+        require_extant: bool,
+        seed: Option<u64>,
+    ) -> PyResult<PyGeneForest> {
+        validate_replacement_transfer(replacement_transfer)?;
+        let branch_rates =
+            make_branch_rates(lambda_d, lambda_t, lambda_l, origination_probability)?;
+        let mut rng = init_rng(seed);
+
+        let (rec_trees, all_events) = crate::dtl::simulate_dtl_per_species_batch_with_branch_rates(
+            &self.tree,
+            branch_rates,
+            transfer_alpha,
+            replacement_transfer,
+            n,
+            require_extant,
+            &mut rng,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        let gene_trees: Vec<RecTree> = rec_trees
+            .into_iter()
+            .zip(all_events)
+            .map(|(mut rec_tree, events)| {
+                rec_tree.species_tree = Arc::clone(&self.tree);
+                rec_tree.dtl_events = Some(events);
+                rec_tree
+            })
+            .collect();
+
+        Ok(PyGeneForest {
+            forest: crate::node::gene_forest::GeneForest::from_rec_trees(
+                Arc::clone(&self.tree),
+                gene_trees,
+            ),
+        })
+    }
+
     /// Create a lazy iterator that generates gene trees one at a time (per-gene-copy model).
     #[pyo3(signature = (lambda_d, lambda_t, lambda_l, transfer_alpha=None, replacement_transfer=None, n=1, require_extant=false, seed=None))]
     fn simulate_dtl_iter(
@@ -815,6 +990,49 @@ impl PySpeciesTree {
             depths: prepared.depths,
             contemporaneity: prepared.contemporaneity,
             lca_depths: prepared.lca_depths,
+            runtime: prepared.runtime,
+            origin_species,
+            config,
+            n_simulations: n,
+            require_extant,
+            mode: DTLMode::PerGene,
+            rng,
+            completed: 0,
+        })
+    }
+
+    /// Create a lazy per-gene-copy DTL iterator using full branch-specific rates.
+    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, origination_probability, transfer_alpha=None, replacement_transfer=None, n=1, require_extant=false, seed=None))]
+    fn simulate_dtl_iter_with_branch_rates(
+        &self,
+        lambda_d: Vec<f64>,
+        lambda_t: Vec<f64>,
+        lambda_l: Vec<f64>,
+        origination_probability: Vec<f64>,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+        n: usize,
+        require_extant: bool,
+        seed: Option<u64>,
+    ) -> PyResult<PyDtlSimIter> {
+        validate_replacement_transfer(replacement_transfer)?;
+        let branch_rates =
+            make_branch_rates(lambda_d, lambda_t, lambda_l, origination_probability)?;
+        let origin_species = self.tree.root;
+        let config =
+            DTLConfig::with_branch_rates(branch_rates, transfer_alpha, replacement_transfer)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let prepared = prepare_simulation(&self.tree, origin_species, &config)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let rng = init_rng(seed);
+
+        Ok(PyDtlSimIter {
+            species_arc: prepared.species_tree,
+            species_events: prepared.species_events,
+            depths: prepared.depths,
+            contemporaneity: prepared.contemporaneity,
+            lca_depths: prepared.lca_depths,
+            runtime: prepared.runtime,
             origin_species,
             config,
             n_simulations: n,
@@ -860,6 +1078,49 @@ impl PySpeciesTree {
             depths: prepared.depths,
             contemporaneity: prepared.contemporaneity,
             lca_depths: prepared.lca_depths,
+            runtime: prepared.runtime,
+            origin_species,
+            config,
+            n_simulations: n,
+            require_extant,
+            mode: DTLMode::PerSpecies,
+            rng,
+            completed: 0,
+        })
+    }
+
+    /// Create a lazy per-species DTL iterator using full branch-specific rates.
+    #[pyo3(signature = (lambda_d, lambda_t, lambda_l, origination_probability, transfer_alpha=None, replacement_transfer=None, n=1, require_extant=false, seed=None))]
+    fn simulate_dtl_per_species_iter_with_branch_rates(
+        &self,
+        lambda_d: Vec<f64>,
+        lambda_t: Vec<f64>,
+        lambda_l: Vec<f64>,
+        origination_probability: Vec<f64>,
+        transfer_alpha: Option<f64>,
+        replacement_transfer: Option<f64>,
+        n: usize,
+        require_extant: bool,
+        seed: Option<u64>,
+    ) -> PyResult<PyDtlSimIter> {
+        validate_replacement_transfer(replacement_transfer)?;
+        let branch_rates =
+            make_branch_rates(lambda_d, lambda_t, lambda_l, origination_probability)?;
+        let origin_species = self.tree.root;
+        let config =
+            DTLConfig::with_branch_rates(branch_rates, transfer_alpha, replacement_transfer)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let prepared = prepare_simulation(&self.tree, origin_species, &config)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let rng = init_rng(seed);
+
+        Ok(PyDtlSimIter {
+            species_arc: prepared.species_tree,
+            species_events: prepared.species_events,
+            depths: prepared.depths,
+            contemporaneity: prepared.contemporaneity,
+            lca_depths: prepared.lca_depths,
+            runtime: prepared.runtime,
             origin_species,
             config,
             n_simulations: n,

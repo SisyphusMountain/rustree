@@ -14,6 +14,7 @@ use std::sync::Arc;
 use super::event::DTLEvent;
 use super::gillespie::{simulate_dtl_gillespie, DTLMode};
 use super::utils::count_extant_genes;
+pub(crate) use super::utils::{simulate_dtl_gillespie_prepared, PreparedDtlRuntime};
 use super::DTLConfig;
 
 pub(crate) const MAX_EXTANT_ATTEMPTS: usize = 10_000;
@@ -48,6 +49,7 @@ pub struct DtlSimIter<'a, R: Rng> {
     depths: Vec<f64>,
     contemporaneity: Vec<Vec<usize>>,
     lca_depths: Option<Vec<Vec<f64>>>,
+    runtime: PreparedDtlRuntime,
     // Simulation parameters
     origin_species: usize,
     config: DTLConfig,
@@ -68,6 +70,7 @@ impl<'a, R: Rng> DtlSimIter<'a, R> {
         depths: Vec<f64>,
         contemporaneity: Vec<Vec<usize>>,
         lca_depths: Option<Vec<Vec<f64>>>,
+        runtime: PreparedDtlRuntime,
         origin_species: usize,
         config: DTLConfig,
         n_simulations: usize,
@@ -80,6 +83,7 @@ impl<'a, R: Rng> DtlSimIter<'a, R> {
             depths,
             contemporaneity,
             lca_depths,
+            runtime,
             origin_species,
             config,
             n_simulations,
@@ -163,17 +167,32 @@ impl<'a, R: Rng> Iterator for DtlSimIter<'a, R> {
 
         loop {
             let lca_ref = self.lca_depths.as_deref();
-            let result = simulate_dtl_gillespie(
-                self.mode,
-                &self.species_arc,
-                &self.species_events,
-                &self.depths,
-                &self.contemporaneity,
-                lca_ref,
-                self.origin_species,
-                &self.config,
-                &mut *self.rng,
-            );
+            let result = if self.config.uses_branch_rates() {
+                simulate_dtl_gillespie_prepared(
+                    self.mode,
+                    &self.species_arc,
+                    &self.species_events,
+                    &self.depths,
+                    &self.contemporaneity,
+                    lca_ref,
+                    self.origin_species,
+                    &self.config,
+                    &self.runtime,
+                    &mut *self.rng,
+                )
+            } else {
+                simulate_dtl_gillespie(
+                    self.mode,
+                    &self.species_arc,
+                    &self.species_events,
+                    &self.depths,
+                    &self.contemporaneity,
+                    lca_ref,
+                    self.origin_species,
+                    &self.config,
+                    &mut *self.rng,
+                )
+            };
 
             match result {
                 Ok((rec_tree, events)) => {
@@ -184,10 +203,18 @@ impl<'a, R: Rng> Iterator for DtlSimIter<'a, R> {
                     // Retry: tree had no extant genes
                     attempts += 1;
                     if attempts >= MAX_EXTANT_ATTEMPTS {
+                        let rate_hint = if self.config.uses_branch_rates() {
+                            "The branch-specific DTL rates may make extant genes extremely unlikely.".to_string()
+                        } else {
+                            format!(
+                                "The DTL rates (d={}, t={}, l={}) may make extant genes extremely unlikely.",
+                                self.config.lambda_d, self.config.lambda_t, self.config.lambda_l
+                            )
+                        };
                         return Some(Err(RustreeError::Simulation(format!(
                             "Failed to generate a gene tree with extant genes after {} attempts. \
-                             The DTL rates (d={}, t={}, l={}) may make extant genes extremely unlikely.",
-                            MAX_EXTANT_ATTEMPTS, self.config.lambda_d, self.config.lambda_t, self.config.lambda_l
+                             {}",
+                            MAX_EXTANT_ATTEMPTS, rate_hint
                         ))));
                     }
                 }

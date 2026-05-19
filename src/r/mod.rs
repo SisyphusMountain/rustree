@@ -87,12 +87,20 @@ extendr_module! {
     fn gene_tree_to_xml_r;
     fn simulate_dtl_r;
     fn simulate_dtl_batch_r;
+    fn simulate_dtl_with_branch_rates_r;
+    fn simulate_dtl_batch_with_branch_rates_r;
     fn simulate_dtl_per_species_r;
     fn simulate_dtl_per_species_batch_r;
+    fn simulate_dtl_per_species_with_branch_rates_r;
+    fn simulate_dtl_per_species_batch_with_branch_rates_r;
     fn simulate_dtl_ape_r;
     fn simulate_dtl_batch_ape_r;
+    fn simulate_dtl_ape_with_branch_rates_r;
+    fn simulate_dtl_batch_ape_with_branch_rates_r;
     fn simulate_dtl_per_species_ape_r;
     fn simulate_dtl_per_species_batch_ape_r;
+    fn simulate_dtl_per_species_ape_with_branch_rates_r;
+    fn simulate_dtl_per_species_batch_ape_with_branch_rates_r;
     fn save_newick_r;
     fn save_xml_r;
     fn save_csv_r;
@@ -107,8 +115,12 @@ extendr_module! {
     fn induced_transfers_r;
     fn simulate_dtl_stream_xml_r;
     fn simulate_dtl_stream_newick_r;
+    fn simulate_dtl_stream_xml_with_branch_rates_r;
+    fn simulate_dtl_stream_newick_with_branch_rates_r;
     fn simulate_dtl_per_species_stream_xml_r;
     fn simulate_dtl_per_species_stream_newick_r;
+    fn simulate_dtl_per_species_stream_xml_with_branch_rates_r;
+    fn simulate_dtl_per_species_stream_newick_with_branch_rates_r;
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +220,7 @@ mod tests {
     #[test]
     fn make_rng_with_integer_seed() {
         test! {
-            let seed = Robj::from(42 as i32);
+            let seed = Robj::from(42_i32);
             let result = make_rng(&seed);
             assert!(result.is_ok());
         }
@@ -218,8 +230,8 @@ mod tests {
     fn make_rng_deterministic_with_same_seed() {
         test! {
             use rand::Rng;
-            let seed1 = Robj::from(123 as i32);
-            let seed2 = Robj::from(123 as i32);
+            let seed1 = Robj::from(123_i32);
+            let seed2 = Robj::from(123_i32);
             let mut rng1 = make_rng(&seed1).unwrap();
             let mut rng2 = make_rng(&seed2).unwrap();
             let val1: f64 = rng1.gen();
@@ -232,8 +244,8 @@ mod tests {
     fn make_rng_different_seeds_differ() {
         test! {
             use rand::Rng;
-            let seed1 = Robj::from(1 as i32);
-            let seed2 = Robj::from(2 as i32);
+            let seed1 = Robj::from(1_i32);
+            let seed2 = Robj::from(2_i32);
             let mut rng1 = make_rng(&seed1).unwrap();
             let mut rng2 = make_rng(&seed2).unwrap();
             let val1: f64 = rng1.gen();
@@ -254,7 +266,7 @@ mod tests {
     #[test]
     fn make_rng_with_float_fails() {
         test! {
-            let seed = Robj::from(3.14);
+            let seed = Robj::from(3.15);
             let result = make_rng(&seed);
             let _ = result;
         }
@@ -403,7 +415,7 @@ mod tests {
     #[test]
     fn species_tree_valid_params_succeed() {
         test! {
-            let result = simulate_species_tree_r(3, 2.0, 0.5, Robj::from(42 as i32));
+            let result = simulate_species_tree_r(3, 2.0, 0.5, Robj::from(42_i32));
             assert!(result.is_ok(), "Valid parameters should succeed: {:?}", result.unwrap_err());
         }
     }
@@ -411,7 +423,7 @@ mod tests {
     #[test]
     fn species_tree_zero_mu_allowed() {
         test! {
-            let result = simulate_species_tree_r(3, 1.0, 0.0, Robj::from(42 as i32));
+            let result = simulate_species_tree_r(3, 1.0, 0.0, Robj::from(42_i32));
             assert!(result.is_ok(), "mu=0 (pure birth) should be allowed: {:?}", result.unwrap_err());
         }
     }
@@ -419,8 +431,8 @@ mod tests {
     #[test]
     fn species_tree_seed_determinism() {
         test! {
-            let r1 = simulate_species_tree_r(5, 2.0, 0.5, Robj::from(99 as i32)).unwrap();
-            let r2 = simulate_species_tree_r(5, 2.0, 0.5, Robj::from(99 as i32)).unwrap();
+            let r1 = simulate_species_tree_r(5, 2.0, 0.5, Robj::from(99_i32)).unwrap();
+            let r2 = simulate_species_tree_r(5, 2.0, 0.5, Robj::from(99_i32)).unwrap();
             let names1: Vec<String> = r1.dollar("name").unwrap().as_str_vector().unwrap()
                 .iter().map(|s| s.to_string()).collect();
             let names2: Vec<String> = r2.dollar("name").unwrap().as_str_vector().unwrap()
@@ -485,7 +497,7 @@ mod tests {
             let result = simulate_dtl_stream_xml_r(
                 "(A:1,B:1);", 1, -0.1, 0.1, 0.1,
                 Robj::from(()), Robj::from(()), false,
-                Robj::from(42 as i32), "/tmp/rustree_test_should_not_exist",
+                Robj::from(42_i32), "/tmp/rustree_test_should_not_exist",
             );
             assert!(result.is_err());
             let err_msg = format!("{:?}", result.unwrap_err());
@@ -499,7 +511,7 @@ mod tests {
             let result = simulate_dtl_stream_xml_r(
                 "(A:1,B:1);", 0, 0.1, 0.1, 0.1,
                 Robj::from(()), Robj::from(()), false,
-                Robj::from(42 as i32), "/tmp/rustree_test_should_not_exist",
+                Robj::from(42_i32), "/tmp/rustree_test_should_not_exist",
             );
             assert!(result.is_err());
             let err_msg = format!("{:?}", result.unwrap_err());
@@ -513,7 +525,7 @@ mod tests {
             let result = simulate_dtl_stream_xml_r(
                 "(A:1,B:1);", -5, 0.1, 0.1, 0.1,
                 Robj::from(()), Robj::from(()), false,
-                Robj::from(42 as i32), "/tmp/rustree_test_should_not_exist",
+                Robj::from(42_i32), "/tmp/rustree_test_should_not_exist",
             );
             assert!(result.is_err());
         }

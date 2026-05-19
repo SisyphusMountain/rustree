@@ -540,3 +540,24 @@ When `replacement_transfer` is set (0.0 to 1.0), each transfer has a probability
 | `pandas` | DataFrame creation | `pip install pandas` |
 | `matplotlib` | LTT plotting | `pip install matplotlib` |
 | `IPython` | Jupyter notebook display | `pip install ipython` |
+
+## Branch-specific DTL rates
+
+Branch-specific DTL simulation is available with the `*_with_branch_rates` methods on `SpeciesTree`:
+
+```python
+n = species_tree.num_nodes()
+lambda_d = [0.1] * n
+lambda_t = [0.0] * n
+lambda_l = [0.05] * n
+origination_probability = [0.0] * n
+origination_probability[species_tree.root_index()] = 1.0
+
+gene_tree = species_tree.simulate_dtl_with_branch_rates(
+    lambda_d, lambda_t, lambda_l, origination_probability, seed=42
+)
+```
+
+Each vector must contain exactly one value per species-tree node. Node indices identify branches; the root node index represents the root stem branch. `origination_probability` is a categorical distribution and must sum to `1.0`, so each simulated family has one sampled origin branch.
+
+Batch, iterator, and per-species variants are also available as `simulate_dtl_batch_with_branch_rates`, `simulate_dtl_iter_with_branch_rates`, `simulate_dtl_per_species_with_branch_rates`, `simulate_dtl_per_species_batch_with_branch_rates`, and `simulate_dtl_per_species_iter_with_branch_rates`.

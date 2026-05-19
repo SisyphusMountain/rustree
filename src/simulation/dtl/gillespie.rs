@@ -35,13 +35,26 @@ impl DTLMode {
         depths: &[f64],
         contemporaneity: &[Vec<usize>],
         current_time: f64,
-        total_dtl_rate: f64,
+        config: &DTLConfig,
     ) -> f64 {
         match self {
-            DTLMode::PerGene => state.total_gene_copies() as f64 * total_dtl_rate,
+            DTLMode::PerGene => {
+                if config.uses_branch_rates() {
+                    state.total_gene_weighted_rate(|species| config.branch_total_rate(species))
+                } else {
+                    state.total_gene_copies() as f64 * config.branch_total_rate(0)
+                }
+            }
             DTLMode::PerSpecies => {
                 let time_idx = find_time_index(depths, current_time);
-                contemporaneity[time_idx].len() as f64 * total_dtl_rate
+                if config.uses_branch_rates() {
+                    contemporaneity[time_idx]
+                        .iter()
+                        .map(|&species| config.branch_total_rate(species))
+                        .sum()
+                } else {
+                    contemporaneity[time_idx].len() as f64 * config.branch_total_rate(0)
+                }
             }
         }
     }
@@ -52,10 +65,18 @@ impl DTLMode {
         depths: &[f64],
         contemporaneity: &[Vec<usize>],
         current_time: f64,
+        config: &DTLConfig,
         rng: &mut R,
     ) -> Option<(usize, usize)> {
         match self {
-            DTLMode::PerGene => state.random_gene_copy(rng),
+            DTLMode::PerGene => {
+                if config.uses_branch_rates() {
+                    state
+                        .random_gene_copy_weighted(|species| config.branch_total_rate(species), rng)
+                } else {
+                    state.random_gene_copy(rng)
+                }
+            }
             DTLMode::PerSpecies => {
                 let time_idx = find_time_index(depths, current_time);
                 let alive_species = &contemporaneity[time_idx];
@@ -63,7 +84,33 @@ impl DTLMode {
                     return None;
                 }
 
-                let species = alive_species[rng.gen_range(0..alive_species.len())];
+                let species = if config.uses_branch_rates() {
+                    let total_rate: f64 = alive_species
+                        .iter()
+                        .map(|&species| config.branch_total_rate(species))
+                        .sum();
+                    if total_rate <= 0.0 {
+                        return None;
+                    }
+
+                    let mut threshold = rng.gen::<f64>() * total_rate;
+                    let mut species = *alive_species.last()?;
+                    for &candidate in alive_species {
+                        let rate = config.branch_total_rate(candidate);
+                        if rate <= 0.0 {
+                            continue;
+                        }
+                        if threshold < rate {
+                            species = candidate;
+                            break;
+                        }
+                        threshold -= rate;
+                    }
+                    species
+                } else {
+                    alive_species[rng.gen_range(0..alive_species.len())]
+                };
+
                 match state.genes_per_species.get(&species) {
                     Some(genes) if !genes.is_empty() => {
                         let gene = genes[rng.gen_range(0..genes.len())];
@@ -99,26 +146,26 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
     config: &DTLConfig,
     rng: &mut R,
 ) -> Result<(RecTree, Vec<DTLEvent>), RustreeError> {
-    let lambda_d = config.lambda_d;
-    let lambda_t = config.lambda_t;
-    let lambda_l = config.lambda_l;
     let transfer_alpha = config.transfer_alpha;
     let replacement_transfer = config.replacement_transfer;
+    let origin_species = config.sample_origin(origin_species, rng);
 
-    let total_dtl_rate = lambda_d + lambda_t + lambda_l;
-    let dup_threshold = if total_dtl_rate > 0.0 {
-        lambda_d / total_dtl_rate
-    } else {
-        0.0
-    };
-    let transfer_threshold = if total_dtl_rate > 0.0 {
-        (lambda_d + lambda_t) / total_dtl_rate
-    } else {
-        0.0
-    };
     // Preallocate as many gene nodes as species nodes (for default case where there are no transfers, no duplications, no losses)
     let estimated_capacity = species_tree.nodes.len();
-    let mut state = SimulationState::new(estimated_capacity, species_tree);
+    let branch_total_rates = if config.uses_branch_rates() {
+        Some(
+            (0..species_tree.nodes.len())
+                .map(|species| config.branch_total_rate(species))
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        None
+    };
+    let mut state = SimulationState::with_branch_total_rates(
+        estimated_capacity,
+        species_tree,
+        branch_total_rates.as_deref(),
+    );
 
     // Find when origin species starts (beginning of its branch)
     let origin_node = species_tree.nodes.get(origin_species).ok_or_else(|| {
@@ -170,13 +217,8 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
             break;
         }
 
-        let dtl_total_rate = mode.total_event_rate(
-            &state,
-            depths,
-            contemporaneity,
-            current_time,
-            total_dtl_rate,
-        );
+        let dtl_total_rate =
+            mode.total_event_rate(&state, depths, contemporaneity, current_time, config);
 
         let next_dtl_time = current_time + draw_waiting_time(dtl_total_rate, rng);
 
@@ -243,8 +285,14 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
             // === Process DTL event ===
             current_time = next_dtl_time;
 
-            let selection =
-                mode.select_affected_gene(&state, depths, contemporaneity, current_time, rng);
+            let selection = mode.select_affected_gene(
+                &state,
+                depths,
+                contemporaneity,
+                current_time,
+                config,
+                rng,
+            );
 
             let (affected_species, affected_gene) = match selection {
                 Some(s) => s,
@@ -252,11 +300,17 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
             };
 
             // Determine event type
-            let event_prob: f64 = rng.gen();
-            if event_prob < dup_threshold {
+            let (lambda_d, lambda_t, lambda_l) = config.branch_event_rates(affected_species);
+            let branch_total_rate = lambda_d + lambda_t + lambda_l;
+            if branch_total_rate <= 0.0 {
+                continue;
+            }
+
+            let event_draw = rng.gen::<f64>() * branch_total_rate;
+            if event_draw < lambda_d {
                 // Duplication
                 state.handle_duplication(affected_gene, affected_species, current_time);
-            } else if event_prob < transfer_threshold {
+            } else if event_draw < lambda_d + lambda_t {
                 // Transfer
                 let recipient = match (transfer_alpha, lca_depths) {
                     (Some(alpha), Some(lca)) => select_transfer_recipient_assortative(
@@ -293,7 +347,7 @@ pub(crate) fn simulate_dtl_gillespie<R: Rng>(
                         current_time,
                     );
                 }
-            } else {
+            } else if lambda_l > 0.0 {
                 // Loss
                 state.handle_loss(affected_gene, affected_species, current_time);
             }
