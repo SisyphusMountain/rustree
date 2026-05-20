@@ -255,10 +255,12 @@ ValueError: ALERax not found at 'alerax'. Please install ALERax:
   conda install -c bioconda alerax
   or download from: https://github.com/BenoitMorel/AleRax
 
-# Insufficient species coverage
+# Insufficient species coverage is skipped and reported
 >>> results = rustree.reconcile_with_alerax(species_tree, small_gene_tree)
-ValueError: Input validation failed: Gene tree 'family_0' covers only 2 species
-(minimum 4 required for reconciliation)
+UserWarning: Skipping 1 gene families that do not meet ALERax minimum size
+requirements: family_0 (leaves=2, species=2)
+>>> results
+{}
 
 # Mismatched leaf names
 >>> results = rustree.reconcile_with_alerax(species_tree, wrong_gene_tree)

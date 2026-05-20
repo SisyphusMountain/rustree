@@ -1,8 +1,9 @@
 //! ALERax reconciliation Python bindings.
 
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyUserWarning, PyValueError};
 use pyo3::prelude::*;
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::sync::Arc;
 
 use super::forest::PyGeneForest;
@@ -57,6 +58,35 @@ impl PyAleRaxResult {
     }
 }
 
+fn warn_skipped_families(
+    py: Python,
+    skipped_families: &[crate::alerax::SkippedAleRaxFamily],
+) -> PyResult<()> {
+    if skipped_families.is_empty() {
+        return Ok(());
+    }
+
+    let skipped = skipped_families
+        .iter()
+        .map(|family| {
+            format!(
+                "{} (leaves={}, species={})",
+                family.family_name, family.leaf_count, family.species_count
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let message = CString::new(format!(
+        "Skipping {} gene families that do not meet ALERax minimum size requirements: {}",
+        skipped_families.len(),
+        skipped
+    ))
+    .map_err(|e| PyValueError::new_err(format!("Failed to create warning message: {}", e)))?;
+
+    let warning = py.get_type::<PyUserWarning>();
+    pyo3::PyErr::warn(py, &warning, &message, 1)
+}
+
 /// Reconcile gene trees with species tree using ALERax.
 ///
 /// Calls the external ALERax tool to perform phylogenetic reconciliation,
@@ -77,8 +107,8 @@ impl PyAleRaxResult {
 /// * `alerax_path` - Path to alerax executable (default: "alerax")
 ///
 /// # Returns
-/// Dictionary mapping family names to PyAleRaxResult objects containing
-/// reconciled gene trees and estimated evolutionary rates.
+/// Dictionary mapping successfully reconciled family names to PyAleRaxResult
+/// objects. Families below ALERax's minimum size are skipped with a warning.
 ///
 /// # Example
 /// ```python
@@ -109,7 +139,9 @@ pub fn reconcile_with_alerax(
     keep_output: bool,
     alerax_path: String,
 ) -> PyResult<HashMap<String, PyAleRaxResult>> {
-    use crate::alerax::{run_alerax, validate_inputs, AleRaxConfig, GeneFamily, ModelType};
+    use crate::alerax::{
+        partition_gene_trees_for_alerax, run_alerax, AleRaxConfig, GeneFamily, ModelType,
+    };
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -237,9 +269,15 @@ pub fn reconcile_with_alerax(
         return Err(PyValueError::new_err("No gene trees provided"));
     }
 
-    // Validate inputs before running ALERax
-    validate_inputs(&species_tree_obj.tree, &gene_tree_list)
-        .map_err(|e| PyValueError::new_err(format!("Input validation failed: {}", e)))?;
+    // Validate and skip families that ALERax cannot process.
+    let (gene_tree_list, skipped_families) =
+        partition_gene_trees_for_alerax(&species_tree_obj.tree, &gene_tree_list)
+            .map_err(|e| PyValueError::new_err(format!("Input validation failed: {}", e)))?;
+    warn_skipped_families(py, &skipped_families)?;
+
+    if gene_tree_list.is_empty() {
+        return Ok(HashMap::new());
+    }
 
     // Create output directory
     let (output_path, _temp_dir) = if let Some(dir) = output_dir {
@@ -292,7 +330,7 @@ pub fn reconcile_with_alerax(
     // Auto-rename: map ALERax species names back to original names.
     // ALERax internally renames species tree nodes; reconcile_forest() does this
     // rename automatically, but run_alerax() does not, so we replicate it here.
-    {
+    if !results.is_empty() {
         use crate::node::map_by_topology;
 
         // Get the ALERax species tree from the first parsed result

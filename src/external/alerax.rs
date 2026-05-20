@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
+const MIN_ALERAX_LEAVES: usize = 4;
+
 /// Configuration for ALERax reconciliation
 pub struct AleRaxConfig {
     pub species_tree_path: PathBuf,
@@ -83,6 +85,15 @@ pub struct AleRaxFamilyResult {
     pub statistics: ReconciliationStatistics,
 }
 
+/// A gene family skipped before ALERax execution.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SkippedAleRaxFamily {
+    pub family_name: String,
+    pub leaf_count: usize,
+    pub species_count: usize,
+    pub reason: String,
+}
+
 /// A row from ALERax's meanSpeciesEventCounts.txt or totalSpeciesEventCounts.txt.
 ///
 /// Represents the mean event counts for one species node across all
@@ -123,6 +134,8 @@ pub struct AleRaxForestResult {
     pub total_transfers: Vec<TransferRow>,
     /// The output directory (if keep_output=true)
     pub output_dir: Option<PathBuf>,
+    /// Families skipped before ALERax because they do not meet ALERax input requirements.
+    pub skipped_families: Vec<SkippedAleRaxFamily>,
 }
 
 /// Check if ALERax is installed and accessible
@@ -169,50 +182,139 @@ pub fn validate_inputs(
         return Err("Species tree has no leaves".to_string());
     }
 
-    // Check each gene tree
+    validate_gene_tree_inputs(&species_leaf_names, gene_trees)?;
+
+    Ok(())
+}
+
+fn validate_gene_tree_inputs(
+    species_leaf_names: &HashSet<String>,
+    gene_trees: &[(String, String)],
+) -> Result<(), String> {
     for (family_name, newick) in gene_trees {
-        // Parse gene tree to check leaves
-        let mut nodes = crate::newick::parse_newick(newick)
-            .map_err(|e| format!("Failed to parse gene tree '{}': {}", family_name, e))?;
+        inspect_gene_tree_for_alerax(species_leaf_names, family_name, newick)?;
+    }
+    Ok(())
+}
 
-        let root = nodes
-            .pop()
-            .ok_or_else(|| format!("Gene tree for family '{}' is empty", family_name))?;
+fn inspect_gene_tree_for_alerax(
+    species_leaf_names: &HashSet<String>,
+    family_name: &str,
+    newick: &str,
+) -> Result<Option<SkippedAleRaxFamily>, String> {
+    let parseable_newick = if newick.trim().ends_with(';') {
+        newick.trim().to_string()
+    } else {
+        format!("{};", newick.trim())
+    };
+    let mut nodes = crate::newick::parse_newick(&parseable_newick)
+        .map_err(|e| format!("Failed to parse gene tree '{}': {}", family_name, e))?;
 
-        let gene_tree = root.to_flat_tree();
+    let root = nodes
+        .pop()
+        .ok_or_else(|| format!("Gene tree for family '{}' is empty", family_name))?;
 
-        // Extract gene leaf names and map to species
-        let gene_leaf_species: HashSet<String> = gene_tree
-            .nodes
-            .iter()
-            .filter(|n| n.left_child.is_none() && n.right_child.is_none())
-            .map(|n| extract_species_from_gene_name(&n.name))
-            .collect();
+    let gene_tree = root.to_flat_tree();
 
-        // Check if gene leaves are subset of species leaves
-        let unmapped: Vec<&String> = gene_leaf_species
-            .iter()
-            .filter(|name| !species_leaf_names.contains(*name))
-            .collect();
+    let gene_leaf_species: Vec<String> = gene_tree
+        .nodes
+        .iter()
+        .filter(|n| n.left_child.is_none() && n.right_child.is_none())
+        .map(|n| extract_species_from_gene_name(&n.name))
+        .collect();
 
-        if !unmapped.is_empty() {
-            return Err(format!(
-                "Gene tree '{}' has leaves not in species tree: {:?}",
-                family_name, unmapped
-            ));
-        }
+    let leaf_count = gene_leaf_species.len();
+    let unique_species: HashSet<String> = gene_leaf_species.into_iter().collect();
+    let species_count = unique_species.len();
 
-        // Check minimum coverage (ALERax requires at least 4 species)
-        if gene_leaf_species.len() < 4 {
-            return Err(format!(
-                "Gene tree '{}' covers only {} species (minimum 4 required for reconciliation)",
-                family_name,
-                gene_leaf_species.len()
-            ));
+    let mut unmapped: Vec<String> = unique_species
+        .iter()
+        .filter(|name| !species_leaf_names.contains(*name))
+        .cloned()
+        .collect();
+    unmapped.sort();
+
+    if !unmapped.is_empty() {
+        return Err(format!(
+            "Gene tree '{}' has leaves not in species tree: {:?}",
+            family_name, unmapped
+        ));
+    }
+
+    if leaf_count < MIN_ALERAX_LEAVES || species_count < MIN_ALERAX_LEAVES {
+        let reason = match (
+            leaf_count < MIN_ALERAX_LEAVES,
+            species_count < MIN_ALERAX_LEAVES,
+        ) {
+            (true, true) => format!(
+                "Gene tree has only {} leaves and covers only {} species; ALERax requires at least {} of each",
+                leaf_count, species_count, MIN_ALERAX_LEAVES
+            ),
+            (true, false) => format!(
+                "Gene tree has only {} leaves; ALERax requires at least {}",
+                leaf_count, MIN_ALERAX_LEAVES
+            ),
+            (false, true) => format!(
+                "Gene tree covers only {} species; ALERax requires at least {}",
+                species_count, MIN_ALERAX_LEAVES
+            ),
+            (false, false) => unreachable!(),
+        };
+
+        return Ok(Some(SkippedAleRaxFamily {
+            family_name: family_name.to_string(),
+            leaf_count,
+            species_count,
+            reason,
+        }));
+    }
+
+    Ok(None)
+}
+
+pub fn partition_gene_trees_for_alerax(
+    species_tree: &FlatTree,
+    gene_trees: &[(String, String)],
+) -> Result<(Vec<(String, String)>, Vec<SkippedAleRaxFamily>), String> {
+    if species_tree.nodes.is_empty() {
+        return Err("Species tree is empty".to_string());
+    }
+
+    let species_leaf_names: HashSet<String> = species_tree
+        .nodes
+        .iter()
+        .filter(|n| n.left_child.is_none() && n.right_child.is_none())
+        .map(|n| n.name.clone())
+        .collect();
+
+    if species_leaf_names.is_empty() {
+        return Err("Species tree has no leaves".to_string());
+    }
+
+    let mut eligible = Vec::new();
+    let mut skipped = Vec::new();
+
+    for (family_name, newick) in gene_trees {
+        match inspect_gene_tree_for_alerax(&species_leaf_names, family_name, newick)? {
+            Some(skip) => skipped.push(skip),
+            None => eligible.push((family_name.clone(), newick.clone())),
         }
     }
 
-    Ok(())
+    Ok((eligible, skipped))
+}
+
+fn format_skipped_families(skipped: &[SkippedAleRaxFamily]) -> String {
+    skipped
+        .iter()
+        .map(|family| {
+            format!(
+                "{} (leaves={}, species={})",
+                family.family_name, family.leaf_count, family.species_count
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Create families.txt file in ALERax format
@@ -629,6 +731,68 @@ pub fn run_alerax(
     config: AleRaxConfig,
     species_tree_newick: &str,
 ) -> Result<HashMap<String, AleRaxFamilyResult>, String> {
+    let parseable_species_newick = if species_tree_newick.trim().ends_with(';') {
+        species_tree_newick.trim().to_string()
+    } else {
+        format!("{};", species_tree_newick.trim())
+    };
+    let mut species_nodes = crate::newick::parse_newick(&parseable_species_newick)
+        .map_err(|e| format!("Failed to parse species tree for ALERax validation: {}", e))?;
+    let species_root = species_nodes
+        .pop()
+        .ok_or_else(|| "Species tree is empty".to_string())?;
+    let species_tree = species_root.to_flat_tree();
+
+    let family_inputs: Vec<(String, String)> = config
+        .families
+        .iter()
+        .map(|family| (family.name.clone(), family.gene_tree_newick.clone()))
+        .collect();
+    let (eligible_inputs, skipped_families) =
+        partition_gene_trees_for_alerax(&species_tree, &family_inputs)?;
+
+    if !skipped_families.is_empty() {
+        log::warn!(
+            "Skipping {} ALERax gene families that do not meet minimum size requirements: {}",
+            skipped_families.len(),
+            format_skipped_families(&skipped_families)
+        );
+    }
+
+    if eligible_inputs.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let eligible_names: HashSet<String> = eligible_inputs
+        .into_iter()
+        .map(|(family_name, _)| family_name)
+        .collect();
+    let AleRaxConfig {
+        species_tree_path,
+        families,
+        families_file_path,
+        output_dir,
+        num_samples,
+        model_parametrization,
+        gene_tree_rooting,
+        seed,
+        alerax_path,
+    } = config;
+    let config = AleRaxConfig {
+        species_tree_path,
+        families: families
+            .into_iter()
+            .filter(|family| eligible_names.contains(&family.name))
+            .collect(),
+        families_file_path,
+        output_dir,
+        num_samples,
+        model_parametrization,
+        gene_tree_rooting,
+        seed,
+        alerax_path,
+    };
+
     // Check if ALERax is installed
     check_alerax_installed(&config.alerax_path)?;
 
@@ -968,6 +1132,50 @@ pub fn reconcile_forest(
         });
     }
 
+    let family_inputs: Vec<(String, String)> = families
+        .iter()
+        .map(|family| (family.name.clone(), family.gene_tree_newick.clone()))
+        .collect();
+    let (eligible_inputs, skipped_families) =
+        partition_gene_trees_for_alerax(original_species_tree, &family_inputs)?;
+
+    if !skipped_families.is_empty() {
+        log::warn!(
+            "Skipping {} ALERax gene families that do not meet minimum size requirements: {}",
+            skipped_families.len(),
+            format_skipped_families(&skipped_families)
+        );
+    }
+
+    let eligible_names: HashSet<String> = eligible_inputs
+        .into_iter()
+        .map(|(family_name, _)| family_name)
+        .collect();
+    families.retain(|family| eligible_names.contains(&family.name));
+
+    if families.is_empty() {
+        let kept_output_dir = if keep_output {
+            if let Some(td) = _temp_dir {
+                let path = td.path().to_path_buf();
+                let _ = td.keep();
+                Some(path)
+            } else {
+                Some(output_path)
+            }
+        } else {
+            None
+        };
+
+        return Ok(AleRaxForestResult {
+            family_results: HashMap::new(),
+            mean_species_event_counts: HashMap::new(),
+            total_species_event_counts: Vec::new(),
+            total_transfers: Vec::new(),
+            output_dir: kept_output_dir,
+            skipped_families,
+        });
+    }
+
     let alerax_output_dir = output_path.join("alerax_output");
 
     let config = AleRaxConfig {
@@ -1119,12 +1327,35 @@ pub fn reconcile_forest(
         total_species_event_counts,
         total_transfers,
         output_dir: kept_output_dir,
+        skipped_families,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node::Event;
+    use std::sync::Arc;
+
+    fn make_tree(newick: &str) -> FlatTree {
+        let mut nodes = crate::newick::parse_newick(newick).unwrap();
+        let mut root = nodes.pop().unwrap();
+        root.assign_depths(0.0);
+        root.to_flat_tree()
+    }
+
+    fn event_mapping_for_tree(tree: &FlatTree) -> Vec<Event> {
+        tree.nodes
+            .iter()
+            .map(|node| {
+                if node.left_child.is_none() && node.right_child.is_none() {
+                    Event::Leaf
+                } else {
+                    Event::Speciation
+                }
+            })
+            .collect()
+    }
 
     #[test]
     fn test_extract_species_from_gene_name() {
@@ -1163,6 +1394,104 @@ mod tests {
     fn test_model_type_as_str() {
         assert_eq!(ModelType::PerFamily.as_str(), "PER-FAMILY");
         assert_eq!(ModelType::Global.as_str(), "GLOBAL");
+    }
+
+    #[test]
+    fn test_partition_skips_families_with_less_than_four_leaves() {
+        let species_tree = make_tree("((A:1,B:1)AB:1,(C:1,D:1)CD:1)root:0;");
+        let gene_trees = vec![
+            (
+                "small".to_string(),
+                "((A_0:1,B_0:1):1,C_0:1)g:0;".to_string(),
+            ),
+            (
+                "eligible".to_string(),
+                "((A_0:1,B_0:1):1,(C_0:1,D_0:1):1)g:0;".to_string(),
+            ),
+        ];
+
+        let (eligible, skipped) =
+            partition_gene_trees_for_alerax(&species_tree, &gene_trees).unwrap();
+
+        assert_eq!(eligible.len(), 1);
+        assert_eq!(eligible[0].0, "eligible");
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].family_name, "small");
+        assert_eq!(skipped[0].leaf_count, 3);
+        assert_eq!(skipped[0].species_count, 3);
+    }
+
+    #[test]
+    fn test_partition_skips_families_with_less_than_four_species() {
+        let species_tree = make_tree("((A:1,B:1)AB:1,(C:1,D:1)CD:1)root:0;");
+        let gene_trees = vec![(
+            "duplicates".to_string(),
+            "((A_0:1,A_1:1):1,(B_0:1,C_0:1):1)g:0;".to_string(),
+        )];
+
+        let (eligible, skipped) =
+            partition_gene_trees_for_alerax(&species_tree, &gene_trees).unwrap();
+
+        assert!(eligible.is_empty());
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].leaf_count, 4);
+        assert_eq!(skipped[0].species_count, 3);
+        assert!(skipped[0].reason.contains("covers only 3 species"));
+    }
+
+    #[test]
+    fn test_partition_errors_on_unmapped_species() {
+        let species_tree = make_tree("((A:1,B:1)AB:1,(C:1,D:1)CD:1)root:0;");
+        let gene_trees = vec![(
+            "bad".to_string(),
+            "((A_0:1,B_0:1):1,(C_0:1,X_0:1):1)g:0;".to_string(),
+        )];
+
+        let err = partition_gene_trees_for_alerax(&species_tree, &gene_trees).unwrap_err();
+        assert!(err.contains("bad"));
+        assert!(err.contains("X"));
+    }
+
+    #[test]
+    fn test_reconcile_forest_all_skipped_does_not_require_alerax() {
+        let species_tree = make_tree("((A:1,B:1)AB:1,(C:1,D:1)CD:1)root:0;");
+        let species_arc = Arc::new(species_tree);
+        let small_gene_1 = make_tree("(A_0:1,B_0:1)g1:0;");
+        let small_gene_2 = make_tree("((A_0:1,B_0:1):1,C_0:1)g2:0;");
+
+        let rec_trees = vec![small_gene_1, small_gene_2]
+            .into_iter()
+            .map(|gene_tree| {
+                let len = gene_tree.nodes.len();
+                let event_mapping = event_mapping_for_tree(&gene_tree);
+                RecTree::new(
+                    Arc::clone(&species_arc),
+                    gene_tree,
+                    vec![None; len],
+                    event_mapping,
+                )
+            })
+            .collect();
+        let forest = GeneForest::from_rec_trees(Arc::clone(&species_arc), rec_trees);
+
+        let result = reconcile_forest(
+            &forest,
+            None,
+            10,
+            ModelType::PerFamily,
+            None,
+            Some(42),
+            "definitely-not-an-alerax-binary",
+            false,
+        )
+        .unwrap();
+
+        assert!(result.family_results.is_empty());
+        assert!(result.mean_species_event_counts.is_empty());
+        assert!(result.total_species_event_counts.is_empty());
+        assert!(result.total_transfers.is_empty());
+        assert!(result.output_dir.is_none());
+        assert_eq!(result.skipped_families.len(), 2);
     }
 
     #[test]

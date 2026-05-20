@@ -28,7 +28,7 @@ pub mod types;
 
 // Re-export submodule types for the pymodule registration and cross-module use
 pub use alerax::PyAleRaxResult;
-pub use forest::{PyAleRaxForestResult, PyGeneForest};
+pub use forest::{PyAleRaxForestResult, PyGeneForest, PySkippedAleRaxFamily};
 pub use gene_tree::{PyGeneTree, PyInducedTransfer};
 pub use reconciliation::{PyMultiSampleComparison, PyReconciliationComparison};
 pub use sim_iter::PyDtlSimIter;
@@ -217,6 +217,7 @@ fn rustree(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyAleRaxResult>()?;
     m.add_class::<PyGeneForest>()?;
     m.add_class::<PyAleRaxForestResult>()?;
+    m.add_class::<PySkippedAleRaxFamily>()?;
     m.add_class::<PyReconciliationComparison>()?;
     m.add_class::<PyMultiSampleComparison>()?;
     Ok(())

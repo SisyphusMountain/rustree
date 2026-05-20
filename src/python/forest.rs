@@ -147,7 +147,8 @@ impl PyGeneForest {
     /// * `alerax_path` - Path to alerax executable (default: "alerax")
     ///
     /// # Returns
-    /// An AleRaxForestResult containing all reconciliation data.
+    /// An AleRaxForestResult containing reconciliation data for eligible
+    /// families and skipped-family metadata for too-small families.
     #[pyo3(signature = (output_dir=None, num_samples=100, model="PER-FAMILY".to_string(), gene_tree_rooting=None, seed=None, keep_output=false, alerax_path="alerax".to_string()))]
     #[allow(clippy::too_many_arguments)]
     fn reconcile_with_alerax(
@@ -240,6 +241,41 @@ impl PyGeneForestIter {
 // ALERax Forest Result
 // ============================================================================
 
+/// A gene family skipped before ALERax execution.
+#[pyclass(name = "SkippedAleRaxFamily")]
+#[derive(Clone)]
+pub struct PySkippedAleRaxFamily {
+    #[pyo3(get)]
+    family_name: String,
+    #[pyo3(get)]
+    leaf_count: usize,
+    #[pyo3(get)]
+    species_count: usize,
+    #[pyo3(get)]
+    reason: String,
+}
+
+impl From<crate::alerax::SkippedAleRaxFamily> for PySkippedAleRaxFamily {
+    fn from(value: crate::alerax::SkippedAleRaxFamily) -> Self {
+        PySkippedAleRaxFamily {
+            family_name: value.family_name,
+            leaf_count: value.leaf_count,
+            species_count: value.species_count,
+            reason: value.reason,
+        }
+    }
+}
+
+#[pymethods]
+impl PySkippedAleRaxFamily {
+    fn __repr__(&self) -> String {
+        format!(
+            "SkippedAleRaxFamily(family_name='{}', leaf_count={}, species_count={}, reason='{}')",
+            self.family_name, self.leaf_count, self.species_count, self.reason
+        )
+    }
+}
+
 /// Comprehensive result of reconciling a GeneForest with ALERax.
 ///
 /// Contains per-family results (reconciled trees, rates, likelihoods)
@@ -253,6 +289,8 @@ pub struct PyAleRaxForestResult {
     total_transfers_data: Vec<crate::alerax::TransferRow>,
     #[pyo3(get)]
     output_dir: Option<String>,
+    #[pyo3(get)]
+    skipped_families: Vec<PySkippedAleRaxFamily>,
 }
 
 impl PyAleRaxForestResult {
@@ -325,6 +363,11 @@ impl PyAleRaxForestResult {
             total_species_event_counts_data: result.total_species_event_counts,
             total_transfers_data: result.total_transfers,
             output_dir: result.output_dir.map(|p| p.to_string_lossy().to_string()),
+            skipped_families: result
+                .skipped_families
+                .into_iter()
+                .map(PySkippedAleRaxFamily::from)
+                .collect(),
         }
     }
 }
@@ -426,8 +469,9 @@ impl PyAleRaxForestResult {
 
     fn __repr__(&self) -> String {
         format!(
-            "AleRaxForestResult(families={}, total_species={})",
+            "AleRaxForestResult(families={}, skipped={}, total_species={})",
             self.family_results.len(),
+            self.skipped_families.len(),
             self.total_species_event_counts_data.len()
         )
     }

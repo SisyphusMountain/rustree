@@ -108,7 +108,9 @@ def reconcile_with_alerax(
         alerax_path: Path to the ``alerax`` executable.
 
     Returns:
-        Dictionary mapping family names to PyAleRaxResult objects.
+        Dictionary mapping successfully reconciled family names to
+        PyAleRaxResult objects. Families below ALERax's minimum size are
+        skipped with a warning.
 
     Raises:
         ValueError: If inputs are invalid or ALERax execution fails.
@@ -1574,7 +1576,8 @@ class GeneForest:
             alerax_path: Path to ``alerax`` executable.
 
         Returns:
-            An AleRaxForestResult containing all reconciliation data.
+            An AleRaxForestResult containing reconciliation data for eligible
+            families and skipped-family metadata for too-small families.
 
         Raises:
             ValueError: If reconciliation fails.
@@ -1620,11 +1623,34 @@ class PyAleRaxResult:
         """Summary statistics across all reconciliation samples."""
         ...
 
+class SkippedAleRaxFamily:
+    """Gene family skipped before ALERax execution."""
+
+    @property
+    def family_name(self) -> str:
+        """Family name."""
+        ...
+
+    @property
+    def leaf_count(self) -> int:
+        """Number of gene-tree leaves."""
+        ...
+
+    @property
+    def species_count(self) -> int:
+        """Number of distinct mapped species."""
+        ...
+
+    @property
+    def reason(self) -> str:
+        """Reason the family was skipped."""
+        ...
+
 class AleRaxForestResult:
     """Comprehensive result of reconciling a GeneForest with ALERax.
 
-    Contains per-family results, aggregate species event counts, and
-    total transfers.
+    Contains per-family results, skipped-family metadata, aggregate species
+    event counts, and total transfers.
     """
 
     @property
@@ -1635,6 +1661,11 @@ class AleRaxForestResult:
     @property
     def output_dir(self) -> Optional[str]:
         """Output directory path, if preserved."""
+        ...
+
+    @property
+    def skipped_families(self) -> List[SkippedAleRaxFamily]:
+        """Families skipped because they do not meet ALERax input requirements."""
         ...
 
     def mean_species_event_counts(
