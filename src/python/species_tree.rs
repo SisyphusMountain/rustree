@@ -1236,6 +1236,9 @@ impl PySpeciesTree {
     /// Args:
     ///     sampled_leaf_names: Names of species leaves to keep.
     ///     transfers: List of `(time, gene_id, donor_species_name, recipient_species_name)`.
+    ///     mode: "projection" or "damien". "induced_tr" requires a complete
+    ///         gene history and is only supported by `PyGeneTree`.
+    ///     remove_undetectable: Whether to filter undetectable transfers.
     ///
     /// Returns:
     ///     A pandas DataFrame with the same columns as
@@ -1281,19 +1284,12 @@ impl PySpeciesTree {
                 // so we leave them as harmless placeholders.
                 donor_child: 0,
                 recipient_child: 0,
+                vertical_recipient_parent: None,
             });
         }
 
-        let algorithm = match mode.to_ascii_lowercase().as_str() {
-            "projection" => InducedTransferAlgorithm::Projection,
-            "damien" | "damien_style" | "damien-style" => InducedTransferAlgorithm::DamienStyle,
-            other => {
-                return Err(PyValueError::new_err(format!(
-                    "Unknown mode '{}'. Expected 'projection' or 'damien'",
-                    other
-                )))
-            }
-        };
+        let algorithm =
+            InducedTransferAlgorithm::parse_mode(mode).map_err(PyValueError::new_err)?;
 
         let induced = induced_transfers_with_algorithm(
             &self.tree,

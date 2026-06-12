@@ -981,6 +981,8 @@ class PySpeciesTree:
         self,
         sampled_leaf_names: List[str],
         transfers: List[Tuple[float, int, str, str]],
+        mode: str = "projection",
+        remove_undetectable: bool = False,
     ) -> pd.DataFrame:
         """Compute induced transfers from an externally-supplied list of events.
 
@@ -993,6 +995,10 @@ class PySpeciesTree:
             sampled_leaf_names: Names of species leaves to keep.
             transfers: List of ``(time, gene_id, donor_species_name,
                 recipient_species_name)`` tuples.
+            mode: ``"projection"`` or ``"damien"``. ``"induced_tr"``
+                requires a complete gene history and is only supported by
+                :py:meth:`PyGeneTree.compute_induced_transfers`.
+            remove_undetectable: Whether to filter undetectable transfers.
 
         Returns:
             A pandas DataFrame with columns: ``time``, ``gene_id``,
@@ -1320,11 +1326,16 @@ class PyGeneTree:
     def compute_induced_transfers(
         self,
         sampled_leaf_names: List[str],
+        mode: str = "projection",
+        remove_undetectable: bool = False,
     ) -> pd.DataFrame:
-        """Compute induced transfers by projecting transfers onto a sampled species tree.
+        """Compute induced transfers on a sampled species tree.
 
         Args:
             sampled_leaf_names: Names of species leaves to keep.
+            mode: ``"projection"``, ``"damien"``, or ``"induced_tr"``.
+                ``"induced_tr"`` uses the complete copy-resolved gene history.
+            remove_undetectable: Whether to filter undetectable transfers.
 
         Returns:
             A pandas DataFrame with columns: ``time``, ``gene_id``,

@@ -191,6 +191,7 @@ impl<'a> SimulationState<'a> {
         donor_species: usize,
         recipient_species: usize,
         event_time: f64,
+        vertical_recipient_parent: Option<usize>,
     ) -> (usize, usize) {
         self.update_gene_to_time(parent_idx, event_time);
         self.remove_gene_from_species(donor_species, parent_idx);
@@ -219,6 +220,7 @@ impl<'a> SimulationState<'a> {
             to_species: recipient_species,
             donor_child: donor_child_idx,
             recipient_child: recipient_child_idx,
+            vertical_recipient_parent,
         });
 
         (donor_child_idx, recipient_child_idx)

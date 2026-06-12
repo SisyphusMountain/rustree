@@ -954,6 +954,7 @@ pub(crate) fn rlist_to_dtl_events(
                     to_species: to_idx,
                     donor_child: 0,
                     recipient_child: 0,
+                    vertical_recipient_parent: None,
                 }
             }
             "Loss" => DTLEvent::Loss {

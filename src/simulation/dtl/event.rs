@@ -30,6 +30,7 @@ pub enum DTLEvent {
         to_species: usize,
         donor_child: usize,
         recipient_child: usize,
+        vertical_recipient_parent: Option<usize>,
     },
     /// Loss: gene is lost (lineage terminates)
     Loss {
@@ -61,7 +62,7 @@ impl DTLEvent {
                 right_child,
             } => {
                 format!(
-                    "{},{},Speciation,{},,,{},{}",
+                    "{},{},Speciation,{},,,{},{},",
                     time,
                     csv_field(&gene_tree.nodes[*gene_id].name),
                     csv_field(&species_tree.nodes[*species_id].name),
@@ -77,7 +78,7 @@ impl DTLEvent {
                 child2,
             } => {
                 format!(
-                    "{},{},Duplication,{},,,{},{}",
+                    "{},{},Duplication,{},,,{},{},",
                     time,
                     csv_field(&gene_tree.nodes[*gene_id].name),
                     csv_field(&species_tree.nodes[*species_id].name),
@@ -93,16 +94,21 @@ impl DTLEvent {
                 to_species,
                 donor_child,
                 recipient_child,
+                vertical_recipient_parent,
             } => {
+                let vertical_parent = vertical_recipient_parent
+                    .map(|idx| csv_field(&gene_tree.nodes[idx].name))
+                    .unwrap_or_default();
                 format!(
-                    "{},{},Transfer,{},{},{},{},{}",
+                    "{},{},Transfer,{},{},{},{},{},{}",
                     time,
                     csv_field(&gene_tree.nodes[*gene_id].name),
                     csv_field(&species_tree.nodes[*species_id].name),
                     csv_field(&species_tree.nodes[*from_species].name), // from_species is the same as species_id, but we include it for clarity in the output
                     csv_field(&species_tree.nodes[*to_species].name),
                     csv_field(&gene_tree.nodes[*donor_child].name),
-                    csv_field(&gene_tree.nodes[*recipient_child].name)
+                    csv_field(&gene_tree.nodes[*recipient_child].name),
+                    vertical_parent
                 )
             }
             DTLEvent::Loss {
@@ -111,7 +117,7 @@ impl DTLEvent {
                 species_id,
             } => {
                 format!(
-                    "{},{},Loss,{},,,,",
+                    "{},{},Loss,{},,,,,",
                     time,
                     csv_field(&gene_tree.nodes[*gene_id].name),
                     csv_field(&species_tree.nodes[*species_id].name)
@@ -123,7 +129,7 @@ impl DTLEvent {
                 species_id,
             } => {
                 format!(
-                    "{},{},Leaf,{},,,,",
+                    "{},{},Leaf,{},,,,,",
                     time,
                     csv_field(&gene_tree.nodes[*gene_id].name),
                     csv_field(&species_tree.nodes[*species_id].name)
@@ -141,8 +147,9 @@ impl DTLEvent {
     // recipient_species: for Transfer events, the **name** of the species to which the gene is transferred
     // child1_name: name of the first child gene node involved in the event (if applicable)
     // child2_name: name of the second child gene node involved in the event (if applicable)
+    // vertical_recipient_parent_name: for replacement Transfer events, the replaced recipient lineage
     pub fn csv_header() -> &'static str {
-        "time,gene_node_name,event_type,species_node,donor_species,recipient_species,child1_name,child2_name"
+        "time,gene_node_name,event_type,species_node,donor_species,recipient_species,child1_name,child2_name,vertical_recipient_parent_name"
     }
 }
 

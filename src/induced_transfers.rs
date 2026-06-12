@@ -8,7 +8,7 @@
 
 use crate::dtl::DTLEvent;
 use crate::error::RustreeError;
-use crate::node::FlatTree;
+use crate::node::{Event, FlatTree, RecTree};
 use crate::sampling::{
     extract_induced_subtree, find_leaf_indices_by_names, mark_nodes_postorder, NodeMark,
 };
@@ -37,6 +37,22 @@ pub enum InducedTransferAlgorithm {
     Projection,
     /// Damien-style induced transfer inference on sampled lineages.
     DamienStyle,
+    /// Copy-resolved induced transfer inference from `simulations/induced_tr.md`.
+    InducedTr,
+}
+
+impl InducedTransferAlgorithm {
+    pub fn parse_mode(mode: &str) -> Result<Self, String> {
+        match mode.to_ascii_lowercase().as_str() {
+            "projection" => Ok(Self::Projection),
+            "damien" | "damien_style" | "damien-style" => Ok(Self::DamienStyle),
+            "induced_tr" | "induced-tr" | "inducedtr" => Ok(Self::InducedTr),
+            other => Err(format!(
+                "Unknown mode '{}'. Expected 'projection', 'damien', or 'induced_tr'",
+                other
+            )),
+        }
+    }
 }
 
 struct SampleProjection {
@@ -90,6 +106,9 @@ struct RawTransferEvent {
     gene_id: usize,
     from_species: usize,
     to_species: usize,
+    donor_child: usize,
+    recipient_child: usize,
+    vertical_recipient_parent: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -272,6 +291,112 @@ pub fn induced_transfers(
     Ok(out)
 }
 
+/// Computes induced transfers from a complete copy-resolved gene history.
+///
+/// This implements the algorithm in `simulations/induced_tr.md`, projected into
+/// the current `InducedTransfer` record type: gene-side donor/recipient nodes
+/// are converted to species-side complete and sampled-tree node indices.
+pub fn induced_transfers_induced_tr(
+    rec_tree: &RecTree,
+    sampled_leaf_names: &[String],
+    remove_undetectable: bool,
+) -> Result<Vec<InducedTransfer>, RustreeError> {
+    let events = rec_tree.dtl_events.as_ref().ok_or_else(|| {
+        RustreeError::Validation(
+            "induced_tr mode requires DTL events from a simulated gene history".to_string(),
+        )
+    })?;
+    let projection = SampleProjection::new(&rec_tree.species_tree, sampled_leaf_names)?;
+    let transfer_events = transfer_events_from_dtl(events, rec_tree.species_tree.nodes.len())?;
+    let sampled_gene_leaves = sampled_gene_leaves(rec_tree, sampled_leaf_names)?;
+    let descendant_sets = descendant_sampled_gene_leaves(&rec_tree.gene_tree, &sampled_gene_leaves);
+
+    let mut out = Vec::with_capacity(transfer_events.len());
+    for transfer in transfer_events {
+        validate_gene_transfer_event(rec_tree, &transfer)?;
+
+        let b_e = &descendant_sets[transfer.recipient_child];
+        if b_e.is_empty() {
+            if !remove_undetectable {
+                out.push(undefined_induced_transfer(&transfer));
+            }
+            continue;
+        }
+
+        let y_e: HashSet<usize> = sampled_gene_leaves.difference(b_e).copied().collect();
+        if y_e.is_empty() {
+            if !remove_undetectable {
+                out.push(undefined_induced_transfer(&transfer));
+            }
+            continue;
+        }
+
+        let mut donor_node = transfer.gene_id;
+        while descendant_sets[donor_node]
+            .intersection(&y_e)
+            .next()
+            .is_none()
+        {
+            let Some(parent) = rec_tree.gene_tree.nodes[donor_node].parent else {
+                donor_node = usize::MAX;
+                break;
+            };
+            donor_node = parent;
+        }
+
+        if donor_node == usize::MAX {
+            if !remove_undetectable {
+                out.push(undefined_induced_transfer(&transfer));
+            }
+            continue;
+        }
+
+        let c_e: HashSet<usize> = descendant_sets[donor_node]
+            .intersection(&y_e)
+            .copied()
+            .collect();
+        if c_e.is_empty() {
+            if !remove_undetectable {
+                out.push(undefined_induced_transfer(&transfer));
+            }
+            continue;
+        }
+
+        let from_complete = species_lca_for_gene_leaves(rec_tree, &c_e)?;
+        let to_complete = species_lca_for_gene_leaves(rec_tree, b_e)?;
+        let from_sampled = projection.sampled_index(from_complete)?;
+        let to_sampled = projection.sampled_index(to_complete)?;
+
+        if remove_undetectable {
+            if let Some(vertical_parent) = transfer.vertical_recipient_parent {
+                if !visible_counterfactual(
+                    rec_tree,
+                    &transfer,
+                    &sampled_gene_leaves,
+                    vertical_parent,
+                )? {
+                    continue;
+                }
+            }
+            if from_sampled.is_none() || to_sampled.is_none() {
+                continue;
+            }
+        }
+
+        out.push(InducedTransfer {
+            time: transfer.time,
+            gene_id: transfer.gene_id,
+            from_species_complete: from_complete,
+            to_species_complete: to_complete,
+            from_species_sampled: from_sampled,
+            to_species_sampled: to_sampled,
+        });
+    }
+
+    out.sort_by(|a, b| a.time.total_cmp(&b.time));
+    Ok(out)
+}
+
 fn transfer_events_from_dtl(
     events: &[DTLEvent],
     node_count: usize,
@@ -283,6 +408,9 @@ fn transfer_events_from_dtl(
             gene_id,
             from_species,
             to_species,
+            donor_child,
+            recipient_child,
+            vertical_recipient_parent,
             ..
         } = event
         {
@@ -293,6 +421,9 @@ fn transfer_events_from_dtl(
                 gene_id: *gene_id,
                 from_species: *from_species,
                 to_species: *to_species,
+                donor_child: *donor_child,
+                recipient_child: *recipient_child,
+                vertical_recipient_parent: *vertical_recipient_parent,
             });
         }
     }
@@ -309,9 +440,266 @@ fn validate_species_index(idx: usize, node_count: usize, label: &str) -> Result<
     Ok(())
 }
 
+fn validate_gene_transfer_event(
+    rec_tree: &RecTree,
+    transfer: &RawTransferEvent,
+) -> Result<(), RustreeError> {
+    let gene_count = rec_tree.gene_tree.nodes.len();
+    for (idx, label) in [
+        (transfer.gene_id, "transfer gene_id"),
+        (transfer.donor_child, "transfer donor_child"),
+        (transfer.recipient_child, "transfer recipient_child"),
+    ] {
+        if idx >= gene_count {
+            return Err(RustreeError::Index(format!(
+                "{} index {} is out of bounds for gene tree with {} nodes",
+                label, idx, gene_count
+            )));
+        }
+    }
+    if let Some(idx) = transfer.vertical_recipient_parent {
+        if idx >= gene_count {
+            return Err(RustreeError::Index(format!(
+                "transfer vertical_recipient_parent index {} is out of bounds for gene tree with {} nodes",
+                idx, gene_count
+            )));
+        }
+    }
+
+    if rec_tree.gene_tree.nodes[transfer.donor_child].parent != Some(transfer.gene_id) {
+        return Err(RustreeError::Tree(format!(
+            "transfer donor_child {} is not a child of gene_id {}",
+            transfer.donor_child, transfer.gene_id
+        )));
+    }
+    if rec_tree.gene_tree.nodes[transfer.recipient_child].parent != Some(transfer.gene_id) {
+        return Err(RustreeError::Tree(format!(
+            "transfer recipient_child {} is not a child of gene_id {}",
+            transfer.recipient_child, transfer.gene_id
+        )));
+    }
+
+    Ok(())
+}
+
+fn visible_counterfactual(
+    rec_tree: &RecTree,
+    transfer: &RawTransferEvent,
+    sampled_gene_leaves: &HashSet<usize>,
+    vertical_parent: usize,
+) -> Result<bool, RustreeError> {
+    let realized = reduced_gene_topology(
+        &rec_tree.gene_tree,
+        sampled_gene_leaves,
+        transfer.gene_id,
+        transfer.recipient_child,
+        None,
+    )?;
+    let counterfactual = reduced_gene_topology(
+        &rec_tree.gene_tree,
+        sampled_gene_leaves,
+        transfer.gene_id,
+        transfer.recipient_child,
+        Some(vertical_parent),
+    )?;
+    Ok(realized != counterfactual)
+}
+
+fn reduced_gene_topology(
+    gene_tree: &FlatTree,
+    sampled_gene_leaves: &HashSet<usize>,
+    transfer_parent: usize,
+    transferred_child: usize,
+    counterfactual_parent: Option<usize>,
+) -> Result<Option<String>, RustreeError> {
+    fn visit(
+        tree: &FlatTree,
+        idx: usize,
+        sampled_gene_leaves: &HashSet<usize>,
+        transfer_parent: usize,
+        transferred_child: usize,
+        counterfactual_parent: Option<usize>,
+        seen: &mut HashSet<usize>,
+    ) -> Result<Option<String>, RustreeError> {
+        if !seen.insert(idx) {
+            return Err(RustreeError::Tree(format!(
+                "cycle while reducing counterfactual gene topology at node {}",
+                idx
+            )));
+        }
+
+        if sampled_gene_leaves.contains(&idx) {
+            seen.remove(&idx);
+            return Ok(Some(tree.nodes[idx].name.clone()));
+        }
+
+        let mut children = Vec::new();
+        if let Some(left) = tree.nodes[idx].left_child {
+            children.push(left);
+        }
+        if let Some(right) = tree.nodes[idx].right_child {
+            children.push(right);
+        }
+        if counterfactual_parent.is_some() && idx == transfer_parent {
+            children.retain(|&child| child != transferred_child);
+        }
+        if counterfactual_parent == Some(idx) && !children.contains(&transferred_child) {
+            children.push(transferred_child);
+        }
+
+        let mut parts = Vec::new();
+        for child in children {
+            if let Some(part) = visit(
+                tree,
+                child,
+                sampled_gene_leaves,
+                transfer_parent,
+                transferred_child,
+                counterfactual_parent,
+                seen,
+            )? {
+                parts.push(part);
+            }
+        }
+
+        seen.remove(&idx);
+        match parts.len() {
+            0 => Ok(None),
+            1 => Ok(parts.pop()),
+            _ => {
+                parts.sort();
+                Ok(Some(format!("({})", parts.join(","))))
+            }
+        }
+    }
+
+    visit(
+        gene_tree,
+        gene_tree.root,
+        sampled_gene_leaves,
+        transfer_parent,
+        transferred_child,
+        counterfactual_parent,
+        &mut HashSet::new(),
+    )
+}
+
+fn sampled_gene_leaves(
+    rec_tree: &RecTree,
+    sampled_leaf_names: &[String],
+) -> Result<HashSet<usize>, RustreeError> {
+    let sampled_names: HashSet<&str> = sampled_leaf_names.iter().map(String::as_str).collect();
+    let mut leaves = HashSet::new();
+
+    for (idx, node) in rec_tree.gene_tree.nodes.iter().enumerate() {
+        if node.left_child.is_some() || node.right_child.is_some() {
+            continue;
+        }
+        if rec_tree.event_mapping.get(idx) != Some(&Event::Leaf) {
+            continue;
+        }
+        let Some(species_idx) = rec_tree.node_mapping.get(idx).copied().flatten() else {
+            continue;
+        };
+        let species = rec_tree
+            .species_tree
+            .nodes
+            .get(species_idx)
+            .ok_or_else(|| {
+                RustreeError::Index(format!(
+                    "gene node {} maps to species index {}, but the species tree has {} nodes",
+                    idx,
+                    species_idx,
+                    rec_tree.species_tree.nodes.len()
+                ))
+            })?;
+        if sampled_names.contains(species.name.as_str()) {
+            leaves.insert(idx);
+        }
+    }
+
+    Ok(leaves)
+}
+
+fn descendant_sampled_gene_leaves(
+    gene_tree: &FlatTree,
+    sampled_gene_leaves: &HashSet<usize>,
+) -> Vec<HashSet<usize>> {
+    fn fill(
+        tree: &FlatTree,
+        idx: usize,
+        sampled_gene_leaves: &HashSet<usize>,
+        out: &mut [HashSet<usize>],
+    ) {
+        if sampled_gene_leaves.contains(&idx) {
+            out[idx].insert(idx);
+        }
+        if let Some(left) = tree.nodes[idx].left_child {
+            fill(tree, left, sampled_gene_leaves, out);
+            let child = out[left].clone();
+            out[idx].extend(child);
+        }
+        if let Some(right) = tree.nodes[idx].right_child {
+            fill(tree, right, sampled_gene_leaves, out);
+            let child = out[right].clone();
+            out[idx].extend(child);
+        }
+    }
+
+    let mut out = vec![HashSet::new(); gene_tree.nodes.len()];
+    if !gene_tree.nodes.is_empty() {
+        fill(gene_tree, gene_tree.root, sampled_gene_leaves, &mut out);
+    }
+    out
+}
+
+fn species_lca_for_gene_leaves(
+    rec_tree: &RecTree,
+    gene_leaves: &HashSet<usize>,
+) -> Result<usize, RustreeError> {
+    let mut species_iter = gene_leaves.iter().map(|&gene_idx| {
+        rec_tree
+            .node_mapping
+            .get(gene_idx)
+            .copied()
+            .flatten()
+            .ok_or_else(|| {
+                RustreeError::Tree(format!(
+                    "sampled gene leaf {} has no species mapping",
+                    gene_idx
+                ))
+            })
+    });
+
+    let mut lca = species_iter.next().ok_or_else(|| {
+        RustreeError::Tree("cannot compute LCA of an empty leaf set".to_string())
+    })??;
+
+    for species_idx in species_iter {
+        let species_idx = species_idx?;
+        lca = rec_tree
+            .species_tree
+            .find_lca(lca, species_idx)
+            .map_err(RustreeError::Tree)?;
+    }
+
+    Ok(lca)
+}
+
+fn undefined_induced_transfer(transfer: &RawTransferEvent) -> InducedTransfer {
+    InducedTransfer {
+        time: transfer.time,
+        gene_id: transfer.gene_id,
+        from_species_complete: transfer.from_species,
+        to_species_complete: transfer.to_species,
+        from_species_sampled: None,
+        to_species_sampled: None,
+    }
+}
+
 /// Computes induced transfers with explicit algorithm selection.
 ///
-/// `remove_undetectable` currently affects only `DamienStyle` mode.
+/// `remove_undetectable` affects `DamienStyle` and `InducedTr` modes.
 pub fn induced_transfers_with_algorithm(
     complete_tree: &FlatTree,
     sampled_leaf_names: &[String],
@@ -329,6 +717,38 @@ pub fn induced_transfers_with_algorithm(
             events,
             remove_undetectable,
         ),
+        InducedTransferAlgorithm::InducedTr => Err(RustreeError::Validation(
+            "induced_tr mode requires a complete RecTree gene history; use induced_transfers_with_algorithm_from_rec_tree".to_string(),
+        )),
+    }
+}
+
+/// Computes induced transfers with explicit algorithm selection when the
+/// complete copy-resolved gene history is available.
+pub fn induced_transfers_with_algorithm_from_rec_tree(
+    rec_tree: &RecTree,
+    sampled_leaf_names: &[String],
+    algorithm: InducedTransferAlgorithm,
+    remove_undetectable: bool,
+) -> Result<Vec<InducedTransfer>, RustreeError> {
+    match algorithm {
+        InducedTransferAlgorithm::Projection | InducedTransferAlgorithm::DamienStyle => {
+            let events = rec_tree.dtl_events.as_ref().ok_or_else(|| {
+                RustreeError::Validation(
+                    "DTL events not available for induced transfer computation".to_string(),
+                )
+            })?;
+            induced_transfers_with_algorithm(
+                &rec_tree.species_tree,
+                sampled_leaf_names,
+                events,
+                algorithm,
+                remove_undetectable,
+            )
+        }
+        InducedTransferAlgorithm::InducedTr => {
+            induced_transfers_induced_tr(rec_tree, sampled_leaf_names, remove_undetectable)
+        }
     }
 }
 
@@ -821,17 +1241,186 @@ fn are_direct_edge_in_sampled_tree(tree: &FlatTree, from_idx: usize, to_idx: usi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bd::simulate_bd_tree_bwd;
+    use crate::dtl::{simulate_dtl_batch, DTLEvent};
     use crate::newick::parse_newick;
-    use crate::sampling::extract_induced_subtree_by_names;
+    use crate::node::FlatNode;
+    use crate::sampling::{
+        extract_induced_subtree, extract_induced_subtree_by_names, find_extant_leaf_indices,
+    };
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
     use std::collections::HashSet;
     use std::fs;
     use std::path::Path;
+    use std::sync::Arc;
 
     fn make_tree(newick: &str) -> FlatTree {
         let mut nodes = parse_newick(newick).unwrap();
         let mut tree = nodes.pop().unwrap().to_flat_tree();
         tree.assign_depths();
         tree
+    }
+
+    fn canonical_topology(tree: &FlatTree, idx: usize) -> String {
+        let mut parts = Vec::new();
+        if let Some(left) = tree.nodes[idx].left_child {
+            parts.push(canonical_topology(tree, left));
+        }
+        if let Some(right) = tree.nodes[idx].right_child {
+            parts.push(canonical_topology(tree, right));
+        }
+
+        match parts.len() {
+            0 => tree.nodes[idx].name.clone(),
+            1 => parts.pop().unwrap(),
+            _ => {
+                parts.sort();
+                format!("({})", parts.join(","))
+            }
+        }
+    }
+
+    fn canonical_topology_for_induced_leaves(
+        tree: &FlatTree,
+        leaves: &HashSet<usize>,
+    ) -> Option<String> {
+        let (induced, _) = extract_induced_subtree(tree, leaves)?;
+        Some(canonical_topology(&induced, induced.root))
+    }
+
+    fn canonical_topology_with_graft(
+        tree: &FlatTree,
+        idx: usize,
+        graft_at: usize,
+        graft_subtree: &str,
+    ) -> String {
+        if idx == graft_at {
+            let base = canonical_topology(tree, idx);
+            let mut parts = vec![base, graft_subtree.to_string()];
+            parts.sort();
+            return format!("({})", parts.join(","));
+        }
+
+        let mut parts = Vec::new();
+        if let Some(left) = tree.nodes[idx].left_child {
+            parts.push(canonical_topology_with_graft(
+                tree,
+                left,
+                graft_at,
+                graft_subtree,
+            ));
+        }
+        if let Some(right) = tree.nodes[idx].right_child {
+            parts.push(canonical_topology_with_graft(
+                tree,
+                right,
+                graft_at,
+                graft_subtree,
+            ));
+        }
+
+        match parts.len() {
+            0 => tree.nodes[idx].name.clone(),
+            1 => parts.pop().unwrap(),
+            _ => {
+                parts.sort();
+                format!("({})", parts.join(","))
+            }
+        }
+    }
+
+    fn diagram_commutes_for_transfer(
+        rec_tree: &RecTree,
+        sampled_names: &[String],
+        transfer: &RawTransferEvent,
+    ) -> Result<Option<(String, String)>, RustreeError> {
+        validate_gene_transfer_event(rec_tree, transfer)?;
+        let sampled_gene_leaves = sampled_gene_leaves(rec_tree, sampled_names)?;
+        let descendant_sets =
+            descendant_sampled_gene_leaves(&rec_tree.gene_tree, &sampled_gene_leaves);
+        let b_e = &descendant_sets[transfer.recipient_child];
+        if b_e.is_empty() {
+            return Ok(None);
+        }
+        let y_e: HashSet<usize> = sampled_gene_leaves.difference(b_e).copied().collect();
+        if y_e.is_empty() {
+            return Ok(None);
+        }
+
+        let mut a_e = transfer.gene_id;
+        while descendant_sets[a_e].intersection(&y_e).next().is_none() {
+            let Some(parent) = rec_tree.gene_tree.nodes[a_e].parent else {
+                return Ok(None);
+            };
+            a_e = parent;
+        }
+
+        let right_path =
+            canonical_topology_for_induced_leaves(&rec_tree.gene_tree, &sampled_gene_leaves)
+                .ok_or_else(|| RustreeError::Tree("empty sampled full gene tree".to_string()))?;
+        let transferred_subtree =
+            canonical_topology_for_induced_leaves(&rec_tree.gene_tree, b_e)
+                .ok_or_else(|| RustreeError::Tree("empty transferred subtree".to_string()))?;
+
+        let (base_y_tree, old_to_new) = extract_induced_subtree(&rec_tree.gene_tree, &y_e)
+            .ok_or_else(|| RustreeError::Tree("empty Y_e gene tree".to_string()))?;
+        let mut y_a_iter = descendant_sets[a_e].intersection(&y_e).map(|leaf| {
+            old_to_new[*leaf].ok_or_else(|| {
+                RustreeError::Tree(format!("sampled gene leaf {} collapsed out of G|Y_e", leaf))
+            })
+        });
+        let mut induced_donor = y_a_iter
+            .next()
+            .ok_or_else(|| RustreeError::Tree("empty Y_e(a_e) set".to_string()))??;
+        for mapped_leaf in y_a_iter {
+            induced_donor = base_y_tree
+                .find_lca(induced_donor, mapped_leaf?)
+                .map_err(RustreeError::Tree)?;
+        }
+        let bottom_path = canonical_topology_with_graft(
+            &base_y_tree,
+            base_y_tree.root,
+            induced_donor,
+            &transferred_subtree,
+        );
+
+        Ok(Some((right_path, bottom_path)))
+    }
+
+    fn sampled_species_names_for_test(
+        tree: &FlatTree,
+        tree_idx: usize,
+    ) -> (HashSet<usize>, Vec<String>) {
+        let mut all_leaves: Vec<usize> = find_extant_leaf_indices(tree).into_iter().collect();
+        all_leaves.sort_unstable();
+        let stride = 2 + (tree_idx % 3);
+        let mut keep_indices: HashSet<usize> = all_leaves
+            .iter()
+            .enumerate()
+            .filter(|(pos, _)| (pos + tree_idx) % stride == 0 || (pos + 2 * tree_idx) % 5 == 0)
+            .map(|(_, leaf)| *leaf)
+            .collect();
+
+        for leaf in &all_leaves {
+            if keep_indices.len() >= 2 {
+                break;
+            }
+            keep_indices.insert(*leaf);
+        }
+        if keep_indices.len() == all_leaves.len() {
+            if let Some(last) = all_leaves.last() {
+                keep_indices.remove(last);
+            }
+        }
+
+        let mut sampled_names: Vec<String> = keep_indices
+            .iter()
+            .map(|idx| tree.nodes[*idx].name.clone())
+            .collect();
+        sampled_names.sort();
+
+        (keep_indices, sampled_names)
     }
 
     #[test]
@@ -905,6 +1494,109 @@ mod tests {
     }
 
     #[test]
+    fn test_induced_donor_grafting_diagram_commutes_on_simulated_dtl_histories() {
+        let mut rng = StdRng::seed_from_u64(17);
+        let species_configs = [
+            (5usize, 10.0, 0.0),
+            (6usize, 10.0, 0.0),
+            (7usize, 10.0, 0.1),
+            (8usize, 10.0, 0.1),
+            (9usize, 10.0, 0.2),
+        ];
+        let mut checked_transfers = 0usize;
+        let mut histories_with_eligible_transfer = 0usize;
+
+        for (tree_idx, (n_species, birth_rate, death_rate)) in
+            species_configs.iter().copied().enumerate()
+        {
+            let (mut complete_tree, _) =
+                simulate_bd_tree_bwd(n_species, birth_rate, death_rate, &mut rng).unwrap();
+            complete_tree.nodes[complete_tree.root].length = 0.0;
+            complete_tree.assign_depths();
+            let extant_leaf_indices = find_extant_leaf_indices(&complete_tree);
+            assert_eq!(
+                extant_leaf_indices.len(),
+                n_species,
+                "BD simulation should produce the requested extant species count"
+            );
+
+            let (keep_indices, sampled_names) =
+                sampled_species_names_for_test(&complete_tree, tree_idx);
+            let (sampled_species_tree, old_to_new) =
+                extract_induced_subtree(&complete_tree, &keep_indices).unwrap();
+            assert!(
+                sampled_species_tree.nodes.len() >= keep_indices.len(),
+                "sampled species tree should contain at least the sampled leaves"
+            );
+            assert!(
+                keep_indices.iter().all(|idx| old_to_new[*idx].is_some()),
+                "all sampled species leaves should survive induced-subtree extraction"
+            );
+
+            let (rec_trees, event_lists) = simulate_dtl_batch(
+                &complete_tree,
+                complete_tree.root,
+                0.0,
+                1.0,
+                0.0,
+                None,
+                None,
+                40,
+                true,
+                &mut rng,
+            )
+            .unwrap();
+
+            for (history_idx, (mut rec_tree, events)) in rec_trees
+                .into_iter()
+                .zip(event_lists.into_iter())
+                .enumerate()
+            {
+                rec_tree.dtl_events = Some(events.clone());
+                let transfers =
+                    transfer_events_from_dtl(&events, complete_tree.nodes.len()).unwrap();
+                let mut history_checked = false;
+
+                for transfer in transfers {
+                    let Some((right_path, bottom_path)) =
+                        diagram_commutes_for_transfer(&rec_tree, &sampled_names, &transfer)
+                            .unwrap()
+                    else {
+                        continue;
+                    };
+                    assert_eq!(
+                        right_path,
+                        bottom_path,
+                        "commuting diagram failed for species_tree={} history={} transfer gene_id={} time={} sampled_species={:?}",
+                        tree_idx,
+                        history_idx,
+                        transfer.gene_id,
+                        transfer.time,
+                        sampled_names
+                    );
+                    checked_transfers += 1;
+                    history_checked = true;
+                }
+
+                if history_checked {
+                    histories_with_eligible_transfer += 1;
+                }
+            }
+        }
+
+        assert!(
+            checked_transfers >= 20,
+            "expected many eligible simulated transfers, checked only {}",
+            checked_transfers
+        );
+        assert!(
+            histories_with_eligible_transfer >= 10,
+            "expected many simulated histories with eligible transfers, found only {}",
+            histories_with_eligible_transfer
+        );
+    }
+
+    #[test]
     fn test_induced_transfers_basic() {
         let complete_tree = make_tree("((A:1,B:1)AB:1,(C:1,D:1)CD:1)root:0;");
         let sampled_names: Vec<String> = vec!["A".into(), "C".into()];
@@ -920,6 +1612,7 @@ mod tests {
             to_species: idx("D"),
             donor_child: 1,
             recipient_child: 2,
+            vertical_recipient_parent: None,
         }];
 
         let induced = induced_transfers(&complete_tree, &sampled_names, &events).unwrap();
@@ -1057,6 +1750,7 @@ mod tests {
             to_species: right_x,
             donor_child: 1,
             recipient_child: 2,
+            vertical_recipient_parent: None,
         }];
 
         let induced = induced_transfers(&complete_tree, &sampled_names, &events).unwrap();
@@ -1091,6 +1785,7 @@ mod tests {
             to_species,
             donor_child: 1,
             recipient_child: 2,
+            vertical_recipient_parent: None,
         }];
 
         let err = induced_transfers(&complete_tree, &sampled_names, &events).unwrap_err();
@@ -1098,6 +1793,256 @@ mod tests {
             err,
             RustreeError::Index(msg) if msg.contains("donor species index")
         ));
+    }
+
+    #[test]
+    fn test_induced_tr_uses_sampled_gene_history_not_species_projection() {
+        let complete_tree = make_tree("((A:1,B:1)AB:1,C:2)root:0;");
+        let species_a = complete_tree.find_node_index("A").unwrap();
+        let species_b = complete_tree.find_node_index("B").unwrap();
+        let species_c = complete_tree.find_node_index("C").unwrap();
+        let species_ab = complete_tree.find_node_index("AB").unwrap();
+
+        let gene_tree = FlatTree {
+            nodes: vec![
+                FlatNode {
+                    name: "root_gene".into(),
+                    left_child: Some(1),
+                    right_child: Some(2),
+                    parent: None,
+                    depth: Some(0.0),
+                    length: 0.0,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "A_gene".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(0),
+                    depth: Some(1.0),
+                    length: 1.0,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "transfer_gene".into(),
+                    left_child: Some(3),
+                    right_child: Some(4),
+                    parent: Some(0),
+                    depth: Some(0.5),
+                    length: 0.5,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "B_lost".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(2),
+                    depth: Some(1.0),
+                    length: 0.5,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "C_gene".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(2),
+                    depth: Some(1.0),
+                    length: 0.5,
+                    bd_event: None,
+                },
+            ],
+            root: 0,
+        };
+        let node_mapping = vec![
+            Some(species_ab),
+            Some(species_a),
+            Some(species_b),
+            Some(species_b),
+            Some(species_c),
+        ];
+        let event_mapping = vec![
+            Event::Duplication,
+            Event::Leaf,
+            Event::Transfer,
+            Event::Loss,
+            Event::Leaf,
+        ];
+        let events = vec![DTLEvent::Transfer {
+            time: 0.5,
+            gene_id: 2,
+            species_id: species_b,
+            from_species: species_b,
+            to_species: species_c,
+            donor_child: 3,
+            recipient_child: 4,
+            vertical_recipient_parent: None,
+        }];
+        let rec_tree = RecTree::with_dtl_events(
+            Arc::new(complete_tree.clone()),
+            gene_tree,
+            node_mapping,
+            event_mapping,
+            events,
+        );
+        let sampled_names: Vec<String> = vec!["A".into(), "B".into(), "C".into()];
+
+        let projection = induced_transfers_with_algorithm_from_rec_tree(
+            &rec_tree,
+            &sampled_names,
+            InducedTransferAlgorithm::Projection,
+            false,
+        )
+        .unwrap();
+        assert_eq!(projection[0].from_species_complete, species_b);
+
+        let induced = induced_transfers_with_algorithm_from_rec_tree(
+            &rec_tree,
+            &sampled_names,
+            InducedTransferAlgorithm::InducedTr,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            induced.len(),
+            1,
+            "additive transfers have undefined counterfactual visibility and should be kept"
+        );
+
+        let induced = induced_transfers_with_algorithm_from_rec_tree(
+            &rec_tree,
+            &sampled_names,
+            InducedTransferAlgorithm::InducedTr,
+            false,
+        )
+        .unwrap();
+        assert_eq!(induced.len(), 1);
+        assert_eq!(induced[0].from_species_complete, species_a);
+        assert_eq!(induced[0].to_species_complete, species_c);
+    }
+
+    #[test]
+    fn test_induced_tr_replacement_visibility_discards_unchanged_topology() {
+        let complete_tree = make_tree("((A:1,B:1)AB:1,C:2)root:0;");
+        let species_a = complete_tree.find_node_index("A").unwrap();
+        let species_b = complete_tree.find_node_index("B").unwrap();
+        let species_c = complete_tree.find_node_index("C").unwrap();
+        let species_ab = complete_tree.find_node_index("AB").unwrap();
+
+        let gene_tree = FlatTree {
+            nodes: vec![
+                FlatNode {
+                    name: "root_gene".into(),
+                    left_child: Some(1),
+                    right_child: Some(2),
+                    parent: None,
+                    depth: Some(0.0),
+                    length: 0.0,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "recipient_parent".into(),
+                    left_child: Some(3),
+                    right_child: None,
+                    parent: Some(0),
+                    depth: Some(0.2),
+                    length: 0.2,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "transfer_gene".into(),
+                    left_child: Some(4),
+                    right_child: Some(5),
+                    parent: Some(0),
+                    depth: Some(0.5),
+                    length: 0.5,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "A_gene".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(1),
+                    depth: Some(1.0),
+                    length: 0.8,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "B_lost".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(2),
+                    depth: Some(1.0),
+                    length: 0.5,
+                    bd_event: None,
+                },
+                FlatNode {
+                    name: "C_gene".into(),
+                    left_child: None,
+                    right_child: None,
+                    parent: Some(2),
+                    depth: Some(1.0),
+                    length: 0.5,
+                    bd_event: None,
+                },
+            ],
+            root: 0,
+        };
+        let node_mapping = vec![
+            Some(species_ab),
+            Some(species_a),
+            Some(species_b),
+            Some(species_a),
+            Some(species_b),
+            Some(species_c),
+        ];
+        let event_mapping = vec![
+            Event::Duplication,
+            Event::Loss,
+            Event::Transfer,
+            Event::Leaf,
+            Event::Loss,
+            Event::Leaf,
+        ];
+        let events = vec![DTLEvent::Transfer {
+            time: 0.5,
+            gene_id: 2,
+            species_id: species_b,
+            from_species: species_b,
+            to_species: species_c,
+            donor_child: 4,
+            recipient_child: 5,
+            vertical_recipient_parent: Some(1),
+        }];
+        let rec_tree = RecTree::with_dtl_events(
+            Arc::new(complete_tree),
+            gene_tree,
+            node_mapping,
+            event_mapping,
+            events,
+        );
+        let sampled_names: Vec<String> = vec!["A".into(), "C".into()];
+
+        let kept = induced_transfers_with_algorithm_from_rec_tree(
+            &rec_tree,
+            &sampled_names,
+            InducedTransferAlgorithm::InducedTr,
+            false,
+        )
+        .unwrap();
+        assert_eq!(kept.len(), 1);
+
+        let filtered = induced_transfers_with_algorithm_from_rec_tree(
+            &rec_tree,
+            &sampled_names,
+            InducedTransferAlgorithm::InducedTr,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            filtered.len(),
+            0,
+            "replacement transfers with unchanged counterfactual topology should be discarded"
+        );
     }
 
     #[test]
@@ -1162,6 +2107,7 @@ mod tests {
                 to_species,
                 donor_child: 0,
                 recipient_child: 0,
+                vertical_recipient_parent: None,
             });
         }
 

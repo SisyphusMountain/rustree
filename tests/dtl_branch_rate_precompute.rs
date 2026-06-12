@@ -133,6 +133,7 @@ fn dtl_event_signatures(events: &[DTLEvent]) -> Vec<String> {
                 to_species,
                 donor_child,
                 recipient_child,
+                ..
             } => format!(
                 "T:{}:{gene_id}:{species_id}:{from_species}:{to_species}:{donor_child}:{recipient_child}",
                 time.to_bits()

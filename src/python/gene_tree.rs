@@ -832,7 +832,11 @@ impl PyGeneTree {
         Ok(())
     }
 
-    /// Compute induced transfers by projecting transfers onto a sampled species tree.
+    /// Compute induced transfers on a sampled species tree.
+    ///
+    /// Modes are "projection", "damien", and "induced_tr". The "induced_tr"
+    /// mode uses the complete copy-resolved gene history and DTL transfer child
+    /// nodes, following `simulations/induced_tr.md`.
     #[pyo3(signature = (sampled_leaf_names, mode="projection", remove_undetectable=false))]
     fn compute_induced_transfers(
         &self,
@@ -841,30 +845,15 @@ impl PyGeneTree {
         mode: &str,
         remove_undetectable: bool,
     ) -> PyResult<PyObject> {
-        let events = self.rec_tree.dtl_events.as_ref().ok_or_else(|| {
-            PyValueError::new_err(
-                "DTL events not available. Gene tree must be simulated (not parsed from file).",
-            )
-        })?;
-
         use crate::induced_transfers::{
-            induced_transfers_with_algorithm, InducedTransferAlgorithm,
+            induced_transfers_with_algorithm_from_rec_tree, InducedTransferAlgorithm,
         };
-        let algorithm = match mode.to_ascii_lowercase().as_str() {
-            "projection" => InducedTransferAlgorithm::Projection,
-            "damien" | "damien_style" | "damien-style" => InducedTransferAlgorithm::DamienStyle,
-            other => {
-                return Err(PyValueError::new_err(format!(
-                    "Unknown mode '{}'. Expected 'projection' or 'damien'",
-                    other
-                )))
-            }
-        };
+        let algorithm =
+            InducedTransferAlgorithm::parse_mode(mode).map_err(PyValueError::new_err)?;
 
-        let induced = induced_transfers_with_algorithm(
-            &self.rec_tree.species_tree,
+        let induced = induced_transfers_with_algorithm_from_rec_tree(
+            &self.rec_tree,
             &sampled_leaf_names,
-            events,
             algorithm,
             remove_undetectable,
         )

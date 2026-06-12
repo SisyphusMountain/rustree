@@ -447,16 +447,21 @@ pub(crate) fn simulate_dtl_gillespie_prepared<R: Rng>(
                 if let Some(recipient_species) = recipient {
                     let is_replacement =
                         replacement_transfer.is_some_and(|p| p > 0.0 && rng.gen::<f64>() < p);
-                    if is_replacement {
-                        if let Some(victim) = state.random_gene_in_species(recipient_species, rng) {
+                    let vertical_recipient_parent = if is_replacement {
+                        let victim = state.random_gene_in_species(recipient_species, rng);
+                        if let Some(victim) = victim {
                             state.handle_loss(victim, recipient_species, current_time);
                         }
-                    }
+                        victim
+                    } else {
+                        None
+                    };
                     state.handle_transfer(
                         affected_gene,
                         affected_species,
                         recipient_species,
                         current_time,
+                        vertical_recipient_parent,
                     );
                 }
             } else if lambda_l > 0.0 {
